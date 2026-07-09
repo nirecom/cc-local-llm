@@ -30,8 +30,19 @@ Mechanics and exact values: [tuning.md](tuning.md).
 - **Hybrid (router)** — to send planning to *real* Anthropic Opus while implementation stays
   on ds4, a proxy (claude-code-router) is required. `ANTHROPIC_BASE_URL` is process-global,
   so env vars alone can rewrite the model name but cannot split the destination. The router
-  is an extra always-on service and a critical-path dependency; take it only if ds4's
-  thinking-on quality is judged insufficient for planning.
+  is an extra always-on service and a critical-path dependency. It also **cannot preserve a
+  fixed-price subscription**: Anthropic's 2026-02 legal-and-compliance terms bar OAuth tokens
+  outside official clients, and server-side enforcement (2026-04) blocks OAuth-passthrough
+  proxies (the known tools — LiteLLM header-forwarding, anthropic-max-router, meridian — were
+  non-functional for this as of 2026-04). A
+  router therefore bills the Anthropic leg as **metered API**, not subscription — take it only
+  if metered planning is acceptable and ds4's thinking-on quality is judged insufficient.
+
+Running native (subscription) Claude Code and ds4 side by side on one machine is a *process*
+concern, not a routing one, and does not need a router: a bare `ANTHROPIC_BASE_URL` with a
+credential already replaces the subscription, and VS Code shares one environment across all
+windows of a user-data-dir. The two are kept apart by launching the ds4 window in an isolated
+VS Code process (`--user-data-dir`). Procedure: [ops.md](ops.md#client-windows).
 
 ## Context window is a structural mismatch
 

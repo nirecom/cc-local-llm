@@ -23,6 +23,8 @@ Standard layout (mirrors the agents-repo convention):
 | [docs/history.md](docs/history.md) | Completed work with why — incidents (write storm, sleep freeze) and decisions |
 | [docs/infrastructure.md](docs/infrastructure.md) | SSOT for hosts, network, ports, paths |
 | [scripts/ds4-start.sh](scripts/ds4-start.sh) | Canonical Mac start script |
+| [scripts/claude-ds4.cmd](scripts/claude-ds4.cmd) | Windows client launcher — loads `.env`, sets ds4 env, isolates the VS Code process, launches VS Code |
+| [.env.example](.env.example) | Template for the gitignored `.env` — Windows client `DS4_ANTHROPIC_BASE_URL` (Mac IP) and `DS4_API_KEY` |
 
 ## Quick start
 
@@ -32,8 +34,14 @@ git -C ~/git/ds4 pull                 # update the antirez/ds4 build clone if ne
 ~/git/ds4-ops/scripts/ds4-start.sh
 ```
 
-**Windows (client):** set the env in [docs/ops.md](docs/ops.md#client-windows),
-then run `claude`.
+**Windows (client):** put the Mac's IP in a gitignored `.env` (first time only), then run the
+bundled launcher (loads `.env`, sets the ds4 env, isolates the VS Code process, opens VS Code):
+```bat
+copy .env.example .env
+rem edit .env: DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
+scripts\claude-ds4.cmd .
+```
+See [docs/ops.md](docs/ops.md#client-windows) for details and the terminal alternative.
 
 ## Configuration at a glance
 

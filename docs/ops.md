@@ -24,17 +24,46 @@ kill "$(pgrep -f ds4-server)"
 
 ## Client (Windows)
 
-Set per-session env, then launch Claude Code:
-```powershell
-$env:ANTHROPIC_BASE_URL = "http://<mac-ip>:8000"
-$env:ANTHROPIC_AUTH_TOKEN = "dummy"
-$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "393216"
-$env:CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "75"
-claude
+First time only, create the repo-root `.env` from the template and put the Mac's LAN IP in it
+(the IP is never committed — `.env` is gitignored):
+```bat
+copy .env.example .env
+rem then edit .env: DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
 ```
+Then launch VS Code with the ds4 backend via the bundled wrapper:
+```bat
+scripts\claude-ds4.cmd .
+```
+The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
+the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
+and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=393216` /
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. If `DS4_ANTHROPIC_BASE_URL` is set
+in neither `.env` nor the shell, the wrapper warns and falls back to `localhost` (a placeholder
+that will not reach the Mac). A value set in the shell takes precedence over `.env`. `DS4_API_KEY`
+overrides the auth token; ds4 does not authenticate, so any non-empty value works.
+
+**Isolation from native (subscription) VS Code:** the wrapper passes
+`--user-data-dir "%LOCALAPPDATA%\vscode-ds4"`, starting a *separate* VS Code process. VS Code
+shares one process — and thus one environment — across every window under the same
+user-data-dir, so without this flag the ds4 env bleeds into native subscription windows. The
+separate profile keeps the ds4 session and native `code` / `codes` sessions independent on the
+same machine. Extensions are shared (`--user-data-dir` isolates settings/state, not
+`~/.vscode/extensions`), so the Claude Code extension is already available in the ds4 profile.
+Do not add ds4 env vars to native sessions: a bare `ANTHROPIC_BASE_URL` plus a credential
+replaces the subscription (see
+[architecture.md](architecture.md#two-strategies-chosen-by-whether-real-opus-is-wanted)).
+Caveat: if a ds4 window is already open, close it before changing `DS4_ANTHROPIC_BASE_URL` —
+VS Code reuses the running process for that profile and keeps the old environment.
+
+Terminal alternative (no VS Code): set the same env vars the wrapper does
+(see [scripts/claude-ds4.cmd](../scripts/claude-ds4.cmd) for the full list) and run `claude`.
 
 Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars from
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).
+
+**Verify connectivity:** after launch, run `/context` and confirm CC reports a window near
+393216 (not 200K / 1M). Grow the conversation and confirm auto-compaction fires *before* ds4
+returns `400 context_length_exceeded`.
 
 ## Monitoring (Mac)
 
