@@ -7,12 +7,12 @@ Day-to-day procedures. Parameter rationale is in [tuning.md](tuning.md); hosts/p
 
 ```sh
 mkdir -p ~/Library/Caches/ds4-server/kv     # first time only
-~/git/ds4-ops/scripts/ds4-start.sh
+~/git/ds4-ops/scripts/ds4-server.sh
 ```
 
 Runs in the foreground. For background:
 ```sh
-nohup ~/git/ds4-ops/scripts/ds4-start.sh > ~/ds4-server.log 2>&1 &
+nohup ~/git/ds4-ops/scripts/ds4-server.sh > ~/ds4-server.log 2>&1 &
 ```
 
 Stop:
@@ -32,7 +32,7 @@ rem then edit .env: DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
 ```
 Then launch VS Code with the ds4 backend via the bundled wrapper:
 ```bat
-scripts\claude-ds4.cmd .
+scripts\code-ds4.cmd .
 ```
 The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
@@ -52,11 +52,16 @@ same machine. Extensions are shared (`--user-data-dir` isolates settings/state, 
 Do not add ds4 env vars to native sessions: a bare `ANTHROPIC_BASE_URL` plus a credential
 replaces the subscription (see
 [architecture.md](architecture.md#two-strategies-chosen-by-whether-real-opus-is-wanted)).
-Caveat: if a ds4 window is already open, close it before changing `DS4_ANTHROPIC_BASE_URL` —
-VS Code reuses the running process for that profile and keeps the old environment.
+Caveat: if the ds4 profile is already running, close *all* its windows before changing
+`DS4_ANTHROPIC_BASE_URL` — closing one window is not enough; the process (and its captured
+environment) persists until the last window of the profile closes, and new windows inherit the
+old value. The same folder may be open in the native and ds4 profiles at the same time: the
+"reuse the existing window for this folder" dedup is per-profile, so `codes .` followed by
+`code-ds4.cmd .` on one repo yields two independent windows (native backend + ds4 backend),
+not one activated window.
 
 Terminal alternative (no VS Code): set the same env vars the wrapper does
-(see [scripts/claude-ds4.cmd](../scripts/claude-ds4.cmd) for the full list) and run `claude`.
+(see [scripts/code-ds4.cmd](../scripts/code-ds4.cmd) for the full list) and run `claude`.
 
 Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars from
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).

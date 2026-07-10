@@ -30,5 +30,5 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| Start script | `~/git/ds4-ops/scripts/ds4-start.sh` |
+| Start script | `~/git/ds4-ops/scripts/ds4-server.sh` |
 | KV disk cache | `~/Library/Caches/ds4-server/kv` (persistent, Time Machine-excluded by macOS default) |

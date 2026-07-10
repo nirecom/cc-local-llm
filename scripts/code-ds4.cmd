@@ -24,7 +24,7 @@ rem shell). The default below is a placeholder (localhost) and will not reach th
 if defined DS4_ANTHROPIC_BASE_URL (
     set ANTHROPIC_BASE_URL=%DS4_ANTHROPIC_BASE_URL%
 ) else (
-    echo [claude-ds4] WARNING: DS4_ANTHROPIC_BASE_URL not set; using placeholder default http://localhost:8000 ^(will not reach the Mac ds4 server^).
+    echo [code-ds4] WARNING: DS4_ANTHROPIC_BASE_URL not set; using placeholder default http://localhost:8000 ^(will not reach the Mac ds4 server^).
     set ANTHROPIC_BASE_URL=http://localhost:8000
 )
 
