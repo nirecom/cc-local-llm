@@ -3,6 +3,34 @@
 Day-to-day procedures. Parameter rationale is in [tuning.md](tuning.md); hosts/ports in
 [infrastructure.md](infrastructure.md).
 
+## Run the proxy (Mac)
+
+The proxy is the sole LAN-visible endpoint (TLS termination + prompt normalization + token
+auth); ds4-server itself listens on loopback. Rationale:
+[architecture.md](architecture.md#reverse-proxy-layer).
+
+One-time mkcert setup (issues a locally-trusted TLS cert for the proxy):
+```sh
+brew install mkcert
+mkcert -install                              # install the local CA into the system trust store
+mkdir -p ~/.config/ds4-proxy
+mkcert -cert-file ~/.config/ds4-proxy/cert.pem -key-file ~/.config/ds4-proxy/key.pem localhost <mac-lan-ip>
+```
+
+Add the shared auth token to the server-side `.env` (repo root, gitignored):
+```sh
+# .env: DS4_PROXY_AUTH_TOKEN=<generated-secret>   (generate with /create-key)
+```
+
+Start the proxy (foreground; refuses to start if `DS4_PROXY_AUTH_TOKEN` is unset):
+```sh
+~/git/ds4-ops/scripts/ds4-proxy.sh
+```
+
+Client-side (Windows): set `DS4_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the repo-root
+`.env` so Node trusts the proxy certificate, and set `DS4_API_KEY` to the same value as
+`DS4_PROXY_AUTH_TOKEN`.
+
 ## Run the server (Mac)
 
 ```sh
@@ -28,7 +56,8 @@ First time only, create the repo-root `.env` from the template and put the Mac's
 (the IP is never committed — `.env` is gitignored):
 ```bat
 copy .env.example .env
-rem then edit .env: DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
+rem then edit .env: DS4_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
+rem and DS4_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
 ```
 Then launch VS Code with the ds4 backend via the bundled wrapper:
 ```bat
@@ -36,11 +65,15 @@ scripts\code-ds4.cmd .
 ```
 The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
+`NODE_EXTRA_CA_CERTS` from `DS4_CA_CERT`,
 and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=393216` /
-`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. If `DS4_ANTHROPIC_BASE_URL` is set
-in neither `.env` nor the shell, the wrapper warns and falls back to `localhost` (a placeholder
-that will not reach the Mac). A value set in the shell takes precedence over `.env`. `DS4_API_KEY`
-overrides the auth token; ds4 does not authenticate, so any non-empty value works.
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. The base URL now points at the
+proxy (`https://<mac-ip>:8443`), not ds4 directly. If `DS4_ANTHROPIC_BASE_URL` is set
+in neither `.env` nor the shell, the wrapper warns and falls back to `https://localhost:8443`
+(a placeholder that will not reach the Mac). A value set in the shell takes precedence over
+`.env`. `DS4_API_KEY` overrides the auth token; the proxy verifies it, so it must match
+`DS4_PROXY_AUTH_TOKEN` on the Mac. `DS4_CA_CERT` must point at `<mkcert -CAROOT>/rootCA.pem`
+so Node trusts the proxy certificate (if unset the wrapper warns and TLS will not be trusted).
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
 `--user-data-dir "%LOCALAPPDATA%\vscode-ds4"`, starting a *separate* VS Code process. VS Code

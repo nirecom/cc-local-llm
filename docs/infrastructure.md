@@ -22,8 +22,9 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| Server listen | `0.0.0.0:8000` (LAN, no auth — trusted network only) |
-| Client base URL | `http://<mac-ip>:8000` (fill in the Mac's LAN IP) |
+| Server listen | `127.0.0.1:8000` (loopback only — proxy is the LAN endpoint) |
+| Proxy listen | `0.0.0.0:8443` (HTTPS, TLS terminated, mkcert cert) |
+| Client base URL | `https://<mac-ip>:8443` (fill in the Mac's LAN IP) |
 | Protocols served | `/v1/messages` (Anthropic), `/v1/chat/completions`, `/v1/completions`, `/v1/responses` (OpenAI), `/v1/models` |
 
 ## Paths (Mac)
@@ -31,4 +32,6 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | Item | Value |
 |---|---|
 | Start script | `~/git/ds4-ops/scripts/ds4-server.sh` |
+| Proxy start script | `~/git/ds4-ops/scripts/ds4-proxy.sh` |
+| Proxy TLS cert/key | `~/.config/ds4-proxy/cert.pem` / `key.pem` (mkcert-generated) |
 | KV disk cache | `~/Library/Caches/ds4-server/kv` (persistent, Time Machine-excluded by macOS default) |

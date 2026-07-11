@@ -20,4 +20,4 @@ exec caffeinate -ism ./ds4-server \
   --kv-cache-cold-max-tokens 90000 \
   --kv-cache-continued-interval-tokens 25000 \
   --warm-weights \
-  --host 0.0.0.0
+  --host 127.0.0.1          # proxy (scripts/ds4-proxy.sh) is the LAN endpoint

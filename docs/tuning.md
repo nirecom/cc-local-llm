@@ -16,7 +16,7 @@ incidents that produced these values in [history.md](history.md).
 | `--kv-cache-cold-max-tokens` | `90000` | Largest single cold-save snapshot; big enough to cache a typical CC initial context in one write, below `--ctx`. |
 | `--kv-cache-continued-interval-tokens` | `25000` | **The write-amplification lever.** Each continued checkpoint rewrites the whole live prefix (not a delta), doubled f16→f32. The default 10000 caused a 137 GB write storm; 25000 more than halved the churn. |
 | `--warm-weights` | on | Page in the whole model at startup. RSS ~90.9 GB is expected, not a leak. |
-| `--host 0.0.0.0` | — | LAN-reachable, **no auth**. Trusted network only. |
+| `--host 127.0.0.1` | — | Loopback only; the proxy (scripts/ds4-proxy.sh) is the LAN endpoint. |
 
 ## Memory budget (128 GB)
 
@@ -56,8 +56,8 @@ HIGH + `--quality` is the better trade.
 
 | Var | Value | Why |
 |---|---|---|
-| `ANTHROPIC_BASE_URL` | `http://<mac-ip>:8000` | Route CC to ds4. |
-| `ANTHROPIC_AUTH_TOKEN` | any non-empty | ds4 does not authenticate; a dummy satisfies the client. |
+| `ANTHROPIC_BASE_URL` | `https://<mac-ip>:8443` | Route CC to the ds4 proxy (TLS). |
+| `ANTHROPIC_AUTH_TOKEN` | must match `DS4_PROXY_AUTH_TOKEN` | The proxy now enforces auth; the token must match the proxy's secret. |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `393216` | Tell CC ds4's real ceiling (CC otherwise assumes the model's nominal 200K/1M window and never compacts in time). Keep in sync with `--ctx`. |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | `75` | Compact at ~75% (~245K by CC's count). Absorbs the tokenizer mismatch — ds4/DeepSeek counts more tokens than CC/Claude for the same text, so CC must compact well before its own ceiling to keep ds4's count under 393216. |
 
@@ -75,3 +75,16 @@ Claude Code's alias-resolution vars (they also propagate to sub-agent `model:` f
 Caveat: whether CC accepts a non-Anthropic alias target on a custom endpoint is the one thing
 to verify empirically (grep the ds4 log for `THINKING` per request). If CC rejects it, fall
 back to a router.
+
+## Proxy env vars (Mac)
+
+Read by `scripts/ds4-proxy.sh` (from the repo-root `.env`). Design: [architecture.md](architecture.md#reverse-proxy-layer).
+
+| Var | Value | Why |
+|---|---|---|
+| `DS4_PROXY_PORT` | `8443` (default) | HTTPS listen port. Must match the port in the client's `ANTHROPIC_BASE_URL`. |
+| `DS4_PROXY_UPSTREAM` | `http://127.0.0.1:8000` (default) | The ds4 backend the proxy forwards to. |
+| `DS4_PROXY_AUTH_TOKEN` | required | Token every client request must present; must match the client's `DS4_API_KEY`. The proxy refuses to start if unset. |
+| `DS4_PROXY_CERT` / `DS4_PROXY_KEY` | `~/.config/ds4-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. |
+| `DS4_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. |
+| `DS4_PROXY_LOG_DIR` | `~/Library/Caches/ds4-proxy/log` (default) | Where tee logs are written when `DS4_PROXY_TEE=on`. |
