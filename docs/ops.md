@@ -9,13 +9,16 @@ The proxy is the sole LAN-visible endpoint (TLS termination + prompt normalizati
 auth); ds4-server itself listens on loopback. Rationale:
 [architecture.md](architecture.md#reverse-proxy-layer).
 
-One-time mkcert setup (issues a locally-trusted TLS cert for the proxy):
-```sh
-brew install mkcert
-mkcert -install                              # install the local CA into the system trust store
-mkdir -p ~/.config/ds4-proxy
-mkcert -cert-file ~/.config/ds4-proxy/cert.pem -key-file ~/.config/ds4-proxy/key.pem localhost <mac-lan-ip>
-```
+One-time TLS setup. The proxy's cert must be trusted by the Windows client, so sign it with the
+**same mkcert root CA the client already uses** — do not create a separate root CA on the Mac.
+Sharing one root means the client trusts the proxy by pointing `DS4_CA_CERT` at that existing
+root; nothing new has to be distributed and trusted.
+
+1. On the Windows client, issue a leaf cert/key for the proxy from the existing root CA. The
+   root CA private key never leaves the client.
+2. Copy only the generated cert/key to the Mac as `~/.config/ds4-proxy/cert.pem` and `key.pem`.
+
+Exact mkcert flags and cert locations are environment-specific — see mkcert's own docs.
 
 Add the shared auth token to the server-side `.env` (repo root, gitignored):
 ```sh
