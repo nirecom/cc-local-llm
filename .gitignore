@@ -2,3 +2,5 @@
 *.log
 *.bak
 .env
+
+.migration-state.json
