@@ -95,3 +95,15 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 - **httpx for upstream forwarding** — async, streaming, fits the asyncio model.
 - **`--host 127.0.0.1` for ds4** — once the proxy handles LAN termination, ds4 no longer needs to listen on `0.0.0.0`. The proxy is the sole LAN-visible endpoint.
 - **Tee logging** — optional request/response body logging for debugging; off by default, controlled by env var. Logs are pre- and post-normalization bodies; auth tokens are never written.
+
+### Repository placement — may split out later
+
+`proxy/` currently lives inside ds4-ops rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the client's `DS4_API_KEY`, its listen port must match the client's base URL), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
+
+`proxy/` is nonetheless a self-contained Python package (its own `pyproject.toml` / `uv.lock`), so extraction stays cheap and can preserve history via `git filter-repo`. Split it into its own repository when any of these triggers fires:
+
+1. A second consumer wants the proxy (another backend, or a client other than this ds4 setup).
+2. The proxy needs an independent release / deploy / version lifecycle.
+3. The normalization rules generalise beyond ds4.
+
+Until then it stays here as a deliberate hold, not drift.
