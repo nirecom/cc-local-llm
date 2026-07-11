@@ -16,7 +16,7 @@ exec caffeinate -ism ./ds4-server \
   --quality \
   --ctx 393216 \
   --kv-disk-dir "$HOME/Library/Caches/ds4-server/kv" \
-  --kv-disk-space-mb 32768 \
+  --kv-disk-space-mb 65536 \
   --kv-cache-cold-max-tokens 90000 \
   --kv-cache-continued-interval-tokens 25000 \
   --warm-weights \
