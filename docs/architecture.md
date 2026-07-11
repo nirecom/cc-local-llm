@@ -63,3 +63,47 @@ than push ds4 past its ceiling.
 
 - **MTP / speculative decoding** — upstream calls it experimental with at most a slight speedup.
 - **Distributed inference** — speeds prefill but slows decode and needs a second machine; wrong shape for interactive agent use.
+
+## Reverse proxy layer
+
+A Python asyncio reverse proxy (`proxy/`) sits between Claude Code (HTTPS client) and ds4 (plain HTTP on 127.0.0.1:8000). It serves three goals that cannot be achieved by env-var wiring alone.
+
+### Why TLS termination
+
+`ANTHROPIC_BASE_URL` is the only wiring point between Claude Code and ds4. Without TLS the full conversation — including prompts, tool calls, and model outputs — travels over plain HTTP on the local network. A self-signed mkcert certificate and `NODE_EXTRA_CA_CERTS` give full TLS without `NODE_TLS_REJECT_UNAUTHORIZED=0`. Procedures: [ops.md](ops.md).
+
+### Why prompt normalization
+
+Claude Code injects volatile content into every system prompt: working directory, git status, platform, OS version, shell, auto-memory path, and `<system-reminder>` blocks. This volatile prefix changes on every request and breaks KV cache prefix continuity — the model must re-prefill from scratch each turn. The proxy normalizes four properties before forwarding to ds4:
+
+| Rule | What it does | Why |
+|---|---|---|
+| `move_dynamic_sections` | Removes volatile system-prompt lines and appends them to the first user message | System prompt prefix stays stable; KV cache hits on every subsequent turn |
+| `normalize_date` | Collapses `Today's date is YYYY-MM-DDTHH:MM:SSZ` to `YYYY-MM-DD` | Time component changes every second; bare date is stable for one calendar day |
+| `strip_system_reminders` | Removes `<system-reminder>…</system-reminder>` blocks | Session-scoped injections differ across turns; stripping them stabilises the prefix |
+| `sort_tools` | Sorts the `tools` array by name | Tool order can vary; deterministic order gives the same prompt bytes across requests |
+
+Each rule is a pure function; all four are applied in order via `apply_all()`. The pipeline is transparent for non-`/v1/messages` paths and non-JSON bodies.
+
+### Why token auth
+
+ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only Claude Code with the correct `DS4_API_KEY` can reach ds4. This matters because the proxy is exposed to the LAN via HTTPS rather than `0.0.0.0` plain HTTP; auth prevents use by other devices on the network.
+
+### Design choices
+
+- **Pure asyncio, no framework** — SSE must flow through without buffering (`CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`). Standard `asyncio` gives direct control over chunk relay.
+- **httpx for upstream forwarding** — async, streaming, fits the asyncio model.
+- **`--host 127.0.0.1` for ds4** — once the proxy handles LAN termination, ds4 no longer needs to listen on `0.0.0.0`. The proxy is the sole LAN-visible endpoint.
+- **Tee logging** — optional request/response body logging for debugging; off by default, controlled by env var. Logs are pre- and post-normalization bodies; auth tokens are never written.
+
+### Repository placement — may split out later
+
+`proxy/` currently lives inside ds4-ops rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the client's `DS4_API_KEY`, its listen port must match the client's base URL), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
+
+`proxy/` is nonetheless a self-contained Python package (its own `pyproject.toml` / `uv.lock`), so extraction stays cheap and can preserve history via `git filter-repo`. Split it into its own repository when any of these triggers fires:
+
+1. A second consumer wants the proxy (another backend, or a client other than this ds4 setup).
+2. The proxy needs an independent release / deploy / version lifecycle.
+3. The normalization rules generalise beyond ds4.
+
+Until then it stays here as a deliberate hold, not drift.

@@ -18,22 +18,31 @@ if exist "%DS4_ENV_FILE%" (
 rem Clear any real Anthropic API key so the ds4 server is used instead
 set ANTHROPIC_API_KEY=
 
-rem ds4 server base URL. The real Mac LAN IP is NOT committed (public repo): put
-rem DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000 in the repo-root .env (or set it in the
-rem shell). The default below is a placeholder (localhost) and will not reach the Mac.
+rem ds4 proxy base URL. The real Mac LAN IP is NOT committed (public repo): put
+rem DS4_ANTHROPIC_BASE_URL=https://<mac-lan-ip>:8443 in the repo-root .env (or set it in the
+rem shell). The default below is a placeholder (localhost, proxy port) and will not reach the Mac.
 if defined DS4_ANTHROPIC_BASE_URL (
     set ANTHROPIC_BASE_URL=%DS4_ANTHROPIC_BASE_URL%
 ) else (
-    echo [code-ds4] WARNING: DS4_ANTHROPIC_BASE_URL not set; using placeholder default http://localhost:8000 ^(will not reach the Mac ds4 server^).
-    set ANTHROPIC_BASE_URL=http://localhost:8000
+    echo [code-ds4] WARNING: DS4_ANTHROPIC_BASE_URL not set; using placeholder default https://localhost:8443 ^(will not reach the Mac ds4 proxy^).
+    set ANTHROPIC_BASE_URL=https://localhost:8443
 )
 
-rem ds4 server auth token. ds4 does not authenticate, so any non-empty value works
-rem (override with DS4_API_KEY env var).
+rem ds4 proxy auth token. The proxy verifies this token; set it to the same value as
+rem DS4_PROXY_AUTH_TOKEN on the Mac (override with DS4_API_KEY env var).
 if defined DS4_API_KEY (
     set ANTHROPIC_AUTH_TOKEN=%DS4_API_KEY%
 ) else (
     set ANTHROPIC_AUTH_TOKEN=dsv4-local
+)
+
+rem mkcert local CA root so Node trusts the proxy TLS certificate. Set DS4_CA_CERT to
+rem the path printed by "mkcert -CAROOT"/rootCA.pem. NODE_TLS_REJECT_UNAUTHORIZED=0 is
+rem NOT used.
+if defined DS4_CA_CERT (
+    set NODE_EXTRA_CA_CERTS=%DS4_CA_CERT%
+) else (
+    echo [code-ds4] WARNING: DS4_CA_CERT not set; TLS certificate will not be trusted.
 )
 
 set ANTHROPIC_MODEL=deepseek-v4-flash
