@@ -151,6 +151,10 @@ async def _handle(
         except httpx.RequestError:
             _send_error(writer, 502, "Bad Gateway")
             await writer.drain()
+    except (OSError, ssl.SSLError, asyncio.IncompleteReadError):
+        # Peer reset/closed the connection (e.g. mid-handshake or mid-body);
+        # nothing to respond to.
+        pass
     finally:
         writer.close()
 
