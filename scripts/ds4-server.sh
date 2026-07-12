@@ -6,9 +6,8 @@
 #   OMITTED so the display can still turn off (screen burn-in protection);
 #   the assertion is tied to this script's child process, not the display.
 #
-# stdout/stderr (including ds4's own kv-cache hit/evict log lines) are
-# persisted to LOG_DIR/kvcache.log instead of only living in the terminal
-# scrollback.
+# stdout/stderr (including ds4's own kv-cache hit/evict log lines) are teed to
+# LOG_DIR/kvcache.log so they are both visible live and persisted.
 #
 # See ../docs/server-mac.md for the rationale behind every flag and value.
 set -eu
@@ -19,7 +18,7 @@ LOG_DIR="$HOME/Library/Logs/ds4-server"
 mkdir -p "$LOG_DIR"
 
 # proxy (scripts/ds4-proxy.sh) is the LAN endpoint
-exec caffeinate -ism ./ds4-server \
+caffeinate -ism ./ds4-server \
   --metal \
   --quality \
   --ctx 393216 \
@@ -29,4 +28,4 @@ exec caffeinate -ism ./ds4-server \
   --kv-cache-continued-interval-tokens 25000 \
   --warm-weights \
   --host 127.0.0.1 \
-  >> "$LOG_DIR/kvcache.log" 2>&1
+  2>&1 | tee -a "$LOG_DIR/kvcache.log"
