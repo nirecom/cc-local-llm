@@ -19,6 +19,10 @@ from proxy.config import load_config
 from proxy.tee import TeeLogger
 
 MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB; return 413 if exceeded
+WRITE_TIMEOUT = 60.0  # seconds; bounds writer.drain() so a stalled client
+# connection (dead network, sleep, etc.) can't hang a handler task forever.
+# The upstream httpx client is deliberately timeout=None (LLM generations can
+# legitimately run for many minutes) — this bounds only the client-facing side.
 
 
 def _get_header(headers: dict, name: str) -> str | None:
@@ -73,6 +77,11 @@ def _build_upstream_headers(req_headers: dict, body: bytes) -> dict:
     return result
 
 
+async def _drain(writer: asyncio.StreamWriter) -> None:
+    """Flush ``writer`` with a bound, so a stalled peer can't hang forever."""
+    await asyncio.wait_for(writer.drain(), timeout=WRITE_TIMEOUT)
+
+
 def _send_error(writer: asyncio.StreamWriter, status: int, phrase: str) -> None:
     """Write a bodyless HTTP/1.1 error response with Connection: close."""
     response = (
@@ -102,7 +111,7 @@ async def _handle(
         # upstream work.
         if not auth.verify_auth(req_headers, config.auth_token):
             _send_error(writer, 401, "Unauthorized")
-            await writer.drain()
+            await _drain(writer)
             return
 
         # Reject oversize bodies up front when the client advertises the size.
@@ -111,7 +120,7 @@ async def _handle(
             try:
                 if int(content_length) > MAX_BODY_BYTES:
                     _send_error(writer, 413, "Content Too Large")
-                    await writer.drain()
+                    await _drain(writer)
                     return
             except ValueError:
                 pass
@@ -121,7 +130,7 @@ async def _handle(
         # Guard against a lying/absent Content-Length (e.g. chunked bodies).
         if len(body) > MAX_BODY_BYTES:
             _send_error(writer, 413, "Content Too Large")
-            await writer.drain()
+            await _drain(writer)
             return
 
         if method == "POST" and path == "/v1/messages":
@@ -144,16 +153,16 @@ async def _handle(
                 ):
                     writer.write(f"{name}: {value}\r\n".encode("latin-1"))
                 writer.write(b"\r\n")
-                await writer.drain()
+                await _drain(writer)
                 async for chunk in resp.aiter_raw():
                     writer.write(chunk)
-                    await writer.drain()
+                    await _drain(writer)
         except httpx.RequestError:
             _send_error(writer, 502, "Bad Gateway")
-            await writer.drain()
-    except (OSError, ssl.SSLError, asyncio.IncompleteReadError):
-        # Peer reset/closed the connection (e.g. mid-handshake or mid-body);
-        # nothing to respond to.
+            await _drain(writer)
+    except (OSError, ssl.SSLError, asyncio.IncompleteReadError, TimeoutError):
+        # Peer reset/closed the connection, or stopped reading and a write
+        # timed out (WRITE_TIMEOUT); nothing more to respond to.
         pass
     finally:
         writer.close()
