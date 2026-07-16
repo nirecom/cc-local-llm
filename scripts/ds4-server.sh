@@ -12,6 +12,11 @@
 # See ../docs/server-mac.md for the rationale behind every flag and value.
 set -eu
 
+# Load .env from the repo root (gitignored).
+DOTENV_FILE="$HOME/git/ds4-ops/.env"
+# shellcheck source=scripts/lib/load-dotenv.sh
+. "$(dirname "$0")/lib/load-dotenv.sh"
+
 cd "$HOME/git/ds4"          # antirez/ds4 build clone (ds4flash.gguf lives here)
 
 LOG_DIR="$HOME/Library/Logs/ds4-server"
