@@ -17,7 +17,11 @@ cd "$HOME/git/ds4"          # antirez/ds4 build clone (ds4flash.gguf lives here)
 LOG_DIR="$HOME/Library/Logs/ds4-server"
 mkdir -p "$LOG_DIR"
 
-# proxy (scripts/ds4-proxy.sh) is the LAN endpoint
+# DS4_SERVER_HOST overrides the bind address (default: 127.0.0.1).
+# Set to 0.0.0.0 (or a specific LAN IP) for temporary A/B testing vs proxy.
+# Revert to 127.0.0.1 after testing — the raw server has no auth.
+HOST="${DS4_SERVER_HOST:-127.0.0.1}"
+
 caffeinate -ism ./ds4-server \
   --metal \
   --quality \
@@ -27,5 +31,5 @@ caffeinate -ism ./ds4-server \
   --kv-cache-cold-max-tokens 90000 \
   --kv-cache-continued-interval-tokens 25000 \
   --warm-weights \
-  --host 127.0.0.1 \
+  --host "$HOST" \
   2>&1 | tee -a "$LOG_DIR/kvcache.log"
