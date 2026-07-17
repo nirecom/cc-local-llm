@@ -22,16 +22,17 @@ Standard layout (mirrors the agents-repo convention):
 | [docs/ops.md](docs/ops.md) | How — run the server/client, monitoring, recovery |
 | [docs/history.md](docs/history.md) | Completed work with why — incidents (write storm, sleep freeze) and decisions |
 | [docs/infrastructure.md](docs/infrastructure.md) | SSOT for hosts, network, ports, paths |
-| [scripts/ds4-server.sh](scripts/ds4-server.sh) | Canonical Mac start script |
+| [scripts/ds4ctl.sh](scripts/ds4ctl.sh) | Unified Mac control command — `start\|stop\|restart\|status\|logs\|install\|uninstall [proxy\|server\|all]` |
+| [scripts/ds4-server.sh](scripts/ds4-server.sh) | Foreground launcher for ds4-server (thin wrapper; used by launchd) |
 | [scripts/code-ds4.cmd](scripts/code-ds4.cmd) | Windows client launcher — loads `.env`, sets ds4 env, isolates the VS Code process, launches VS Code |
 | [.env.example](.env.example) | Template for the gitignored `.env` — Windows client `DS4_ANTHROPIC_BASE_URL` (Mac IP) and `DS4_API_KEY` |
 
 ## Quick start
 
-**Mac (server):**
+**Mac (server + proxy):**
 ```sh
 git -C ~/git/ds4 pull                 # update the antirez/ds4 build clone if needed
-~/git/ds4-ops/scripts/ds4-server.sh
+~/git/ds4-ops/scripts/ds4ctl.sh start all   # background; or 'install all' for auto-start at login
 ```
 
 **Windows (client):** put the Mac's IP in a gitignored `.env` (first time only), then run the

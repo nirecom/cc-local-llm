@@ -25,7 +25,12 @@ Add the shared auth token to the server-side `.env` (repo root, gitignored):
 # .env: DS4_PROXY_AUTH_TOKEN=<generated-secret>   (generate with /create-key)
 ```
 
-Start the proxy (foreground; refuses to start if `DS4_PROXY_AUTH_TOKEN` is unset):
+Start the proxy in the background:
+```sh
+~/git/ds4-ops/scripts/ds4ctl.sh start proxy
+```
+
+Or foreground (for debugging):
 ```sh
 ~/git/ds4-ops/scripts/ds4-proxy.sh
 ```
@@ -38,20 +43,88 @@ Client-side (Windows): set `DS4_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the
 
 ```sh
 mkdir -p ~/Library/Caches/ds4-server/kv     # first time only
-~/git/ds4-ops/scripts/ds4-server.sh
+~/git/ds4-ops/scripts/ds4ctl.sh start server
 ```
 
-Runs in the foreground. For background:
+For foreground (debugging):
 ```sh
-nohup ~/git/ds4-ops/scripts/ds4-server.sh > ~/ds4-server.log 2>&1 &
+~/git/ds4-ops/scripts/ds4-server.sh
 ```
 
 Stop:
 ```sh
-kill "$(pgrep -f ds4-server)"
+~/git/ds4-ops/scripts/ds4ctl.sh stop server
 ```
 
+Note: if the service is launchd-managed (auto-start installed), `stop` exits with an error
+and guides you to use `ds4ctl uninstall server` instead.
+
 `caffeinate` is baked into the script and exits with the server; no separate step.
+
+## Unified control (Mac)
+
+```sh
+~/git/ds4-ops/scripts/ds4ctl.sh start all      # start both services
+~/git/ds4-ops/scripts/ds4ctl.sh stop all       # stop both
+~/git/ds4-ops/scripts/ds4ctl.sh restart all    # restart both
+~/git/ds4-ops/scripts/ds4ctl.sh status all     # show status
+~/git/ds4-ops/scripts/ds4ctl.sh logs server    # tail ds4-server log (color in TTY)
+~/git/ds4-ops/scripts/ds4ctl.sh logs proxy     # tail ds4-proxy log
+~/git/ds4-ops/scripts/ds4ctl.sh logs all       # tail both logs
+```
+
+Targets: `proxy`, `server`, `all` (default when omitted).
+
+## Automatic startup (launchd)
+
+Install both services as LaunchAgents (start at login, restart on crash):
+```sh
+~/git/ds4-ops/scripts/ds4ctl.sh install all
+```
+
+Uninstall (stops the service and removes auto-start):
+```sh
+~/git/ds4-ops/scripts/ds4ctl.sh uninstall all
+```
+
+Plist locations and labels:
+- `~/Library/LaunchAgents/com.nire.ds4-proxy.plist` (`com.nire.ds4-proxy`)
+- `~/Library/LaunchAgents/com.nire.ds4-server.plist` (`com.nire.ds4-server`)
+
+KeepAlive=true means launchd restarts the service automatically on crash.
+
+**DS4_LOG change requires reinstall**: the log paths are baked into the plist at install time.
+After changing `DS4_LOG` in `.env`, run `ds4ctl install all` to regenerate the plist.
+
+**Stopping a launchd-managed service**: `ds4ctl stop` will refuse with an error when the
+service is launchd-managed (KeepAlive would restart it immediately anyway). Use
+`ds4ctl uninstall <svc>` to stop and disable auto-start. To restart a launchd-managed
+service: `ds4ctl uninstall <svc>` then `ds4ctl install <svc>`.
+
+**start vs stop asymmetry**: when launchd manages a service, `ds4ctl start` is a silent
+no-op (informational — launchd's KeepAlive is already running it), while `ds4ctl stop`
+returns an error (stopping would be immediately undone by KeepAlive, so the command refuses
+to create that confusion). This asymmetry is intentional.
+
+## Log control
+
+Three independent toggles control different log streams:
+
+| Toggle | Controls | off effect |
+|---|---|---|
+| `DS4_LOG` | Service stdout/stderr → `proxy.log` / `kvcache.log` | No disk write for these logs |
+| `DS4_PROXY_TEE` | Proxy body-dump debug logs (`DS4_PROXY_LOG_DIR`) | No body-dump disk write |
+| `DS4_SERVER_COLOR_LOG` | ANSI color in terminal output for ds4-server | Plain text in terminal |
+
+`DS4_LOG=off` stops only the stdout/stderr log files. If `DS4_PROXY_TEE=on`, the proxy
+still writes body-dump logs to `DS4_PROXY_LOG_DIR` — they are independent.
+
+Log file paths: `~/Library/Logs/ds4-proxy/proxy.log` and `~/Library/Logs/ds4-server/kvcache.log`.
+
+For color-highlighted live log viewing:
+```sh
+~/git/ds4-ops/scripts/ds4ctl.sh logs server   # TTY: color; pipe/file: plain
+```
 
 ## Client (Windows)
 
