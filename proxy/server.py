@@ -34,6 +34,16 @@ def _get_header(headers: dict, name: str) -> str | None:
     return None
 
 
+def _is_v1_messages_post(method: str, path: str) -> bool:
+    """Return True for a POST to /v1/messages, ignoring any query string.
+
+    Only the query string is stripped (path.partition("?")[0]); no urlsplit
+    normalization and no trailing-slash tolerance, so "/v1/messages/" and
+    "/v1/messages/count_tokens" deliberately do NOT match.
+    """
+    return method == "POST" and path.partition("?")[0] == "/v1/messages"
+
+
 async def _read_request_head(
     reader: asyncio.StreamReader,
 ) -> tuple[str, str, str, dict]:
@@ -133,7 +143,7 @@ async def _handle(
             await _drain(writer)
             return
 
-        if method == "POST" and path == "/v1/messages":
+        if _is_v1_messages_post(method, path):
             body = _normalize_body(body, tee)
 
         upstream_url = config.upstream.rstrip("/") + path
