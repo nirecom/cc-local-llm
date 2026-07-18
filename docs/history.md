@@ -68,3 +68,7 @@ Changes: Brought the Windows client launcher under repo management as `scripts/c
 ### FEATURE: PR #14 — feature/ds4-proxy (2026-07-11, 7d05d0536434ddd1c584c5b50fbfcc937d350e24, #14)
 Background: feat(proxy): add ds4 reverse proxy with TLS termination, prompt normalization, and token auth
 Changes: Implement ds4 reverse proxy (proxy/) using Python asyncio + httpx: TLS termination, token auth (hmac.compare_digest), and a four-rule prompt normalization pipeline (move dynamic sections, normalize date, strip system-reminders, sort tools) implemented as pure functions. Bind ds4 server to 127.0.0.1 and switch client URL to https, eliminating plaintext LAN traffic. 118 tests. (#13) <!-- compose-doc-append-sentinel: branch=feature/ds4-proxy pr=#14 -->
+
+### FEATURE: PR #19 — feature/ds4ctl-launchd-logging (2026-07-18, e957a6d)
+Background: Production-readiness for ds4 service management: unified control, launchd auto-start, log control, Ctrl-C fix (#18)
+Changes: Unified ds4ctl.sh control command (start/stop/restart/status/logs/install/uninstall [proxy|server|all]); launchd LaunchAgent auto-start with KeepAlive=true for both services; DS4_LOG on/off toggle for stdout/stderr file logging (prevents disk write storms); DS4_SERVER_COLOR_LOG for ANSI terminal color on ds4-server output (files stay raw); proxy/server.py Ctrl-C traceback suppression; modular lib/ split (paths/colorize/lifecycle/launchd); existing ds4-proxy.sh/ds4-server.sh shrunk to thin backward-compatible wrappers. <!-- compose-doc-append-sentinel: branch=feature/ds4ctl-launchd-logging pr=#19 -->
