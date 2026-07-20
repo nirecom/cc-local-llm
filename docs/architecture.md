@@ -107,3 +107,67 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 3. The normalization rules generalise beyond ds4.
 
 Until then it stays here as a deliberate hold, not drift.
+
+## LiteLLM routing layer (Windows)
+
+A LiteLLM proxy on <windows-host> (Windows, Docker Desktop WSL2) routes Claude Code requests
+by model name to three backends:
+
+| Tier | Model name (routing key) | Backend | Protocol conversion |
+|------|--------------------------|---------|---------------------|
+| Haiku | `devstral-small-24b` | Devstral-Small-2-24B-Instruct via llama-swap (<windows-host>, :18080) | Anthropic to OpenAI |
+| Sonnet | `qwen3-coder-next` | Qwen3-Coder-Next-Q4_K_M via llama-swap (<windows-host>, :18080) | Anthropic to OpenAI |
+| Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+
+### Why LiteLLM and not a custom router
+
+LiteLLM is an established open-source proxy that supports Anthropic-to-OpenAI conversion
+natively. Building a custom router would duplicate its model routing, virtual key auth,
+and protocol translation -- a net cost with no benefit given LiteLLM's maturity.
+
+### TLS termination
+
+LiteLLM listens on HTTPS with an mkcert-signed certificate, sharing the same root CA
+already used by the DS4 Proxy. The Windows client trusts it via `NODE_EXTRA_CA_CERTS`
+pointing at `<mkcert -CAROOT>/rootCA.pem` (same `DS4_CA_CERT` value). No new CA setup
+is needed.
+
+### CA cert trust for Opus route (container to <mac-host>)
+
+The LiteLLM container connects to the DS4 Proxy (<mac-host>:8443) over HTTPS for Opus requests.
+Inside the container, the mkcert root CA is mounted and appended to the system CA bundle
+at startup (via the compose file's entrypoint). This ensures LiteLLM can verify the DS4
+Proxy's TLS certificate. The same root CA file used for the Windows client (`DS4_CA_CERT`)
+is reused -- no separate CA setup.
+
+### Virtual key authentication
+
+LiteLLM uses virtual_key authentication. The `LITELLM_MASTER_KEY` is used for the admin
+API and virtual key generation -- it is NEVER exposed to the client. A one-time setup
+step (`scripts/setup-litellm.cmd`) creates a scoped virtual key from a randomly-generated
+key (NOT the master key). Claude Code presents the virtual key as `ANTHROPIC_AUTH_TOKEN`
+to authenticate with LiteLLM. The DS4 Proxy's own token auth is preserved for the Opus
+route: LiteLLM forwards `LITELLM_DS4_API_KEY` as the `x-api-key` header to the DS4 Proxy.
+
+### Database for virtual key persistence
+
+LiteLLM requires a database backend for key generation and verification. The compose file
+configures SQLite (`DATABASE_URL=sqlite:///app/litellm/data/litellm.db`) with a named
+volume for persistence across restarts. For production deployments, PostgreSQL should be
+used instead (set `LITELLM_DB_URL` to a PostgreSQL connection string).
+
+### Host.docker.internal usage (llama-swap only)
+
+Docker Desktop runs containers in a WSL2 Linux VM. `localhost` inside the container refers
+to the container itself, not the Windows host. Docker Desktop provides the DNS name
+`host.docker.internal` to reach the Windows host. The LiteLLM config and launcher use
+`host.docker.internal` ONLY for the llama-swap endpoint (which runs on <windows-host>
+Windows). The DS4 Proxy endpoint uses <mac-host>'s LAN IP (<mac-lan-ip>:8443) directly --
+`host.docker.internal` would resolve to <windows-host>, not <mac-host>, so it is NOT used for the
+Opus route.
+
+### Two strategies update
+
+The LiteLLM router is the implementation for the "Hybrid (router)" strategy, but with
+the caveat that it does not preserve an Anthropic subscription (the Opus leg goes to
+self-hosted DS4, not real Opus).
