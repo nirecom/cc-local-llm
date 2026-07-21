@@ -4,3 +4,12 @@
 .env
 
 .migration-state.json
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local Claude Code / worktree state
+.claude/
+.worktree-backup/

@@ -39,6 +39,150 @@ Client-side (Windows): set `DS4_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the
 `.env` so Node trusts the proxy certificate, and set `DS4_API_KEY` to the same value as
 `DS4_PROXY_AUTH_TOKEN`.
 
+## LiteLLM (Windows, Docker Desktop WSL2)
+
+### TLS setup (one-time)
+
+The LiteLLM proxy needs an mkcert leaf cert/key. Use the same root CA as the DS4 Proxy
+so the client trusts both endpoints with one `DS4_CA_CERT`:
+
+```bat
+mkcert localhost 127.0.0.1 ::1 <windows-host>
+rem Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
+rem (e.g., C:\Users\<user>\.config\litellm\)
+```
+
+### CA cert setup (one-time)
+
+The LiteLLM container needs to trust the DS4 Proxy's TLS certificate for the Opus route.
+Set `LITELLM_CA_CERT_FILE` in `.env` to the path of the mkcert root CA `.pem` file:
+
+```bat
+rem Get the path from mkcert -CAROOT, then append /rootCA.pem
+rem e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
+```
+
+This is the same root CA file used for `DS4_CA_CERT`. The compose file mounts it into
+the container and the entrypoint installs it into the system trust store.
+
+### Initial setup (one-time)
+
+1. Generate a master key and set it in `.env`:
+   ```bat
+   openssl rand -hex 32
+   rem Set LITELLM_MASTER_KEY=sk-<output> in .env
+   ```
+
+2. Generate a TLS cert and set LITELLM_TLS_DIR in `.env` to point at the cert directory:
+   ```bat
+   mkcert localhost 127.0.0.1 ::1 <windows-host>
+   rem Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
+   ```
+
+3. Set the CA cert path in `.env`:
+   ```bat
+   rem Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
+   ```
+
+4. Start the LiteLLM container:
+   ```bat
+   scripts\litellm-start.cmd up
+   ```
+
+5. Wait a few seconds for the SQLite database tables to be created, then generate a
+   scoped virtual key for client auth:
+   ```bat
+   scripts\setup-litellm.cmd
+   rem Copy the returned key into .env as LITELLM_VIRTUAL_KEY
+   ```
+
+6. Restart the container so it picks up the new env vars:
+   ```bat
+   scripts\litellm-start.cmd restart
+   ```
+
+### Start LiteLLM
+
+```bat
+scripts\litellm-start.cmd up
+```
+
+This starts the container via `docker compose up -d`. The container listens on
+`LITELLM_PORT` (default 8445) with TLS.
+
+### Stop LiteLLM
+
+```bat
+scripts\litellm-start.cmd down
+```
+
+### Verify LiteLLM is running
+
+```bat
+scripts\litellm-start.cmd status
+```
+
+Or check the health endpoint directly:
+```bat
+curl -k https://localhost:8445/health/
+```
+
+### Verify routing
+
+Send a test request to confirm each tier routes correctly. Use the **Anthropic
+/v1/messages** endpoint (the format Claude Code sends) to verify LiteLLM's
+Anthropic-to-OpenAI conversion works end-to-end:
+
+```bat
+rem Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap)
+curl -k -X POST https://localhost:8445/v1/messages ^
+  -H "Content-Type: application/json" ^
+  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
+  -H "anthropic-version: 2023-06-01" ^
+  -d "{\"model\":\"devstral-small-24b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+
+rem Opus tier (Anthropic format -- passthrough to DS4 Proxy)
+curl -k -X POST https://localhost:8445/v1/messages ^
+  -H "Content-Type: application/json" ^
+  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
+  -H "anthropic-version: 2023-06-01" ^
+  -d "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+```
+
+Note: Use the virtual key, NOT the master key. The `/v1/messages` endpoint confirms
+LiteLLM receives Anthropic-format requests and converts Haiku/Sonnet to OpenAI for
+llama-swap.
+
+### Client (Windows) with LiteLLM
+
+First time only, ensure the repo-root `.env` has the LiteLLM vars filled in. The
+`code-ds4.cmd` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `DS4_ANTHROPIC_BASE_URL`.
+
+Set in `.env`:
+```bat
+LITELLM_ANTHROPIC_BASE_URL=https://<windows-host>:8445
+LITELLM_VIRTUAL_KEY=sk-<generated-token>
+```
+
+Then launch as before:
+```bat
+scripts\code-ds4.cmd .
+```
+
+### Recovery
+
+| Symptom | Action |
+|---------|--------|
+| LiteLLM container not running | `litellm-start.cmd up`; check Docker Desktop is running |
+| `Connection refused` on :8445 | Verify container status; check port mapping |
+| llama-swap returns errors | Verify llama-swap is running on <windows-host> (`http://localhost:18080`) |
+| DS4 Proxy unreachable | Verify <mac-host> Mac is reachable (<mac-lan-ip>); check DS4 Proxy status |
+| TLS errors | Verify cert/key files exist in `LITELLM_TLS_DIR` and are mkcert-signed |
+| TLS errors on Opus route | Verify `LITELLM_CA_CERT_FILE` points to the mkcert root CA and the file is mounted correctly |
+| `401 Unauthorized` from LiteLLM | Verify `LITELLM_VIRTUAL_KEY` is set in `.env` and matches the generated key |
+| `/key/generate` fails | Verify `DATABASE_URL` is set (SQLite configured in compose); wait for database initialisation |
+| Keys lost after restart | Verify `litellm-data` volume persists; check `docker volume ls` for the named volume |
+
 ## Run the server (Mac)
 
 ```sh

@@ -1,0 +1,72 @@
+version: "3.9"
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: ds4-litellm
+    ports:
+      - "${LITELLM_PORT:-8445}:${LITELLM_PORT:-8445}"
+    volumes:
+      # Mount the config file directory from the Windows filesystem into the container.
+      - type: bind
+        source: ${LITELLM_CONFIG_DIR:-C:\git\ds4-ops\litellm}
+        target: /app/litellm
+        read_only: true
+      # Mount the TLS cert/key directory. LITELLM_TLS_DIR is REQUIRED -- no default.
+      # The user MUST set this env var in .env. Inside the container, cert.pem and
+      # key.pem are expected at /app/certs/cert.pem and /app/certs/key.pem.
+      - type: bind
+        source: ${LITELLM_TLS_DIR}
+        target: /app/certs
+        read_only: true
+      # Mount the mkcert root CA so the container trusts the DS4 Proxy TLS cert.
+      # Required for the Opus route (LiteLLM connects to <mac-host>:8443 over HTTPS).
+      - type: bind
+        source: ${LITELLM_CA_CERT_FILE}
+        target: /usr/local/share/ca-certificates/rootCA.crt
+        read_only: true
+      # Persistent volume for LiteLLM's SQLite database (virtual keys, model config).
+      # Without this, /key/generate fails and keys are lost on container restart.
+      - type: volume
+        source: litellm-data
+        target: /app/litellm/data
+    environment:
+      # Pass through all LITELLM_* env vars so config.yaml resolves them via os.environ/
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-devstral-small-24b}
+      LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen3-coder-next}
+      LITELLM_OPUS_MODEL: ${LITELLM_OPUS_MODEL:-deepseek-v4-flash}
+      LITELLM_LLAMA_SWAP_URL: ${LITELLM_LLAMA_SWAP_URL:-http://host.docker.internal:18080/v1}
+      LITELLM_DS4_URL: ${LITELLM_DS4_URL:-https://<mac-lan-ip>:8443}
+      LITELLM_DS4_API_KEY: ${LITELLM_DS4_API_KEY:-dsv4-local}
+      # Database URL for virtual key persistence. SQLite by default (no external deps).
+      # For production, override to PostgreSQL: LITELLM_DB_URL=postgres://...
+      DATABASE_URL: ${LITELLM_DB_URL:-sqlite:///app/litellm/data/litellm.db}
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - "cat /usr/local/share/ca-certificates/rootCA.crt >> /etc/ssl/certs/ca-certificates.crt 2>/dev/null; exec litellm \"$@\""
+      - "--"
+    command:
+      - "--config=/app/litellm/config.yaml"
+      - "--port=${LITELLM_PORT:-8445}"
+      - "--ssl_certfile_path=/app/certs/cert.pem"
+      - "--ssl_keyfile_path=/app/certs/key.pem"
+      - "--detailed-logging"
+    healthcheck:
+      # Use HTTPS because the service listens on TLS. wget --no-check-certificate
+      # avoids cert verification issues inside the container (self-signed mkcert).
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:${LITELLM_PORT:-8445}/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    extra_hosts:
+      # Allow the container to reach the Windows host via host.docker.internal
+      # for llama-swap access. The DS4 Proxy on <mac-host> is reached via LAN IP directly.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  litellm-data:
+    # Named volume for SQLite database persistence. Survives container restarts.
