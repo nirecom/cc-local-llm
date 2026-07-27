@@ -1,9 +1,10 @@
-version: "3.9"
-
 services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: ds4-litellm
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${LITELLM_PORT:-8445}:${LITELLM_PORT:-8445}"
     volumes:
@@ -25,11 +26,6 @@ services:
         source: ${LITELLM_CA_CERT_FILE}
         target: /usr/local/share/ca-certificates/rootCA.crt
         read_only: true
-      # Persistent volume for LiteLLM's SQLite database (virtual keys, model config).
-      # Without this, /key/generate fails and keys are lost on container restart.
-      - type: volume
-        source: litellm-data
-        target: /app/litellm/data
     environment:
       # Pass through all LITELLM_* env vars so config.yaml resolves them via os.environ/
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
@@ -39,9 +35,9 @@ services:
       LITELLM_LLAMA_SWAP_URL: ${LITELLM_LLAMA_SWAP_URL:-http://host.docker.internal:18080/v1}
       LITELLM_DS4_URL: ${LITELLM_DS4_URL:-https://<mac-lan-ip>:8443}
       LITELLM_DS4_API_KEY: ${LITELLM_DS4_API_KEY:-dsv4-local}
-      # Database URL for virtual key persistence. SQLite by default (no external deps).
-      # For production, override to PostgreSQL: LITELLM_DB_URL=postgres://...
-      DATABASE_URL: ${LITELLM_DB_URL:-sqlite:///app/litellm/data/litellm.db}
+      # PostgreSQL connection string for virtual key persistence.
+      # LiteLLM main-latest requires PostgreSQL; SQLite is no longer supported.
+      DATABASE_URL: ${LITELLM_DB_URL:-postgresql://litellm:litellm@postgres:5432/litellm}
     entrypoint:
       - "/bin/sh"
       - "-c"
@@ -50,12 +46,10 @@ services:
     command:
       - "--config=/app/litellm/config.yaml"
       - "--port=${LITELLM_PORT:-8445}"
-      - "--ssl_certfile_path=/app/certs/cert.pem"
-      - "--ssl_keyfile_path=/app/certs/key.pem"
-      - "--detailed-logging"
+      - "--ssl_certfile_path=/app/certs/${LITELLM_TLS_CERT:-cert.pem}"
+      - "--ssl_keyfile_path=/app/certs/${LITELLM_TLS_KEY:-key.pem}"
+      - "--detailed_debug"
     healthcheck:
-      # Use HTTPS because the service listens on TLS. wget --no-check-certificate
-      # avoids cert verification issues inside the container (self-signed mkcert).
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:${LITELLM_PORT:-8445}/health/"]
       interval: 30s
       timeout: 10s
@@ -67,6 +61,21 @@ services:
       # for llama-swap access. The DS4 Proxy on <mac-host> is reached via LAN IP directly.
       - "host.docker.internal:host-gateway"
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: ds4-litellm-postgres
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-litellm}
+    volumes:
+      - litellm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
-  litellm-data:
-    # Named volume for SQLite database persistence. Survives container restarts.
+  litellm-postgres:

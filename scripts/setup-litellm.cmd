@@ -22,7 +22,8 @@ if exist "%DS4_ENV_FILE%" (
 rem Check required vars
 if not defined LITELLM_MASTER_KEY (
     echo [setup-litellm] ERROR: LITELLM_MASTER_KEY is not set in .env.
-    echo [setup-litellm] Run: openssl rand -hex 32 and set LITELLM_MASTER_KEY=sk-<output>
+    echo [setup-litellm] Run: powershell -File scripts\generate-litellm-key.ps1
+    echo [setup-litellm] Then set LITELLM_MASTER_KEY=sk-^<output^> in .env
     exit /b 1
 )
 
@@ -43,28 +44,32 @@ rem Sending the master key as the "key" value would create a virtual key that IS
 rem key -- defeating the purpose of scoped virtual keys.
 echo [setup-litellm] Generating random virtual key...
 
-rem Generate a random key string
-for /f "tokens=*" %%A in ('openssl rand -hex 32') do set "RANDOM_KEY_HEX=%%A"
+rem Generate a random 32-byte key using generate-litellm-key.ps1.
+rem -OutFile writes ASCII directly -- avoids cmd.exe stdout redirect producing UTF-16 BOM,
+rem which causes set /p to read an empty or garbled string.
+set "_LITELLM_TMP=%TEMP%\_litellm_rng.tmp"
+powershell -NoProfile -File "%~dp0generate-litellm-key.ps1" -OutFile "%_LITELLM_TMP%"
+if errorlevel 1 (
+    echo [setup-litellm] ERROR: PowerShell key generation failed.
+    del "%_LITELLM_TMP%" 2>nul
+    exit /b 1
+)
+set /p RANDOM_KEY_HEX=<"%_LITELLM_TMP%"
+del "%_LITELLM_TMP%" 2>nul
+if "%RANDOM_KEY_HEX%"=="" (
+    echo [setup-litellm] ERROR: Generated key is empty.
+    exit /b 1
+)
 set "VIRTUAL_KEY_VALUE=sk-%RANDOM_KEY_HEX%"
 
-rem POST to /key/generate with the new random key, authenticated by the master key.
-rem The response contains the generated virtual key which we capture.
-rem NOTE: /key/generate requires DATABASE_URL to be set (SQLite configured in compose).
-for /f "tokens=*" %%A in (
-    'curl -k -s -X POST "https://localhost:%LITELLM_PORT%/key/generate" ^
-      -H "Content-Type: application/json" ^
-      -H "x-api-key: %LITELLM_MASTER_KEY%" ^
-      -d "{\"key\":\"%VIRTUAL_KEY_VALUE%\",\"metadata\":{\"scopes\":[\"*\"]}}"'
-) do set "VIRTUAL_KEY_RESPONSE=%%A"
+rem POST to /key/generate. Output goes directly to stdout -- copy the key from the response.
+rem NOTE: /key/generate requires DATABASE_URL set (PostgreSQL configured in compose).
+echo [setup-litellm] Registering key with LiteLLM...
+curl.exe -k -s -X POST "https://localhost:%LITELLM_PORT%/key/generate" -H "Content-Type: application/json" -H "x-api-key: %LITELLM_MASTER_KEY%" -d "{\"key\":\"%VIRTUAL_KEY_VALUE%\",\"metadata\":{\"scopes\":[\"*\"]}}"
+echo.
 
-rem Parse the response for the virtual key (format: {"key":"sk-..."})
-rem This is a simplified parse; real-world would use a JSON parser
-echo [setup-litellm] Virtual key response: %VIRTUAL_KEY_RESPONSE%
-
-rem Extract key value -- simplified for initial setup
-rem Full JSON parsing is out of scope; the user copies the returned key manually
 echo [setup-litellm] ---
-echo [setup-litellm] IMPORTANT: Copy the generated key from the response above
+echo [setup-litellm] IMPORTANT: Copy the "key" value from the JSON response above
 echo [setup-litellm] and set it as LITELLM_VIRTUAL_KEY in your .env file.
 echo [setup-litellm] Example: LITELLM_VIRTUAL_KEY=%VIRTUAL_KEY_VALUE%
 echo [setup-litellm] ---
