@@ -1,4 +1,4 @@
-# ds4-ops (nirecom/ds4-ops)
+# cc-local-llm (nirecom/cc-local-llm)
 
 Running **DeepSeek V4 Flash** via [`antirez/ds4`](https://github.com/antirez/ds4) as a
 self-hosted **Claude Code backend**.
@@ -10,6 +10,7 @@ self-hosted **Claude Code backend**.
 > This repo holds only the **ops / config / decisions** for using ds4 as a Claude Code
 > backend. The engine is the public upstream `antirez/ds4`, cloned separately at `~/git/ds4`
 > on the Mac; the local directory here is `ds4-ops` to stay distinct from that clone.
+> The GitHub repo has been renamed to `cc-local-llm` — the local clone path is unchanged.
 
 ## Docs
 
@@ -24,8 +25,8 @@ Standard layout (mirrors the agents-repo convention):
 | [docs/infrastructure.md](docs/infrastructure.md) | SSOT for hosts, network, ports, paths |
 | [scripts/ds4ctl.sh](scripts/ds4ctl.sh) | Unified Mac control command — `start\|stop\|restart\|status\|logs\|install\|uninstall [proxy\|server\|all]` |
 | [scripts/ds4-server.sh](scripts/ds4-server.sh) | Foreground launcher for ds4-server (thin wrapper; used by launchd) |
-| [scripts/code-ds4.cmd](scripts/code-ds4.cmd) | Windows client launcher — loads `.env`, sets ds4 env, isolates the VS Code process, launches VS Code |
-| [.env.example](.env.example) | Template for the gitignored `.env` — Windows client `DS4_ANTHROPIC_BASE_URL` (Mac IP) and `DS4_API_KEY` |
+| [scripts/code-ccgw.cmd](scripts/code-ccgw.cmd) | Windows client launcher — loads `.env`, sets ccgw env, isolates the VS Code process, launches VS Code |
+| [.env.example](.env.example) | Template for the gitignored `.env` — Windows client `CCGW_ANTHROPIC_BASE_URL` (Mac IP) and `CCGW_API_KEY` |
 
 ## Quick start
 
@@ -39,8 +40,8 @@ git -C ~/git/ds4 pull                 # update the antirez/ds4 build clone if ne
 bundled launcher (loads `.env`, sets the ds4 env, isolates the VS Code process, opens VS Code):
 ```bat
 copy .env.example .env
-rem edit .env: DS4_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
-scripts\code-ds4.cmd .
+rem edit .env: CCGW_ANTHROPIC_BASE_URL=http://<mac-ip>:8000
+scripts\code-ccgw.cmd .
 ```
 See [docs/ops.md](docs/ops.md#client-windows) for details and the terminal alternative.
 

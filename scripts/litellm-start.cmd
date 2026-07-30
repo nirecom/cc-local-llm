@@ -26,12 +26,19 @@ if not defined ACTION set "ACTION=up"
 rem Compose file path (absolute Windows path)
 set "COMPOSE_FILE=%~dp0..\litellm\docker-compose.yml"
 
-rem Override LITELLM_LLAMA_SWAP_URL with host.docker.internal for container networking.
-rem Inside the Docker container, localhost resolves to the container itself, not the
-rem Windows host. Docker Desktop provides host.docker.internal to reach the Windows host.
-rem The DS4 Proxy URL (LITELLM_DS4_URL) is NOT overridden -- it uses the .env value
-rem which points at <mac-host>'s LAN IP (<mac-lan-ip>:8443). Only llama-swap needs the override.
-set "LITELLM_LLAMA_SWAP_URL=http://host.docker.internal:18080/v1"
+rem Each tier URL is independently configurable in .env. Inside the container,
+rem loopback resolves to the container itself, so rewrite loopback hosts (and only
+rem those) to host.docker.internal. Non-loopback hosts are passed through unchanged,
+rem so a tier pointed at another machine keeps working.
+rem The Opus URL (LITELLM_OPUS_URL) is NOT overridden -- it uses the .env value
+rem which points at <mac-host>'s LAN IP (<mac-lan-ip>:8443). Only llama-swap tiers
+rem need the override.
+if not defined LITELLM_HAIKU_URL set "LITELLM_HAIKU_URL=http://localhost:18080/v1"
+if not defined LITELLM_SONNET_URL set "LITELLM_SONNET_URL=http://localhost:18080/v1"
+set "LITELLM_HAIKU_URL=%LITELLM_HAIKU_URL:localhost=host.docker.internal%"
+set "LITELLM_HAIKU_URL=%LITELLM_HAIKU_URL:127.0.0.1=host.docker.internal%"
+set "LITELLM_SONNET_URL=%LITELLM_SONNET_URL:localhost=host.docker.internal%"
+set "LITELLM_SONNET_URL=%LITELLM_SONNET_URL:127.0.0.1=host.docker.internal%"
 
 if /i "%ACTION%"=="up" (
     echo [litellm] Starting LiteLLM container...
@@ -68,9 +75,9 @@ if /i "%ACTION%"=="restart" (
 )
 
 if /i "%ACTION%"=="status" (
-    docker container inspect ds4-litellm --format "{{.State.Status}}" 2>nul
+    docker container inspect ccgw-litellm --format "{{.State.Status}}" 2>nul
     if errorlevel 1 (
-        echo [litellm] Container 'ds4-litellm' does not exist or is not running.
+        echo [litellm] Container 'ccgw-litellm' does not exist or is not running.
     )
     exit /b 0
 )

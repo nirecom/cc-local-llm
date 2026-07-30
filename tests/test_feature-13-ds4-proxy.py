@@ -7,7 +7,7 @@
 # - End-to-end chunked transfer between real client and upstream ds4 server
 # - Proxy handler integration (server.py not yet written; auth→normalize→
 #     forward→sanitize pipeline tested post-/write-code as L2 integration tests)
-# - Launcher scripts (ds4-server.sh, code-ds4.cmd, ds4-proxy.sh not yet
+# - Launcher scripts (ds4-server.sh, code-ccgw.cmd, ds4-proxy.sh not yet
 #     written; bind address, HTTPS URL, NODE_EXTRA_CA_CERTS, KV-cache flags
 #     deferred to post-/write-code)
 # - .env.example / docs consistency (files not yet written; env var, host/port

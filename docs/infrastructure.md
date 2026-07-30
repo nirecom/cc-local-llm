@@ -51,6 +51,6 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | LiteLLM start script | `C:\git\ds4-ops\scripts\litellm-start.cmd` |
 | LiteLLM setup script | `C:\git\ds4-ops\scripts\setup-litellm.cmd` |
 | LiteLLM TLS cert/key | `C:\Users\<user>\.config\litellm\cert.pem` / `key.pem` (mkcert-generated) |
-| LiteLLM CA cert (Opus trust) | `<mkcert -CAROOT>\rootCA.pem` (same as DS4_CA_CERT) |
-| LiteLLM database volume | `litellm-data` (Docker named volume, persists at /app/litellm/data) |
+| LiteLLM CA cert (Opus trust) | `<mkcert -CAROOT>\rootCA.pem` (same as CCGW_CA_CERT) |
+| LiteLLM database volume | `litellm-postgres` (Docker named volume, PostgreSQL data at /var/lib/postgresql/data) |
 | llama-swap config | `C:\LLM\llama-swap\config.yaml` (not in this repo) |
