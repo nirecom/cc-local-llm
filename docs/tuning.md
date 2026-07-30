@@ -84,7 +84,7 @@ Read by `scripts/ds4-proxy.sh` (from the repo-root `.env`). Design: [architectur
 |---|---|---|
 | `DS4_PROXY_PORT` | `8443` (default) | HTTPS listen port. Must match the port in the client's `ANTHROPIC_BASE_URL`. |
 | `DS4_PROXY_UPSTREAM` | `http://127.0.0.1:8000` (default) | The ds4 backend the proxy forwards to. |
-| `DS4_PROXY_AUTH_TOKEN` | required | Token every client request must present; must match the client's `DS4_API_KEY`. The proxy refuses to start if unset. |
+| `DS4_PROXY_AUTH_TOKEN` | required | Token every client request must present; must match the client's `CCGW_API_KEY`. The proxy refuses to start if unset. |
 | `DS4_PROXY_CERT` / `DS4_PROXY_KEY` | `~/.config/ds4-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. |
 | `DS4_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. |
 | `DS4_PROXY_LOG_DIR` | `~/Library/Caches/ds4-proxy/log` (default) | Where tee logs are written when `DS4_PROXY_TEE=on`. |
@@ -103,16 +103,17 @@ startup.
 | `LITELLM_MASTER_KEY` | (required) | Master key for LiteLLM admin API and virtual key generation. Generate with `openssl rand -hex 32`. Never expose to clients. |
 | `LITELLM_PORT` | `8445` | HTTPS listen port. Must match the port in `ANTHROPIC_BASE_URL` when routing through LiteLLM. |
 | `LITELLM_TLS_DIR` | (required) | Directory containing `cert.pem` and `key.pem` (mkcert-issued). Mounted into the container at `/app/certs`. No default -- user must set this in `.env`. |
-| `LITELLM_CA_CERT_FILE` | (required for Opus) | Path to mkcert root CA `.pem` file. Mounted into the container so LiteLLM trusts the DS4 Proxy TLS cert. Same root CA as `DS4_CA_CERT`. |
-| `LITELLM_DB_URL` | `sqlite:///app/litellm/data/litellm.db` | Database URL for virtual key persistence. SQLite by default (no external deps). Switch to PostgreSQL for production. |
+| `LITELLM_CA_CERT_FILE` | (required for Opus) | Path to mkcert root CA `.pem` file. Mounted into the container so LiteLLM trusts the DS4 Proxy TLS cert. Same root CA as `CCGW_CA_CERT`. |
+| `LITELLM_DB_URL` | `postgresql://litellm:litellm@postgres:5432/litellm` | Database URL for virtual key persistence. PostgreSQL via bundled postgres service. Leave unset to use the compose default. |
 | `LITELLM_CONFIG_DIR` | `C:\git\ds4-ops\litellm` | Config directory containing litellm/config.yaml. |
-| `LITELLM_LLAMA_SWAP_URL` | `http://host.docker.internal:18080/v1` | llama-swap OpenAI-compatible endpoint for Haiku/Sonnet backends. Overridden to `host.docker.internal` by the launcher. |
-| `LITELLM_DS4_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy endpoint for Opus tier. Uses <mac-host>'s LAN IP directly -- NOT host.docker.internal. |
-| `LITELLM_DS4_API_KEY` | `dsv4-local` | API key sent to DS4 Proxy for Opus route. Must match `DS4_API_KEY`. |
+| `LITELLM_HAIKU_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint for Haiku tier. Overridden to `host.docker.internal` by the launcher. |
+| `LITELLM_SONNET_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint for Sonnet tier. Overridden to `host.docker.internal` by the launcher. |
+| `LITELLM_OPUS_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy endpoint for Opus tier. Uses <mac-host>'s LAN IP directly -- NOT host.docker.internal. |
+| `LITELLM_OPUS_API_KEY` | `dsv4-local` | API key sent to DS4 Proxy for Opus route. Must match `CCGW_API_KEY`. |
 | `LITELLM_HAIKU_MODEL` | `devstral-small-24b` | Model routing key for Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml. |
 | `LITELLM_SONNET_MODEL` | `qwen3-coder-next` | Model routing key for Sonnet tier. |
 | `LITELLM_OPUS_MODEL` | `deepseek-v4-flash` | Model routing key for Opus tier. |
-| `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ds4.cmd. When unset, falls back to `DS4_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
+| `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.cmd. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
 | `LITELLM_VIRTUAL_KEY` | (required for client) | Scoped virtual key for client authentication with LiteLLM. Generated from a random key (not the master key). |
 
 ### Client env vars update

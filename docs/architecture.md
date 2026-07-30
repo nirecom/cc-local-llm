@@ -87,7 +87,7 @@ Each rule is a pure function; all four are applied in order via `apply_all()`. T
 
 ### Why token auth
 
-ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only Claude Code with the correct `DS4_API_KEY` can reach ds4. This matters because the proxy is exposed to the LAN via HTTPS rather than `0.0.0.0` plain HTTP; auth prevents use by other devices on the network.
+ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only Claude Code with the correct `CCGW_API_KEY` can reach ds4. This matters because the proxy is exposed to the LAN via HTTPS rather than `0.0.0.0` plain HTTP; auth prevents use by other devices on the network.
 
 ### Design choices
 
@@ -98,7 +98,7 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 
 ### Repository placement — may split out later
 
-`proxy/` currently lives inside ds4-ops rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the client's `DS4_API_KEY`, its listen port must match the client's base URL), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
+`proxy/` currently lives inside cc-local-llm rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the client's `CCGW_API_KEY`, its listen port must match the client's base URL), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
 
 `proxy/` is nonetheless a self-contained Python package (its own `pyproject.toml` / `uv.lock`), so extraction stays cheap and can preserve history via `git filter-repo`. Split it into its own repository when any of these triggers fires:
 
@@ -129,7 +129,7 @@ and protocol translation -- a net cost with no benefit given LiteLLM's maturity.
 
 LiteLLM listens on HTTPS with an mkcert-signed certificate, sharing the same root CA
 already used by the DS4 Proxy. The Windows client trusts it via `NODE_EXTRA_CA_CERTS`
-pointing at `<mkcert -CAROOT>/rootCA.pem` (same `DS4_CA_CERT` value). No new CA setup
+pointing at `<mkcert -CAROOT>/rootCA.pem` (same `CCGW_CA_CERT` value). No new CA setup
 is needed.
 
 ### CA cert trust for Opus route (container to <mac-host>)
@@ -137,7 +137,7 @@ is needed.
 The LiteLLM container connects to the DS4 Proxy (<mac-host>:8443) over HTTPS for Opus requests.
 Inside the container, the mkcert root CA is mounted and appended to the system CA bundle
 at startup (via the compose file's entrypoint). This ensures LiteLLM can verify the DS4
-Proxy's TLS certificate. The same root CA file used for the Windows client (`DS4_CA_CERT`)
+Proxy's TLS certificate. The same root CA file used for the Windows client (`CCGW_CA_CERT`)
 is reused -- no separate CA setup.
 
 ### Virtual key authentication
@@ -147,15 +147,13 @@ API and virtual key generation -- it is NEVER exposed to the client. A one-time 
 step (`scripts/setup-litellm.cmd`) creates a scoped virtual key from a randomly-generated
 key (NOT the master key). Claude Code presents the virtual key as `ANTHROPIC_AUTH_TOKEN`
 to authenticate with LiteLLM. The DS4 Proxy's own token auth is preserved for the Opus
-route: LiteLLM forwards `LITELLM_DS4_API_KEY` as the `x-api-key` header to the DS4 Proxy.
+route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the DS4 Proxy.
 
 ### Database for virtual key persistence
 
 LiteLLM requires a database backend for key generation and verification. The compose file
-configures SQLite (`DATABASE_URL=sqlite:///app/litellm/data/litellm.db`) with a named
-volume for persistence across restarts. For production deployments, PostgreSQL should be
-used instead (set `LITELLM_DB_URL` to a PostgreSQL connection string).
-
+configures PostgreSQL (`DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm`) with a named
+volume for persistence across restarts. 
 ### Host.docker.internal usage (llama-swap only)
 
 Docker Desktop runs containers in a WSL2 Linux VM. `localhost` inside the container refers

@@ -6,10 +6,10 @@ rem Generates master key, creates virtual key (random, NOT reusing master key),
 rem verifies TLS certs and CA cert.
 rem Procedure: docs/ops.md#litellm-setup.
 rem
-rem IMPORTANT: LiteLLM requires a database for key generation. The compose file
-rem configures SQLite by default (DATABASE_URL). The /key/generate endpoint will
-rem fail if the database is not initialised. Wait a few seconds after container
-rem start for the database tables to be created.
+rem IMPORTANT: LiteLLM requires PostgreSQL for key generation. The compose file starts a
+rem bundled postgres service and passes DATABASE_URL; /key/generate fails until postgres
+rem passes its healthcheck and LiteLLM has created its tables. Wait a few seconds after
+rem container start.
 
 rem Load repo-root .env
 set "DS4_ENV_FILE=%~dp0..\.env"
@@ -30,9 +30,9 @@ if not defined LITELLM_MASTER_KEY (
 if not defined LITELLM_PORT set "LITELLM_PORT=8445"
 
 rem Step 1: Verify LiteLLM container is running
-docker container inspect ds4-litellm --format "{{.State.Status}}" >nul 2>&1
+docker container inspect ccgw-litellm --format "{{.State.Status}}" >nul 2>&1
 if errorlevel 1 (
-    echo [setup-litellm] ERROR: LiteLLM container 'ds4-litellm' is not running.
+    echo [setup-litellm] ERROR: LiteLLM container 'ccgw-litellm' is not running.
     echo [setup-litellm] Run litellm-start.cmd up first.
     exit /b 1
 )
