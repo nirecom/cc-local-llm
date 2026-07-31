@@ -1,4 +1,4 @@
-# LiteLLM proxy configuration for ds4-ops.
+# LiteLLM proxy configuration for ccgw (Claude Code GateWay, client side).
 # Routes Claude Code model tiers to different backends by model name.
 # Env vars are resolved at startup via os.environ/ pattern (NOT ${VAR:default}).
 # All defaults are documented in .env.example, not embedded here.
@@ -16,28 +16,31 @@ model_list:
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
       model: openai/Devstral-Small-2-24B-Instruct-2512-IQ4_XS
-      api_base: os.environ/LITELLM_LLAMA_SWAP_URL
+      api_base: os.environ/LITELLM_HAIKU_URL
       api_key: none                        # no auth for llama-swap local backend
       stream: true
       max_tokens: 8192
+      context_window: 32768
 
   # --- Sonnet tier: Qwen3-Coder-Next-Q4_K_M via llama-swap (OpenAI) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
       model: openai/Qwen3-Coder-Next-Q4_K_M
-      api_base: os.environ/LITELLM_LLAMA_SWAP_URL
+      api_base: os.environ/LITELLM_SONNET_URL
       api_key: none                        # no auth for llama-swap local backend
       stream: true
       max_tokens: 8192
+      context_window: 32768
 
   # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy (Anthropic passthrough) ---
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: anthropic/deepseek-v4-flash
-      api_base: os.environ/LITELLM_DS4_URL
-      api_key: os.environ/LITELLM_DS4_API_KEY
+      api_base: os.environ/LITELLM_OPUS_URL
+      api_key: os.environ/LITELLM_OPUS_API_KEY
       stream: true
       max_tokens: 8192
+      context_window: 393216
 
 litellm_settings:
   # Enable virtual key authentication

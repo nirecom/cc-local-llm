@@ -1,7 +1,9 @@
+name: ccgw
+
 services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
-    container_name: ds4-litellm
+    container_name: ccgw-litellm
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,9 +34,10 @@ services:
       LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-devstral-small-24b}
       LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen3-coder-next}
       LITELLM_OPUS_MODEL: ${LITELLM_OPUS_MODEL:-deepseek-v4-flash}
-      LITELLM_LLAMA_SWAP_URL: ${LITELLM_LLAMA_SWAP_URL:-http://host.docker.internal:18080/v1}
-      LITELLM_DS4_URL: ${LITELLM_DS4_URL:-https://<mac-lan-ip>:8443}
-      LITELLM_DS4_API_KEY: ${LITELLM_DS4_API_KEY:-dsv4-local}
+      LITELLM_HAIKU_URL: ${LITELLM_HAIKU_URL:-http://host.docker.internal:18080/v1}
+      LITELLM_SONNET_URL: ${LITELLM_SONNET_URL:-http://host.docker.internal:18080/v1}
+      LITELLM_OPUS_URL: ${LITELLM_OPUS_URL:-https://<mac-lan-ip>:8443}
+      LITELLM_OPUS_API_KEY: ${LITELLM_OPUS_API_KEY:-dsv4-local}
       # PostgreSQL connection string for virtual key persistence.
       # LiteLLM main-latest requires PostgreSQL; SQLite is no longer supported.
       DATABASE_URL: ${LITELLM_DB_URL:-postgresql://litellm:litellm@postgres:5432/litellm}
@@ -63,7 +66,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: ds4-litellm-postgres
+    container_name: ccgw-postgres
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: litellm

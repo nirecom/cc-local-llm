@@ -1,9 +1,10 @@
 @echo off
 setlocal
 
-rem ds4 client launcher (Windows). Sets the ds4 backend env, isolates the VS Code
-rem process so the env does not bleed into native subscription windows, then launches
-rem VS Code. Rationale: docs/architecture.md; procedure: docs/ops.md#client-windows.
+rem ccgw client launcher (Windows). Prefers the LiteLLM gateway (ccgw) for Claude Code
+rem model routing; falls back to the DS4 Proxy direct connection when LiteLLM is
+rem unavailable. Isolates the VS Code process so the env does not bleed into native
+rem subscription windows. Rationale: docs/architecture.md; procedure: docs/ops.md#client-windows.
 
 rem Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 rem Format: KEY=value, one per line, # comment lines allowed. A value already set in
@@ -23,32 +24,38 @@ rem LiteLLM's TLS endpoint. Otherwise falls back to the DS4 Proxy path.
 rem When neither is set, uses a placeholder default (localhost:8445).
 if defined LITELLM_ANTHROPIC_BASE_URL (
     set "ANTHROPIC_BASE_URL=%LITELLM_ANTHROPIC_BASE_URL%"
+) else if defined CCGW_ANTHROPIC_BASE_URL (
+    set "ANTHROPIC_BASE_URL=%CCGW_ANTHROPIC_BASE_URL%"
 ) else if defined DS4_ANTHROPIC_BASE_URL (
     set "ANTHROPIC_BASE_URL=%DS4_ANTHROPIC_BASE_URL%"
 ) else (
-    echo [code-ds4] WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor DS4_ANTHROPIC_BASE_URL set.
+    echo [code-ccgw] WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor CCGW_ANTHROPIC_BASE_URL set.
     set "ANTHROPIC_BASE_URL=https://localhost:8445"
 )
 
 rem LiteLLM authentication. Use a scoped virtual key generated from the master key,
 rem NOT the master key itself. The virtual key is set up via scripts/setup-litellm.cmd.
-rem If no virtual key is available, fall back to DS4_API_KEY for direct proxy auth.
+rem If no virtual key is available, fall back to CCGW_API_KEY for direct proxy auth.
 if defined LITELLM_VIRTUAL_KEY (
     set "ANTHROPIC_AUTH_TOKEN=%LITELLM_VIRTUAL_KEY%"
+) else if defined CCGW_API_KEY (
+    set "ANTHROPIC_AUTH_TOKEN=%CCGW_API_KEY%"
 ) else if defined DS4_API_KEY (
     set "ANTHROPIC_AUTH_TOKEN=%DS4_API_KEY%"
 ) else (
-    echo [code-ds4] WARNING: Neither LITELLM_VIRTUAL_KEY nor DS4_API_KEY set.
+    echo [code-ccgw] WARNING: Neither LITELLM_VIRTUAL_KEY nor CCGW_API_KEY set.
     set "ANTHROPIC_AUTH_TOKEN=dsv4-local"
 )
 
-rem mkcert local CA root so Node trusts the proxy TLS certificate. Set DS4_CA_CERT to
+rem mkcert local CA root so Node trusts the proxy TLS certificate. Set CCGW_CA_CERT to
 rem the path printed by "mkcert -CAROOT"/rootCA.pem. NODE_TLS_REJECT_UNAUTHORIZED=0 is
 rem NOT used.
-if defined DS4_CA_CERT (
+if defined CCGW_CA_CERT (
+    set NODE_EXTRA_CA_CERTS=%CCGW_CA_CERT%
+) else if defined DS4_CA_CERT (
     set NODE_EXTRA_CA_CERTS=%DS4_CA_CERT%
 ) else (
-    echo [code-ds4] WARNING: DS4_CA_CERT not set; TLS certificate will not be trusted.
+    echo [code-ccgw] WARNING: CCGW_CA_CERT not set; TLS certificate will not be trusted.
 )
 
 rem Model aliases for Claude Code.
@@ -96,4 +103,4 @@ set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 rem Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate
 rem VS Code instance; VS Code otherwise shares one process (and one environment) across
 rem all windows of a user-data-dir, which would leak the ds4 env into native windows.
-code --user-data-dir "%LOCALAPPDATA%\vscode-ds4" %*
+code --user-data-dir "%LOCALAPPDATA%\vscode-ccgw" %*

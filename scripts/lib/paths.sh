@@ -1,5 +1,5 @@
 #!/bin/sh
-# SSOT for ds4-ops service paths and patterns.
+# SSOT for ds4 service paths and patterns.
 set -eu
 
 DS4_OPS_ROOT="$HOME/git/ds4-ops"

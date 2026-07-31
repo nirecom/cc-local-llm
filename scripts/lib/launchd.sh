@@ -80,7 +80,7 @@ ds4_install() {
     _ds4_write_plist "$_svc"
     launchctl unload "$_plist" 2>/dev/null || true
     launchctl load -w "$_plist"
-    echo "[ds4-ops] installed $_label"
+    echo "[ds4ctl] installed $_label"
 }
 
 ds4_uninstall() {
@@ -89,5 +89,5 @@ ds4_uninstall() {
     _label="$(_ds4_plist_label "$_svc")"
     launchctl unload -w "$_plist" 2>/dev/null || true
     rm -f "$_plist"
-    echo "[ds4-ops] uninstalled $_label"
+    echo "[ds4ctl] uninstalled $_label"
 }
