@@ -10,7 +10,8 @@ self-hosted **Claude Code backend**.
 > This repo holds only the **ops / config / decisions** for using ds4 as a Claude Code
 > backend. The engine is the public upstream `antirez/ds4`, cloned separately at `~/git/ds4`
 > on the Mac; the local directory here is `ds4-ops` to stay distinct from that clone.
-> The GitHub repo has been renamed to `cc-local-llm` — the local clone path is unchanged.
+> The GitHub repo is planned to be renamed to `cc-local-llm` post-merge; until that rename
+> lands, the remote is still `nirecom/ds4-ops`. The local clone path is unaffected either way.
 
 ## Docs
 
