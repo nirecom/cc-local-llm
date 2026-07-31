@@ -11,7 +11,7 @@ auth); ds4-server itself listens on loopback. Rationale:
 
 One-time TLS setup. The proxy's cert must be trusted by the Windows client, so sign it with the
 **same mkcert root CA the client already uses** — do not create a separate root CA on the Mac.
-Sharing one root means the client trusts the proxy by pointing `DS4_CA_CERT` at that existing
+Sharing one root means the client trusts the proxy by pointing `CCGW_CA_CERT` at that existing
 root; nothing new has to be distributed and trusted.
 
 1. On the Windows client, issue a leaf cert/key for the proxy from the existing root CA. The
@@ -35,8 +35,8 @@ Or foreground (for debugging):
 ~/git/ds4-ops/scripts/ds4-proxy.sh
 ```
 
-Client-side (Windows): set `DS4_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the repo-root
-`.env` so Node trusts the proxy certificate, and set `DS4_API_KEY` to the same value as
+Client-side (Windows): set `CCGW_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the repo-root
+`.env` so Node trusts the proxy certificate, and set `CCGW_API_KEY` to the same value as
 `DS4_PROXY_AUTH_TOKEN`.
 
 ## LiteLLM (Windows, Docker Desktop WSL2)
@@ -44,7 +44,7 @@ Client-side (Windows): set `DS4_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the
 ### TLS setup (one-time)
 
 The LiteLLM proxy needs an mkcert leaf cert/key. Use the same root CA as the DS4 Proxy
-so the client trusts both endpoints with one `DS4_CA_CERT`:
+so the client trusts both endpoints with one `CCGW_CA_CERT`:
 
 ```bat
 mkcert localhost 127.0.0.1 ::1 <windows-host>
@@ -62,7 +62,7 @@ rem Get the path from mkcert -CAROOT, then append /rootCA.pem
 rem e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
 ```
 
-This is the same root CA file used for `DS4_CA_CERT`. The compose file mounts it into
+This is the same root CA file used for `CCGW_CA_CERT`. The compose file mounts it into
 the container and the entrypoint installs it into the system trust store.
 
 ### Initial setup (one-time)
@@ -156,7 +156,7 @@ llama-swap.
 ### Client (Windows) with LiteLLM
 
 First time only, ensure the repo-root `.env` has the LiteLLM vars filled in. The
-`code-ds4.cmd` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `DS4_ANTHROPIC_BASE_URL`.
+`code-ccgw.cmd` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
 
 Set in `.env`:
 ```bat
@@ -166,7 +166,7 @@ LITELLM_VIRTUAL_KEY=sk-<generated-token>
 
 Then launch as before:
 ```bat
-scripts\code-ds4.cmd .
+scripts\code-ccgw.cmd .
 ```
 
 ### Recovery
@@ -181,7 +181,7 @@ scripts\code-ds4.cmd .
 | TLS errors on Opus route | Verify `LITELLM_CA_CERT_FILE` points to the mkcert root CA and the file is mounted correctly |
 | `401 Unauthorized` from LiteLLM | Verify `LITELLM_VIRTUAL_KEY` is set in `.env` and matches the generated key |
 | `/key/generate` fails | Verify `DATABASE_URL` is set (SQLite configured in compose); wait for database initialisation |
-| Keys lost after restart | Verify `litellm-data` volume persists; check `docker volume ls` for the named volume |
+| Keys lost after restart | Verify `litellm-postgres` volume persists; check `docker volume ls` for the named volume |
 
 ## Run the server (Mac)
 
@@ -276,27 +276,27 @@ First time only, create the repo-root `.env` from the template and put the Mac's
 (the IP is never committed — `.env` is gitignored):
 ```bat
 copy .env.example .env
-rem then edit .env: DS4_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
-rem and DS4_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
+rem then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
+rem and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
 ```
 Then launch VS Code with the ds4 backend via the bundled wrapper:
 ```bat
-scripts\code-ds4.cmd .
+scripts\code-ccgw.cmd .
 ```
 The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
-`NODE_EXTRA_CA_CERTS` from `DS4_CA_CERT`,
+`NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`,
 and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=393216` /
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. The base URL now points at the
-proxy (`https://<mac-ip>:8443`), not ds4 directly. If `DS4_ANTHROPIC_BASE_URL` is set
+proxy (`https://<mac-ip>:8443`), not ds4 directly. If `CCGW_ANTHROPIC_BASE_URL` is set
 in neither `.env` nor the shell, the wrapper warns and falls back to `https://localhost:8443`
 (a placeholder that will not reach the Mac). A value set in the shell takes precedence over
-`.env`. `DS4_API_KEY` overrides the auth token; the proxy verifies it, so it must match
-`DS4_PROXY_AUTH_TOKEN` on the Mac. `DS4_CA_CERT` must point at `<mkcert -CAROOT>/rootCA.pem`
+`.env`. `CCGW_API_KEY` overrides the auth token; the proxy verifies it, so it must match
+`DS4_PROXY_AUTH_TOKEN` on the Mac. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>/rootCA.pem`
 so Node trusts the proxy certificate (if unset the wrapper warns and TLS will not be trusted).
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
-`--user-data-dir "%LOCALAPPDATA%\vscode-ds4"`, starting a *separate* VS Code process. VS Code
+`--user-data-dir "%LOCALAPPDATA%\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
 shares one process — and thus one environment — across every window under the same
 user-data-dir, so without this flag the ds4 env bleeds into native subscription windows. The
 separate profile keeps the ds4 session and native `code` / `codes` sessions independent on the
@@ -306,15 +306,15 @@ Do not add ds4 env vars to native sessions: a bare `ANTHROPIC_BASE_URL` plus a c
 replaces the subscription (see
 [architecture.md](architecture.md#two-strategies-chosen-by-whether-real-opus-is-wanted)).
 Caveat: if the ds4 profile is already running, close *all* its windows before changing
-`DS4_ANTHROPIC_BASE_URL` — closing one window is not enough; the process (and its captured
+`CCGW_ANTHROPIC_BASE_URL` — closing one window is not enough; the process (and its captured
 environment) persists until the last window of the profile closes, and new windows inherit the
 old value. The same folder may be open in the native and ds4 profiles at the same time: the
 "reuse the existing window for this folder" dedup is per-profile, so `codes .` followed by
-`code-ds4.cmd .` on one repo yields two independent windows (native backend + ds4 backend),
+`code-ccgw.cmd .` on one repo yields two independent windows (native backend + ds4 backend),
 not one activated window.
 
 Terminal alternative (no VS Code): set the same env vars the wrapper does
-(see [scripts/code-ds4.cmd](../scripts/code-ds4.cmd) for the full list) and run `claude`.
+(see [scripts/code-ccgw.cmd](../scripts/code-ccgw.cmd) for the full list) and run `claude`.
 
 Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars from
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).

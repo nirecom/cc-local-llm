@@ -12,7 +12,7 @@ _ds4_cmd() {
             HOST="${DS4_SERVER_HOST:-127.0.0.1}"
             case "$HOST" in
                 *[!0-9a-zA-Z:.%-]*)
-                    echo "[ds4-ops] invalid DS4_SERVER_HOST value (allowed chars: 0-9 a-z A-Z : . %)" >&2
+                    echo "[ds4ctl] invalid DS4_SERVER_HOST value (allowed chars: 0-9 a-z A-Z : . %)" >&2
                     exit 1
                     ;;
             esac
@@ -76,15 +76,15 @@ ds4_exec() {
 ds4_start() {
     _svc="$1"
     if _ds4_launchd_active "$_svc"; then
-        echo "[ds4-ops] $_svc is managed by launchd (KeepAlive). Use 'ds4ctl install $_svc' instead of 'start'." >&2
+        echo "[ds4ctl] $_svc is managed by launchd (KeepAlive). Use 'ds4ctl install $_svc' instead of 'start'." >&2
         return 0
     fi
     if _pid=$(_ds4_running "$_svc"); then
-        echo "[ds4-ops] $_svc already running (pid $_pid)"
+        echo "[ds4ctl] $_svc already running (pid $_pid)"
         return 0
     fi
     if pgrep -f "$(_ds4_pgrep_pattern "$_svc")" >/dev/null 2>&1; then
-        echo "[ds4-ops] $_svc already running (untracked)"
+        echo "[ds4ctl] $_svc already running (untracked)"
         return 0
     fi
     if [ "$_svc" = "proxy" ] && [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
@@ -102,7 +102,7 @@ ds4_start() {
     fi
     echo $! > "$_pid_file"
     _started_pid=$(cat "$_pid_file")
-    echo "[ds4-ops] started $_svc (pid $_started_pid)"
+    echo "[ds4ctl] started $_svc (pid $_started_pid)"
 }
 
 _ds4_stop_pid() {
@@ -127,15 +127,15 @@ _ds4_stop_pid() {
 ds4_stop() {
     _svc="$1"
     if _ds4_launchd_active "$_svc"; then
-        echo "[ds4-ops] $_svc is managed by launchd (KeepAlive — it will restart immediately if killed). To stop: 'ds4ctl uninstall $_svc'" >&2
+        echo "[ds4ctl] $_svc is managed by launchd (KeepAlive — it will restart immediately if killed). To stop: 'ds4ctl uninstall $_svc'" >&2
         return 1
     fi
     if _pid=$(_ds4_running "$_svc"); then
         _ds4_stop_pid "$_pid" "$_svc"
         rm -f "$(_ds4_pid_file "$_svc")"
-        echo "[ds4-ops] stopped $_svc"
+        echo "[ds4ctl] stopped $_svc"
     else
-        echo "[ds4-ops] $_svc not running"
+        echo "[ds4ctl] $_svc not running"
     fi
 }
 
@@ -158,14 +158,14 @@ ds4_status() {
 ds4_logs() {
     _svc="$1"
     if [ "${DS4_LOG:-on}" != "on" ]; then
-        echo "[ds4-ops] log recording is disabled (DS4_LOG=off)" >&2
+        echo "[ds4ctl] log recording is disabled (DS4_LOG=off)" >&2
         return 1
     fi
     if [ "$_svc" = "all" ]; then
         _pf="$(_ds4_log_file proxy)"
         _sf="$(_ds4_log_file server)"
         if [ ! -f "$_pf" ] && [ ! -f "$_sf" ]; then
-            echo "[ds4-ops] no log files found" >&2
+            echo "[ds4ctl] no log files found" >&2
             return 1
         fi
         # Use only existing files
@@ -177,7 +177,7 @@ ds4_logs() {
     else
         _logfile="$(_ds4_log_file "$_svc")"
         if [ ! -f "$_logfile" ]; then
-            echo "[ds4-ops] log file not found: $_logfile" >&2
+            echo "[ds4ctl] log file not found: $_logfile" >&2
             return 1
         fi
         if [ -t 1 ] && [ "$_svc" = "server" ] && [ "${DS4_SERVER_COLOR_LOG:-on}" = "on" ]; then
