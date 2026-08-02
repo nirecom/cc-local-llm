@@ -1,10 +1,11 @@
 #!/bin/sh
-# SSOT for ds4 service paths and patterns.
+# SSOT for ds4 service paths and patterns. Repository root is owned by
+# lib/root.sh — this file requires it to be sourced first.
 set -eu
 
-DS4_OPS_ROOT="$HOME/git/ds4-ops"
+: "${DS4_OPS_ROOT:?paths.sh requires lib/root.sh to be sourced first}"
 DS4_SERVER_ROOT="$HOME/git/ds4"
-DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops/run"
+DS4_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"
 
 _ds4_pid_file() { echo "$DS4_RUN_DIR/${1}.pid"; }
 

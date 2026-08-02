@@ -12,7 +12,7 @@ services:
     volumes:
       # Mount the config file directory from the Windows filesystem into the container.
       - type: bind
-        source: ${LITELLM_CONFIG_DIR:-C:\git\ds4-ops\litellm}
+        source: ${LITELLM_CONFIG_DIR:-C:\git\cc-local-llm\litellm}
         target: /app/litellm
         read_only: true
       # Mount the TLS cert/key directory. LITELLM_TLS_DIR is REQUIRED -- no default.

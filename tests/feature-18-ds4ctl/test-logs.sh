@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Tests: ds4ctl logs — DS4_LOG=off errors; DS4_LOG=on tails an existing log; `logs all` launches cleanly.
+# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
 # Tags: lifecycle, ds4ctl, scope:issue-specific
+#
+# Scenario: ds4ctl logs — DS4_LOG=off errors; DS4_LOG=on tails an existing log; `logs all` launches cleanly.
 #
 # Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
 # `tail` is stubbed to return immediately so the follow mode does not block.
@@ -9,7 +11,8 @@
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
-REPO="/Users/nire/git/ds4-ops"
+# REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
+REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 DS4CTL="$REPO/scripts/ds4ctl.sh"
 
 [ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
@@ -17,6 +20,11 @@ DS4CTL="$REPO/scripts/ds4ctl.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
+# Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
+# read; seed it with a stub auth token so the start guard sees a value.
+export DOTENV_FILE="$WORK/dotenv"
+printf 'DS4_PROXY_AUTH_TOKEN=test-token
+' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 LOG_DIR="$HOME/Library/Logs/ds4-proxy"

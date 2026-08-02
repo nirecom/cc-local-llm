@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Tests: ds4ctl status — running reports "running (pid N)"; stopped reports "stopped".
+# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
 # Tags: lifecycle, ds4ctl, scope:issue-specific
+#
+# Scenario: ds4ctl status — running reports "running (pid N)"; stopped reports "stopped".
 #
 # Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
 #
@@ -8,7 +10,8 @@
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
-REPO="/Users/nire/git/ds4-ops"
+# REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
+REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 DS4CTL="$REPO/scripts/ds4ctl.sh"
 
 [ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
@@ -16,8 +19,13 @@ DS4CTL="$REPO/scripts/ds4ctl.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
+# Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
+# read; seed it with a stub auth token so the start guard sees a value.
+export DOTENV_FILE="$WORK/dotenv"
+printf 'DS4_PROXY_AUTH_TOKEN=test-token
+' > "$DOTENV_FILE"
 export HOME="$WORK/home"
-PID_DIR="$HOME/Library/Application Support/ds4-ops/run"
+PID_DIR="$HOME/Library/Application Support/cc-local-llm/run"
 mkdir -p "$PID_DIR"
 
 cleanup() {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Tests: ds4ctl dispatch — unknown subcommand/target exit 2 + usage; `all` expands to proxy+server.
+# Tests: scripts/ds4ctl.sh
 # Tags: lifecycle, ds4ctl, scope:issue-specific
+#
+# Scenario: ds4ctl dispatch — unknown subcommand/target exit 2 + usage; `all` expands to proxy+server.
 #
 # Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
 # Uses a trace hook + PATH stubs so no real service is launched.
@@ -8,7 +10,8 @@
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
-REPO="/Users/nire/git/ds4-ops"
+# REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
+REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 DS4CTL="$REPO/scripts/ds4ctl.sh"
 
 [ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
@@ -16,6 +19,11 @@ DS4CTL="$REPO/scripts/ds4ctl.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
+# Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
+# read; seed it with a stub auth token so the start guard sees a value.
+export DOTENV_FILE="$WORK/dotenv"
+printf 'DS4_PROXY_AUTH_TOKEN=test-token
+' > "$DOTENV_FILE"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- Stub PATH so any launchd / process probe is inert -----------------------

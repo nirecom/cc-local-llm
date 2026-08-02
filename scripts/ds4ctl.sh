@@ -3,19 +3,21 @@
 # Usage: ds4ctl <start|stop|restart|status|logs|install|uninstall> [proxy|server|all]
 set -eu
 
-DS4CTL="$(cd "$(dirname "$0")" && pwd)/ds4ctl.sh"
+DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DS4CTL="$DS4_SCRIPT_DIR/ds4ctl.sh"
 
-DOTENV_FILE="$HOME/git/ds4-ops/.env"
+# shellcheck source=scripts/lib/root.sh
+. "$DS4_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
-. "$(dirname "$0")/lib/load-dotenv.sh"
+. "$DS4_SCRIPT_DIR/lib/load-dotenv.sh"
 # shellcheck source=scripts/lib/paths.sh
-. "$(dirname "$0")/lib/paths.sh"
+. "$DS4_SCRIPT_DIR/lib/paths.sh"
 # shellcheck source=scripts/lib/colorize.sh
-. "$(dirname "$0")/lib/colorize.sh"
+. "$DS4_SCRIPT_DIR/lib/colorize.sh"
 # shellcheck source=scripts/lib/launchd.sh
-. "$(dirname "$0")/lib/launchd.sh"
+. "$DS4_SCRIPT_DIR/lib/launchd.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
-. "$(dirname "$0")/lib/lifecycle.sh"
+. "$DS4_SCRIPT_DIR/lib/lifecycle.sh"
 
 _usage() {
     cat >&2 <<'EOF'
