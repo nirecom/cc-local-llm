@@ -27,6 +27,10 @@ LEGACY_TOKENS = [
     "vscode-ds4",
     "nirecom/ds4-ops",
     "[ds4-ops]",
+    # Repo clone path (POSIX and Windows spellings) and the macOS run dir.
+    "git/ds4-ops",
+    "git\\ds4-ops",
+    "ds4-ops/run",
 ]
 
 # docs/history.md is an append-only historical record.
@@ -62,6 +66,43 @@ NEW_ENV_SOURCE_FILES = [
 ]
 
 COMPOSE_FILE = "litellm/docker-compose.yml"
+
+# Path tokens added by the ds4-ops path audit. They are scanned with the same
+# raw substring rule as every other token (`if token in line`), so each one
+# needs a positive control proving it *can* match, and a near-miss proving it
+# does not over-match. Without these, a typo'd token would silently pass
+# test_legacy_token_absent_from_tracked_files forever (one-sided classifier).
+#
+# (token, line that must match, line that must NOT match)
+PATH_TOKEN_CONTROLS = [
+    (
+        "git/ds4-ops",
+        "DOTENV_FILE=\"$HOME/git/ds4-ops/.env\"",
+        "DOTENV_FILE=\"$HOME/git-ds4-ops/.env\"",
+    ),
+    (
+        # Single backslash — the Windows spelling as it appears in raw file
+        # bytes (e.g. `C:\git\ds4-ops\litellm` in .env.example).
+        "git\\ds4-ops",
+        "LITELLM_CONFIG_DIR=C:\\git\\ds4-ops\\litellm",
+        # Double backslash — a Windows path *escaped inside a source string
+        # literal*. Deliberately NOT matched: see
+        # test_feature_13_fixtures_scanned_and_clean.
+        "\"Working directory: C:\\\\git\\\\ds4-ops\\n\"",
+    ),
+    (
+        "ds4-ops/run",
+        'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops/run"',
+        'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops-run"',
+    ),
+]
+
+# Fixture files that intentionally carry the escaped Windows spelling
+# `C:\\git\\ds4-ops` (two raw backslashes) as proxy-normalization test data.
+# They are NOT in EXCLUDED_PATHS — they are scanned like everything else and
+# must pass, because no LEGACY_TOKEN matches the escaped byte form.
+FEATURE_13_FIXTURE_DIR = "tests/feature-13-ds4-proxy"
+ESCAPED_WINDOWS_PATH = "git\\\\ds4-ops"
 
 
 def _repo_root() -> Path:
@@ -108,6 +149,68 @@ def test_legacy_token_absent_from_tracked_files(token):
         f"legacy token {token!r} still present in {len(hits)} location(s) — "
         f"rename to the ccgw- scheme:\n" + "\n".join(hits)
     )
+
+
+@pytest.mark.parametrize(
+    "token,matching_line,near_miss_line",
+    PATH_TOKEN_CONTROLS,
+    ids=[c[0] for c in PATH_TOKEN_CONTROLS],
+)
+def test_path_token_matches_positive_control(token, matching_line, near_miss_line):
+    assert token in LEGACY_TOKENS, (
+        f"{token!r} is no longer in LEGACY_TOKENS — the positive control is "
+        "guarding a token that is not actually scanned"
+    )
+    # Same matching rule as test_legacy_token_absent_from_tracked_files.
+    assert token in matching_line, (
+        f"legacy token {token!r} does not match {matching_line!r} — the token "
+        "is misspelled/over-escaped and would never flag anything, making the "
+        "absence assertion vacuously true"
+    )
+    assert token not in near_miss_line, (
+        f"legacy token {token!r} falsely matches the near-miss line "
+        f"{near_miss_line!r} — it is too loose and will produce false positives"
+    )
+
+
+def test_feature_13_fixtures_scanned_and_clean():
+    """The escaped Windows spelling is a deliberate non-token boundary.
+
+    `tests/feature-13-ds4-proxy/` fixtures carry `C:\\\\git\\\\ds4-ops` (two raw
+    backslashes) as proxy-normalization input data. That byte form is NOT a
+    LEGACY_TOKEN and must not become one: it is payload, not a repo path.
+    This test pins both halves of the boundary so neither can drift silently.
+    """
+    root = _repo_root()
+    fixtures = [
+        (rel, path)
+        for rel, path in _scannable_files()
+        if rel.startswith(f"{FEATURE_13_FIXTURE_DIR}/")
+    ]
+    assert fixtures, (
+        f"{FEATURE_13_FIXTURE_DIR}/ produced no scannable files — moved, "
+        "renamed, or accidentally added to EXCLUDED_PATHS"
+    )
+
+    carriers = []
+    for rel, path in fixtures:
+        content = path.read_text(encoding="utf-8", errors="replace")
+        if ESCAPED_WINDOWS_PATH in content:
+            carriers.append(rel)
+        for token in LEGACY_TOKENS:
+            assert token not in content, (
+                f"legacy token {token!r} matches fixture {rel} — the token is "
+                "over-broad and is now flagging intentional test payload; "
+                "tighten the token rather than excluding the file (exclusion "
+                "is per-file and would hide real path leaks too)"
+            )
+
+    assert carriers, (
+        f"no file under {FEATURE_13_FIXTURE_DIR}/ still contains the escaped "
+        f"spelling {ESCAPED_WINDOWS_PATH!r} — the fixtures were rewritten by "
+        "an over-eager rename; this test's boundary is no longer meaningful"
+    )
+    assert (root / FEATURE_13_FIXTURE_DIR).is_dir()
 
 
 def test_exclusion_paths_resolve():

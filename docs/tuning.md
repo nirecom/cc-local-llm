@@ -105,7 +105,7 @@ startup.
 | `LITELLM_TLS_DIR` | (required) | Directory containing `cert.pem` and `key.pem` (mkcert-issued). Mounted into the container at `/app/certs`. No default -- user must set this in `.env`. |
 | `LITELLM_CA_CERT_FILE` | (required for Opus) | Path to mkcert root CA `.pem` file. Mounted into the container so LiteLLM trusts the DS4 Proxy TLS cert. Same root CA as `CCGW_CA_CERT`. |
 | `LITELLM_DB_URL` | `postgresql://litellm:litellm@postgres:5432/litellm` | Database URL for virtual key persistence. PostgreSQL via bundled postgres service. Leave unset to use the compose default. |
-| `LITELLM_CONFIG_DIR` | `C:\git\ds4-ops\litellm` | Config directory containing litellm/config.yaml. |
+| `LITELLM_CONFIG_DIR` | `C:\git\cc-local-llm\litellm` | Config directory containing litellm/config.yaml. |
 | `LITELLM_HAIKU_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint for Haiku tier. Overridden to `host.docker.internal` by the launcher. |
 | `LITELLM_SONNET_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint for Sonnet tier. Overridden to `host.docker.internal` by the launcher. |
 | `LITELLM_OPUS_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy endpoint for Opus tier. Uses <mac-host>'s LAN IP directly -- NOT host.docker.internal. |

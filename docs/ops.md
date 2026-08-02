@@ -27,12 +27,12 @@ Add the shared auth token to the server-side `.env` (repo root, gitignored):
 
 Start the proxy in the background:
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh start proxy
+~/git/cc-local-llm/scripts/ds4ctl.sh start proxy
 ```
 
 Or foreground (for debugging):
 ```sh
-~/git/ds4-ops/scripts/ds4-proxy.sh
+~/git/cc-local-llm/scripts/ds4-proxy.sh
 ```
 
 Client-side (Windows): set `CCGW_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the repo-root
@@ -187,17 +187,17 @@ scripts\code-ccgw.cmd .
 
 ```sh
 mkdir -p ~/Library/Caches/ds4-server/kv     # first time only
-~/git/ds4-ops/scripts/ds4ctl.sh start server
+~/git/cc-local-llm/scripts/ds4ctl.sh start server
 ```
 
 For foreground (debugging):
 ```sh
-~/git/ds4-ops/scripts/ds4-server.sh
+~/git/cc-local-llm/scripts/ds4-server.sh
 ```
 
 Stop:
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh stop server
+~/git/cc-local-llm/scripts/ds4ctl.sh stop server
 ```
 
 Note: if the service is launchd-managed (auto-start installed), `stop` exits with an error
@@ -208,13 +208,13 @@ and guides you to use `ds4ctl uninstall server` instead.
 ## Unified control (Mac)
 
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh start all      # start both services
-~/git/ds4-ops/scripts/ds4ctl.sh stop all       # stop both
-~/git/ds4-ops/scripts/ds4ctl.sh restart all    # restart both
-~/git/ds4-ops/scripts/ds4ctl.sh status all     # show status
-~/git/ds4-ops/scripts/ds4ctl.sh logs server    # tail ds4-server log (color in TTY)
-~/git/ds4-ops/scripts/ds4ctl.sh logs proxy     # tail ds4-proxy log
-~/git/ds4-ops/scripts/ds4ctl.sh logs all       # tail both logs
+~/git/cc-local-llm/scripts/ds4ctl.sh start all      # start both services
+~/git/cc-local-llm/scripts/ds4ctl.sh stop all       # stop both
+~/git/cc-local-llm/scripts/ds4ctl.sh restart all    # restart both
+~/git/cc-local-llm/scripts/ds4ctl.sh status all     # show status
+~/git/cc-local-llm/scripts/ds4ctl.sh logs server    # tail ds4-server log (color in TTY)
+~/git/cc-local-llm/scripts/ds4ctl.sh logs proxy     # tail ds4-proxy log
+~/git/cc-local-llm/scripts/ds4ctl.sh logs all       # tail both logs
 ```
 
 Targets: `proxy`, `server`, `all` (default when omitted).
@@ -223,12 +223,12 @@ Targets: `proxy`, `server`, `all` (default when omitted).
 
 Install both services as LaunchAgents (start at login, restart on crash):
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh install all
+~/git/cc-local-llm/scripts/ds4ctl.sh install all
 ```
 
 Uninstall (stops the service and removes auto-start):
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh uninstall all
+~/git/cc-local-llm/scripts/ds4ctl.sh uninstall all
 ```
 
 Plist locations and labels:
@@ -267,7 +267,7 @@ Log file paths: `~/Library/Logs/ds4-proxy/proxy.log` and `~/Library/Logs/ds4-ser
 
 For color-highlighted live log viewing:
 ```sh
-~/git/ds4-ops/scripts/ds4ctl.sh logs server   # TTY: color; pipe/file: plain
+~/git/cc-local-llm/scripts/ds4ctl.sh logs server   # TTY: color; pipe/file: plain
 ```
 
 ## Client (Windows)

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Tests: ds4ctl colorize — adds ANSI to ds4-server log lines; non-server lines pass through uncolored; tee'd log file stays ANSI-free (colorize is downstream of tee).
+# Tests: scripts/lib/colorize.sh
 # Tags: lifecycle, ds4ctl, scope:issue-specific
+#
+# Scenario: ds4ctl colorize — adds ANSI to ds4-server log lines; non-server lines pass through uncolored; tee'd log file stays ANSI-free (colorize is downstream of tee).
 #
 # Skips (exit 77) until scripts/lib/colorize.sh exists (implementation pending).
 #
@@ -8,7 +10,8 @@
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
-REPO="/Users/nire/git/ds4-ops"
+# REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
+REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 COLORIZE="$REPO/scripts/lib/colorize.sh"
 
 [ -f "$COLORIZE" ] || { echo "SKIP: $COLORIZE not found (implementation pending)"; exit 77; }
@@ -17,6 +20,11 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 ESC="$(printf '\033')"
 
 WORK="$(mktemp -d)"
+# Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
+# read; seed it with a stub auth token so the start guard sees a value.
+export DOTENV_FILE="$WORK/dotenv"
+printf 'DS4_PROXY_AUTH_TOKEN=test-token
+' > "$DOTENV_FILE"
 trap 'rm -rf "$WORK"' EXIT
 
 # A representative ds4-server log line (kv-cache activity).
