@@ -37,8 +37,8 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| Start script | `~/git/ds4-ops/scripts/ds4-server.sh` |
-| Proxy start script | `~/git/ds4-ops/scripts/ds4-proxy.sh` |
+| Start script | `~/git/cc-local-llm/scripts/ds4-server.sh` |
+| Proxy start script | `~/git/cc-local-llm/scripts/ds4-proxy.sh` |
 | Proxy TLS cert/key | `~/.config/ds4-proxy/cert.pem` / `key.pem` (mkcert-generated) |
 | KV disk cache | `~/Library/Caches/ds4-server/kv` (persistent, Time Machine-excluded by macOS default) |
 
@@ -46,10 +46,10 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| LiteLLM config | `C:\git\ds4-ops\litellm\config.yaml` |
-| LiteLLM compose | `C:\git\ds4-ops\litellm\docker-compose.yml` |
-| LiteLLM start script | `C:\git\ds4-ops\scripts\litellm-start.cmd` |
-| LiteLLM setup script | `C:\git\ds4-ops\scripts\setup-litellm.cmd` |
+| LiteLLM config | `C:\git\cc-local-llm\litellm\config.yaml` |
+| LiteLLM compose | `C:\git\cc-local-llm\litellm\docker-compose.yml` |
+| LiteLLM start script | `C:\git\cc-local-llm\scripts\litellm-start.cmd` |
+| LiteLLM setup script | `C:\git\cc-local-llm\scripts\setup-litellm.cmd` |
 | LiteLLM TLS cert/key | `C:\Users\<user>\.config\litellm\cert.pem` / `key.pem` (mkcert-generated) |
 | LiteLLM CA cert (Opus trust) | `<mkcert -CAROOT>\rootCA.pem` (same as CCGW_CA_CERT) |
 | LiteLLM database volume | `litellm-postgres` (Docker named volume, PostgreSQL data at /var/lib/postgresql/data) |

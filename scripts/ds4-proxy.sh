@@ -4,8 +4,10 @@
 # See scripts/ds4ctl.sh for the unified control command.
 set -eu
 
-DOTENV_FILE="$HOME/git/ds4-ops/.env"
+DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=scripts/lib/root.sh
+. "$DS4_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
-. "$(dirname "$0")/lib/load-dotenv.sh"
+. "$DS4_SCRIPT_DIR/lib/load-dotenv.sh"
 
-exec "$(dirname "$0")/ds4ctl.sh" __run proxy
+exec "$DS4_SCRIPT_DIR/ds4ctl.sh" __run proxy
