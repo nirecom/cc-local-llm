@@ -8,10 +8,10 @@ self-hosted **Claude Code backend**.
 - **Client**: Claude Code on Windows points `ANTHROPIC_BASE_URL` at the Mac.
 
 > This repo holds only the **ops / config / decisions** for using ds4 as a Claude Code
-> backend. The engine is the public upstream `antirez/ds4`, cloned separately at `~/git/ds4`
-> on the Mac; the local directory here is `ds4-ops` to stay distinct from that clone.
-> The GitHub repo is planned to be renamed to `cc-local-llm` post-merge; until that rename
-> lands, the remote is still `nirecom/ds4-ops`. The local clone path is unaffected either way.
+> backend. Both the GitHub repo and the local clone are named `cc-local-llm` (`~/git/cc-local-llm`
+> on the Mac, `C:\git\cc-local-llm` on Windows) — the rename is complete.
+> The engine itself is the public upstream `antirez/ds4`, a separate and unrelated repo,
+> cloned on its own at `~/git/ds4`.
 
 ## Docs
 
@@ -34,7 +34,7 @@ Standard layout (mirrors the agents-repo convention):
 **Mac (server + proxy):**
 ```sh
 git -C ~/git/ds4 pull                 # update the antirez/ds4 build clone if needed
-~/git/ds4-ops/scripts/ds4ctl.sh start all   # background; or 'install all' for auto-start at login
+~/git/cc-local-llm/scripts/ds4ctl.sh start all   # background; or 'install all' for auto-start at login
 ```
 
 **Windows (client):** put the Mac's IP in a gitignored `.env` (first time only), then run the
