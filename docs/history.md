@@ -80,3 +80,7 @@ Changes: Added LiteLLM proxy configuration so Claude Code can route each model t
 ### FEATURE: PR #25 — fix/ccgw-rename (2026-07-31, 798e768e9ebaca0e2f81dd841f2967dcc45b950c, #25)
 Background: fix(ccgw): rename client-side ds4- prefix to ccgw-, pin Compose project name (#24)
 Changes: #24: client-side ds4- → ccgw- rename, Compose project name pinned to fix 401 volume mismatch <!-- compose-doc-append-sentinel: branch=fix/ccgw-rename pr=#25 -->
+
+### FEATURE: PR #30 — chore/ds4ops-path-audit (2026-08-02, cf1b2a88b12c73419ca4a8e8ec2352a851f933a2, #30)
+Background: Rename local clone directory and migrate remaining ds4-ops path references to cc-local-llm
+Changes: #27: Renamed the local clone directory reference from `nirecom/ds4-ops` to `nirecom/cc-local-llm` following the GitHub repository rename, establishing `scripts/lib/root.sh` and `scripts/lib/paths.sh` as the single source of truth for repo-root derivation.;#28: Audited and migrated all remaining `ds4-ops` path string references across entrypoint scripts, tests, docs, `.env.example`, and `docker-compose.yml` to `cc-local-llm`; added a `DOTENV_FILE` hermetic-pin uniformity assertion to the test suite per a review-code-security finding. <!-- compose-doc-append-sentinel: branch=chore/ds4ops-path-audit pr=#30 -->
