@@ -11,31 +11,16 @@ rem bundled postgres service and passes DATABASE_URL; /key/generate fails until 
 rem passes its healthcheck and LiteLLM has created its tables. Wait a few seconds after
 rem container start.
 
-rem Load repo-root .env. Each var used below is extracted individually via findstr on
-rem its own line (not a full-file for/f parse), so a special cmd character elsewhere in
-rem .env cannot break this script's parsing -- same fix pattern as litellm-start.cmd.
-rem This script does not call docker compose, so --env-file is not applicable here.
+rem Load repo-root .env. Each var used below is extracted individually via the shared
+rem scripts\lib\load-env-var.cmd loader (not a full-file for/f parse), which fails
+rem closed on values containing a cmd metacharacter instead of silently mis-parsing
+rem them -- same fix pattern as litellm-start.cmd. This script does not call docker
+rem compose, so --env-file is not applicable here.
 set "DS4_ENV_FILE=%~dp0..\.env"
 if exist "%DS4_ENV_FILE%" (
-    call :load_env_var LITELLM_MASTER_KEY
-    call :load_env_var LITELLM_PORT
+    call "%~dp0lib\load-env-var.cmd" "%DS4_ENV_FILE%" LITELLM_MASTER_KEY || exit /b 1
+    call "%~dp0lib\load-env-var.cmd" "%DS4_ENV_FILE%" LITELLM_PORT || exit /b 1
 )
-
-goto :after_env_load
-
-:load_env_var
-if defined %1 goto :eof
-for /f "usebackq eol=# tokens=1,* delims==" %%A in (`findstr /b /c:"%1=" "%DS4_ENV_FILE%" 2^>nul`) do call :strip_quotes_and_set %1 "%%B"
-goto :eof
-
-:strip_quotes_and_set
-setlocal EnableDelayedExpansion
-set "_v=%~2"
-set "_v=!_v:"=!"
-endlocal & set "%~1=%_v%"
-goto :eof
-
-:after_env_load
 
 rem Check required vars
 if not defined LITELLM_MASTER_KEY (
