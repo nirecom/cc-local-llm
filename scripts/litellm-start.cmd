@@ -11,13 +11,37 @@ rem   litellm-start.cmd restart  -- down then up
 rem   litellm-start.cmd status   -- show container status
 rem   (no args)                  -- same as "up"
 
-rem Load repo-root .env (gitignored) for LITELLM_* vars
+rem Load repo-root .env (gitignored) for LITELLM_* vars. Compose parses the
+rem full file itself via --env-file below (see ENV_FILE_ARG), so cmd never
+rem full-file-parses .env anymore. Only the two vars that need the
+rem localhost -> host.docker.internal rewrite (LITELLM_HAIKU_URL,
+rem LITELLM_SONNET_URL) are individually extracted into the cmd shell here,
+rem via findstr on their exact line -- not a full-file for/f parse -- so a
+rem special character elsewhere in .env can no longer break cmd's parser.
 set "LITELLM_ENV_FILE=%~dp0..\.env"
+set ENV_FILE_ARG=
+if exist "%LITELLM_ENV_FILE%" set ENV_FILE_ARG=--env-file "%LITELLM_ENV_FILE%"
+
 if exist "%LITELLM_ENV_FILE%" (
-    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%LITELLM_ENV_FILE%") do (
-        if not defined %%A set "%%A=%%B"
-    )
+    call :load_env_var LITELLM_HAIKU_URL
+    call :load_env_var LITELLM_SONNET_URL
 )
+
+goto :after_env_load
+
+:load_env_var
+if defined %1 goto :eof
+for /f "usebackq eol=# tokens=1,* delims==" %%A in (`findstr /b /c:"%1=" "%LITELLM_ENV_FILE%" 2^>nul`) do call :strip_quotes_and_set %1 "%%B"
+goto :eof
+
+:strip_quotes_and_set
+setlocal EnableDelayedExpansion
+set "_v=%~2"
+set "_v=!_v:"=!"
+endlocal & set "%~1=%_v%"
+goto :eof
+
+:after_env_load
 
 rem Determine action from first argument
 set "ACTION=%~1"
@@ -42,7 +66,7 @@ set "LITELLM_SONNET_URL=%LITELLM_SONNET_URL:127.0.0.1=host.docker.internal%"
 
 if /i "%ACTION%"=="up" (
     echo [litellm] Starting LiteLLM container...
-    docker compose -f "%COMPOSE_FILE%" up -d
+    docker compose %ENV_FILE_ARG% -f "%COMPOSE_FILE%" up -d
     if errorlevel 1 (
         echo [litellm] ERROR: docker compose up failed. Is Docker Desktop running?
         exit /b 1
@@ -53,7 +77,7 @@ if /i "%ACTION%"=="up" (
 
 if /i "%ACTION%"=="down" (
     echo [litellm] Stopping LiteLLM container...
-    docker compose -f "%COMPOSE_FILE%" down
+    docker compose %ENV_FILE_ARG% -f "%COMPOSE_FILE%" down
     if errorlevel 1 (
         echo [litellm] WARNING: docker compose down returned non-zero (container may not exist).
         exit /b 1
@@ -64,8 +88,8 @@ if /i "%ACTION%"=="down" (
 
 if /i "%ACTION%"=="restart" (
     echo [litellm] Restarting LiteLLM container...
-    docker compose -f "%COMPOSE_FILE%" down
-    docker compose -f "%COMPOSE_FILE%" up -d
+    docker compose %ENV_FILE_ARG% -f "%COMPOSE_FILE%" down
+    docker compose %ENV_FILE_ARG% -f "%COMPOSE_FILE%" up -d
     if errorlevel 1 (
         echo [litellm] ERROR: restart failed.
         exit /b 1

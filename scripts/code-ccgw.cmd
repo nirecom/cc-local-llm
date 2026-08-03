@@ -9,12 +9,30 @@ rem subscription windows. Rationale: docs/architecture.md; procedure: docs/ops.m
 rem Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 rem Format: KEY=value, one per line, # comment lines allowed. A value already set in
 rem the shell takes precedence over .env. See .env.example for the supported keys.
+rem Each var used below is extracted individually via findstr on its own line (not a
+rem full-file for/f parse), so a special cmd character elsewhere in .env cannot break
+rem this script's parsing -- same fix pattern as scripts/litellm-start.cmd. This script
+rem does not call docker compose, so --env-file is not applicable here.
 set "DS4_ENV_FILE=%~dp0..\.env"
 if exist "%DS4_ENV_FILE%" (
-    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%DS4_ENV_FILE%") do (
-        if not defined %%A set "%%A=%%B"
-    )
+    for %%V in (LITELLM_ANTHROPIC_BASE_URL CCGW_ANTHROPIC_BASE_URL DS4_ANTHROPIC_BASE_URL LITELLM_VIRTUAL_KEY CCGW_API_KEY DS4_API_KEY CCGW_CA_CERT DS4_CA_CERT LITELLM_OPUS_MODEL LITELLM_SONNET_MODEL LITELLM_HAIKU_MODEL) do call :load_env_var %%V
 )
+
+goto :after_env_load
+
+:load_env_var
+if defined %1 goto :eof
+for /f "usebackq eol=# tokens=1,* delims==" %%A in (`findstr /b /c:"%1=" "%DS4_ENV_FILE%" 2^>nul`) do call :strip_quotes_and_set %1 "%%B"
+goto :eof
+
+:strip_quotes_and_set
+setlocal EnableDelayedExpansion
+set "_v=%~2"
+set "_v=!_v:"=!"
+endlocal & set "%~1=%_v%"
+goto :eof
+
+:after_env_load
 
 rem Clear any real Anthropic API key so the ds4 server is used instead
 set ANTHROPIC_API_KEY=
