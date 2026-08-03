@@ -16,32 +16,16 @@ rem full file itself via --env-file below (see ENV_FILE_ARG), so cmd never
 rem full-file-parses .env anymore. Only the two vars that need the
 rem localhost -> host.docker.internal rewrite (LITELLM_HAIKU_URL,
 rem LITELLM_SONNET_URL) are individually extracted into the cmd shell here,
-rem via findstr on their exact line -- not a full-file for/f parse -- so a
-rem special character elsewhere in .env can no longer break cmd's parser.
+rem via the shared scripts\lib\load-env-var.cmd loader, which fails closed on
+rem values containing a cmd metacharacter instead of silently mis-parsing them.
 set "LITELLM_ENV_FILE=%~dp0..\.env"
 set ENV_FILE_ARG=
 if exist "%LITELLM_ENV_FILE%" set ENV_FILE_ARG=--env-file "%LITELLM_ENV_FILE%"
 
 if exist "%LITELLM_ENV_FILE%" (
-    call :load_env_var LITELLM_HAIKU_URL
-    call :load_env_var LITELLM_SONNET_URL
+    call "%~dp0lib\load-env-var.cmd" "%LITELLM_ENV_FILE%" LITELLM_HAIKU_URL || exit /b 1
+    call "%~dp0lib\load-env-var.cmd" "%LITELLM_ENV_FILE%" LITELLM_SONNET_URL || exit /b 1
 )
-
-goto :after_env_load
-
-:load_env_var
-if defined %1 goto :eof
-for /f "usebackq eol=# tokens=1,* delims==" %%A in (`findstr /b /c:"%1=" "%LITELLM_ENV_FILE%" 2^>nul`) do call :strip_quotes_and_set %1 "%%B"
-goto :eof
-
-:strip_quotes_and_set
-setlocal EnableDelayedExpansion
-set "_v=%~2"
-set "_v=!_v:"=!"
-endlocal & set "%~1=%_v%"
-goto :eof
-
-:after_env_load
 
 rem Determine action from first argument
 set "ACTION=%~1"
