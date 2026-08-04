@@ -10,27 +10,47 @@
 # hardcoded backend model name after the provider prefix.
 
 model_list:
-  # --- Haiku tier: Devstral-Small-2-24B-Instruct via llama-swap (OpenAI) ---
-  # model_name is the routing key — what Claude Code sends. Resolved from env var.
-  # model is the backend model name — hardcoded because it sits after "openai/".
+  # --- Haiku tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
-      model: openai/Devstral-Small-2-24B-Instruct-2512-IQ4_XS
-      api_base: os.environ/LITELLM_HAIKU_URL
-      api_key: none                        # no auth for llama-swap local backend
+      model: openai/Qwen3-14B-Q4_K_M
+      api_base: os.environ/LITELLM_M4PRO_URL
+      api_key: none
       stream: true
       max_tokens: 8192
-      context_window: 32768
+      context_window: 200000
+      timeout: 8
 
-  # --- Sonnet tier: Qwen3-Coder-Next-Q4_K_M via llama-swap (OpenAI) ---
+  # --- Sonnet tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
-      model: openai/Qwen3-Coder-Next-Q4_K_M
-      api_base: os.environ/LITELLM_SONNET_URL
-      api_key: none                        # no auth for llama-swap local backend
+      model: openai/Qwen3-14B-Q4_K_M
+      api_base: os.environ/LITELLM_M4PRO_URL
+      api_key: none
       stream: true
       max_tokens: 8192
-      context_window: 32768
+      context_window: 200000
+      timeout: 8
+
+  # --- Haiku fallback: ds4 @ M5 Max when M4 Pro is offline ---
+  - model_name: haiku-fallback
+    litellm_params:
+      model: anthropic/deepseek-v4-flash
+      api_base: os.environ/LITELLM_OPUS_URL
+      api_key: os.environ/LITELLM_OPUS_API_KEY
+      stream: true
+      max_tokens: 8192
+      context_window: 393216
+
+  # --- Sonnet fallback: ds4 @ M5 Max when M4 Pro is offline ---
+  - model_name: sonnet-fallback
+    litellm_params:
+      model: anthropic/deepseek-v4-flash
+      api_base: os.environ/LITELLM_OPUS_URL
+      api_key: os.environ/LITELLM_OPUS_API_KEY
+      stream: true
+      max_tokens: 8192
+      context_window: 393216
 
   # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy (Anthropic passthrough) ---
   - model_name: os.environ/LITELLM_OPUS_MODEL
@@ -43,19 +63,21 @@ model_list:
       context_window: 393216
 
 litellm_settings:
-  # Enable virtual key authentication
   drop_params: false
   enable_caching_on_failures: false
   store_model_options_in_db: false
 
 general_settings:
-  # Master key for admin API and virtual key generation
   master_key: os.environ/LITELLM_MASTER_KEY
 
 router_settings:
-  # Default model routing strategy
   routing_strategy: simple-shuffle
-  num_retries: 2
-  fallbacks: []
+  # M4 Pro offline: 8s timeout (litellm_params) triggers fallback after 1 attempt.
+  # cooldown_time excludes M4 Pro for 1h so subsequent requests go to ds4 directly.
+  num_retries: 0
+  cooldown_time: 3600
+  fallbacks:
+    - qwen3-14b-haiku: ["haiku-fallback"]
+    - qwen3-14b-sonnet: ["sonnet-fallback"]
   context_window_fallbacks: []
   enable_pre_call_routing: false
