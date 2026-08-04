@@ -33,16 +33,11 @@ rem so a tier pointed at another machine keeps working.
 rem The Opus URL (LITELLM_OPUS_URL) is NOT overridden -- it uses the .env value
 rem which points at <mac-host>'s LAN IP (<mac-lan-ip>:8443). Only llama-swap tiers
 rem need the override.
-if not defined LITELLM_HAIKU_URL set "LITELLM_HAIKU_URL=http://localhost:18080/v1"
-if not defined LITELLM_SONNET_URL set "LITELLM_SONNET_URL=http://localhost:18080/v1"
-set "LITELLM_HAIKU_URL=%LITELLM_HAIKU_URL:localhost=host.docker.internal%"
-set "LITELLM_HAIKU_URL=%LITELLM_HAIKU_URL:127.0.0.1=host.docker.internal%"
-set "LITELLM_SONNET_URL=%LITELLM_SONNET_URL:localhost=host.docker.internal%"
-set "LITELLM_SONNET_URL=%LITELLM_SONNET_URL:127.0.0.1=host.docker.internal%"
+rem LITELLM_M4PRO_URL points at the Mac LAN IP -- no loopback rewrite needed.
 
 if /i "%ACTION%"=="up" (
     echo [litellm] Starting LiteLLM container...
-    docker compose -f "%COMPOSE_FILE%" up -d
+    docker compose -f "%COMPOSE_FILE%" up -d --force-recreate
     if errorlevel 1 (
         echo [litellm] ERROR: docker compose up failed. Is Docker Desktop running?
         exit /b 1
@@ -65,7 +60,7 @@ if /i "%ACTION%"=="down" (
 if /i "%ACTION%"=="restart" (
     echo [litellm] Restarting LiteLLM container...
     docker compose -f "%COMPOSE_FILE%" down
-    docker compose -f "%COMPOSE_FILE%" up -d
+    docker compose -f "%COMPOSE_FILE%" up -d --force-recreate
     if errorlevel 1 (
         echo [litellm] ERROR: restart failed.
         exit /b 1
