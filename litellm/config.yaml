@@ -13,7 +13,7 @@ model_list:
   # --- Haiku tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
-      model: openai/Qwen3-14B-Q4_K_M
+      model: openai/Qwen2.5-Coder-14B-Instruct-Q4_K_M
       api_base: os.environ/LITELLM_M4PRO_URL
       api_key: none
       stream: true
@@ -24,7 +24,7 @@ model_list:
   # --- Sonnet tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
-      model: openai/Qwen3-14B-Q4_K_M
+      model: openai/Qwen2.5-Coder-14B-Instruct-Q4_K_M
       api_base: os.environ/LITELLM_M4PRO_URL
       api_key: none
       stream: true
