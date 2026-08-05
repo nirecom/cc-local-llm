@@ -95,9 +95,10 @@ set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 set CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
 set CLAUDE_STREAM_IDLE_TIMEOUT_MS=600000
 
-rem Align auto-compaction with haiku/sonnet backend ceiling (200K) so CC compacts before
-rem the M4 Pro model rejects the request. Opus (ds4 @ 393K) accepts the compressed ctx.
-set CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+rem Align auto-compaction with haiku/sonnet backend ceiling (131K, KV q8_0-quantized)
+rem so CC compacts before the M4 Pro model rejects the request. Opus (ds4 @ 393K)
+rem accepts the compressed ctx.
+set CLAUDE_CODE_AUTO_COMPACT_WINDOW=131072
 set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 
 rem Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate
