@@ -10,10 +10,10 @@
 # hardcoded backend model name after the provider prefix.
 
 model_list:
-  # --- Haiku tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
+  # --- Haiku tier: Qwen2.5-Coder-14B-Instruct-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
-      model: openai/Qwen2.5-Coder-14B-Instruct-Q4_K_M
+      model: openai/Qwen3-14B-Q4_K_M
       api_base: os.environ/LITELLM_M4PRO_URL
       api_key: none
       stream: true
@@ -21,10 +21,10 @@ model_list:
       context_window: 200000
       timeout: 8
 
-  # --- Sonnet tier: Qwen3-14B-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
+  # --- Sonnet tier: Qwen2.5-Coder-14B-Instruct-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
-      model: openai/Qwen2.5-Coder-14B-Instruct-Q4_K_M
+      model: openai/Qwen3-14B-Q4_K_M
       api_base: os.environ/LITELLM_M4PRO_URL
       api_key: none
       stream: true
@@ -77,7 +77,7 @@ router_settings:
   num_retries: 0
   cooldown_time: 3600
   fallbacks:
-    - qwen3-14b-haiku: ["haiku-fallback"]
-    - qwen3-14b-sonnet: ["sonnet-fallback"]
+    - qwen3-haiku: ["haiku-fallback"]
+    - qwen3-sonnet: ["sonnet-fallback"]
   context_window_fallbacks: []
   enable_pre_call_routing: false
