@@ -19,7 +19,7 @@ model_list:
       stream: true
       max_tokens: 8192
       context_window: 131072
-      timeout: 8
+      timeout: 20
 
   # --- Sonnet tier: Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
@@ -30,7 +30,7 @@ model_list:
       stream: true
       max_tokens: 8192
       context_window: 131072
-      timeout: 8
+      timeout: 20
 
   # --- Haiku fallback: ds4 @ M5 Max when M4 Pro is offline ---
   - model_name: haiku-fallback
@@ -72,10 +72,11 @@ general_settings:
 
 router_settings:
   routing_strategy: simple-shuffle
-  # M4 Pro offline: 8s timeout (litellm_params) triggers fallback after 1 attempt.
-  # cooldown_time excludes M4 Pro for 1h so subsequent requests go to ds4 directly.
+  # M4 Pro offline: 20s timeout (litellm_params) triggers fallback after 1 attempt.
+  # cooldown_time excludes M4 Pro for 90s so subsequent requests go to ds4 directly,
+  # then retry M4 Pro automatically once it's likely back online.
   num_retries: 0
-  cooldown_time: 3600
+  cooldown_time: 90
   fallbacks:
     - qwen25-1m-haiku: ["haiku-fallback"]
     - qwen25-1m-sonnet: ["sonnet-fallback"]
