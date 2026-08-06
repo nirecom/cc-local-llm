@@ -31,8 +31,8 @@ services:
     environment:
       # Pass through all LITELLM_* env vars so config.yaml resolves them via os.environ/
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-qwen3-14b-haiku}
-      LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen3-14b-sonnet}
+      LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-qwen25-1m-haiku}
+      LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen25-1m-sonnet}
       LITELLM_OPUS_MODEL: ${LITELLM_OPUS_MODEL:-deepseek-v4-flash}
       LITELLM_M4PRO_URL: ${LITELLM_M4PRO_URL:-https://<m4pro-lan-ip>:8443/v1}
       LITELLM_OPUS_URL: ${LITELLM_OPUS_URL:-https://<mac-lan-ip>:8443}
