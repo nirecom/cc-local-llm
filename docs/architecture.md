@@ -115,8 +115,8 @@ by model name to three backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
-| Haiku | `devstral-small-24b` | Devstral-Small-2-24B-Instruct via llama-swap (<windows-host>, :18080) | Anthropic to OpenAI |
-| Sonnet | `qwen3-coder-next` | Qwen3-Coder-Next-Q4_K_M via llama-swap (<windows-host>, :18080) | Anthropic to OpenAI |
+| Haiku | `qwen25-1m-haiku` | Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server (<mac-host>, :8443/v1) | Anthropic to OpenAI |
+| Sonnet | `qwen25-1m-sonnet` | Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server (<mac-host>, :8443/v1) | Anthropic to OpenAI |
 | Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
 
 ### Why LiteLLM and not a custom router
@@ -154,15 +154,14 @@ route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the 
 LiteLLM requires a database backend for key generation and verification. The compose file
 configures PostgreSQL (`DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm`) with a named
 volume for persistence across restarts. 
-### Host.docker.internal usage (llama-swap only)
+### Host.docker.internal (no longer used for Haiku/Sonnet)
 
-Docker Desktop runs containers in a WSL2 Linux VM. `localhost` inside the container refers
-to the container itself, not the Windows host. Docker Desktop provides the DNS name
-`host.docker.internal` to reach the Windows host. The LiteLLM config and launcher use
-`host.docker.internal` ONLY for the llama-swap endpoint (which runs on <windows-host>
-Windows). The DS4 Proxy endpoint uses <mac-host>'s LAN IP (<mac-lan-ip>:8443) directly --
-`host.docker.internal` would resolve to <windows-host>, not <mac-host>, so it is NOT used for the
-Opus route.
+The Haiku and Sonnet backends now run on <mac-host> via portable-llm-server, reachable
+by LAN IP directly. `host.docker.internal` is no longer needed -- the previous
+llama-swap setup (which ran on <windows-host>) used it to reach Windows from the
+container. The DS4 Proxy endpoint also uses <mac-host>'s LAN IP (<mac-lan-ip>:8443)
+directly. The `extra_hosts` entry in docker-compose.yml is retained only for
+backward compatibility.
 
 ### Two strategies update
 
