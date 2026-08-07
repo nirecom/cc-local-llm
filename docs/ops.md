@@ -134,12 +134,19 @@ Send a test request to confirm each tier routes correctly. Use the **Anthropic
 Anthropic-to-OpenAI conversion works end-to-end:
 
 ```bat
-rem Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for M4 Pro portable-llm-server)
+rem Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
 curl -k -X POST https://localhost:8445/v1/messages ^
   -H "Content-Type: application/json" ^
   -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
   -H "anthropic-version: 2023-06-01" ^
   -d "{\"model\":\"qwen25-1m-haiku\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+
+rem Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
+curl -k -X POST https://localhost:8445/v1/messages ^
+  -H "Content-Type: application/json" ^
+  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
+  -H "anthropic-version: 2023-06-01" ^
+  -d "{\"model\":\"qwen25-1m-sonnet\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
 rem Opus tier (Anthropic format -- passthrough to DS4 Proxy)
 curl -k -X POST https://localhost:8445/v1/messages ^
@@ -151,7 +158,8 @@ curl -k -X POST https://localhost:8445/v1/messages ^
 
 Note: Use the virtual key, NOT the master key. The `/v1/messages` endpoint confirms
 LiteLLM receives Anthropic-format requests and converts Haiku/Sonnet to OpenAI for
-M4 Pro portable-llm-server.
+llama-swap running on this PC. No fallback exists for these two tiers — a request
+fails outright if llama-swap is offline.
 
 ### Client (Windows) with LiteLLM
 
@@ -175,7 +183,7 @@ scripts\code-ccgw.cmd .
 |---------|--------|
 | LiteLLM container not running | `litellm-start.cmd up`; check Docker Desktop is running |
 | `Connection refused` on :8445 | Verify container status; check port mapping |
-| M4 Pro returns errors | Verify portable-llm-server is running on <mac-host> (`https://<mac-lan-ip>:8443/v1`) |
+| Haiku/Sonnet tier returns `Cannot connect to host host.docker.internal:18080` | llama-swap service is down on this PC (`nssm status llama-swap`); no fallback exists — start it and retry |
 | DS4 Proxy unreachable | Verify <mac-host> Mac is reachable (<mac-lan-ip>); check DS4 Proxy status |
 | TLS errors | Verify cert/key files exist in `LITELLM_TLS_DIR` and are mkcert-signed |
 | TLS errors on Opus route | Verify `LITELLM_CA_CERT_FILE` points to the mkcert root CA and the file is mounted correctly |

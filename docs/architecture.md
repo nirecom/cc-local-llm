@@ -115,9 +115,15 @@ by model name to three backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
-| Haiku | `qwen25-1m-haiku` | Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server (<mac-host>, :8443/v1) | Anthropic to OpenAI |
-| Sonnet | `qwen25-1m-sonnet` | Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server (<mac-host>, :8443/v1) | Anthropic to OpenAI |
+| Haiku | `qwen25-1m-haiku` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
+| Sonnet | `qwen25-1m-sonnet` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
 | Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+
+Haiku and Sonnet have no fallback: llama-swap on <windows-host> is the sole backend for
+both tiers. A Mac (M4 Pro) fallback existed briefly during the 2026-08 migration but was
+removed — its own failure modes (upstream model process crashing) made it an unreliable
+safety net not worth the diagnostic overhead. A request fails outright if this PC's
+llama-swap is offline.
 
 ### Why LiteLLM and not a custom router
 
@@ -154,14 +160,13 @@ route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the 
 LiteLLM requires a database backend for key generation and verification. The compose file
 configures PostgreSQL (`DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm`) with a named
 volume for persistence across restarts. 
-### Host.docker.internal (no longer used for Haiku/Sonnet)
+### Host.docker.internal (Haiku/Sonnet route to this PC)
 
-The Haiku and Sonnet backends now run on <mac-host> via portable-llm-server, reachable
-by LAN IP directly. `host.docker.internal` is no longer needed -- the previous
-llama-swap setup (which ran on <windows-host>) used it to reach Windows from the
-container. The DS4 Proxy endpoint also uses <mac-host>'s LAN IP (<mac-lan-ip>:8443)
-directly. The `extra_hosts` entry in docker-compose.yml is retained only for
-backward compatibility.
+The Haiku and Sonnet backends run on llama-swap on <windows-host> itself -- the same
+machine running the LiteLLM container. The container reaches it via
+`host.docker.internal:18080`, resolved through the `extra_hosts: host-gateway` entry in
+docker-compose.yml. The DS4 Proxy endpoint (Opus tier) is a separate machine (<mac-host>)
+reached by LAN IP directly.
 
 ### Two strategies update
 

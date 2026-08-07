@@ -10,47 +10,27 @@
 # hardcoded backend model name after the provider prefix.
 
 model_list:
-  # --- Haiku tier: Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
+  # --- Haiku tier: Devstral-Small-2-24B via llama-swap @ this PC (primary) ---
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
-      model: openai/Qwen2.5-14B-Instruct-1M-Q4_K_M
-      api_base: os.environ/LITELLM_M4PRO_URL
+      model: openai/Devstral-Small-2-24B-Instruct-2512-IQ4_XS
+      api_base: os.environ/LITELLM_LLAMASWAP_URL
       api_key: none
       stream: true
       max_tokens: 8192
-      context_window: 131072
+      context_window: 65536
       timeout: 60
 
-  # --- Sonnet tier: Qwen2.5-14B-Instruct-1M-Q4_K_M via portable-llm-server @ M4 Pro (primary) ---
+  # --- Sonnet tier: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ this PC (primary) ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
-      model: openai/Qwen2.5-14B-Instruct-1M-Q4_K_M
-      api_base: os.environ/LITELLM_M4PRO_URL
+      model: openai/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL
+      api_base: os.environ/LITELLM_LLAMASWAP_URL
       api_key: none
       stream: true
       max_tokens: 8192
-      context_window: 131072
+      context_window: 65536
       timeout: 60
-
-  # --- Haiku fallback: ds4 @ M5 Max when M4 Pro is offline ---
-  - model_name: haiku-fallback
-    litellm_params:
-      model: anthropic/deepseek-v4-flash
-      api_base: os.environ/LITELLM_OPUS_URL
-      api_key: os.environ/LITELLM_OPUS_API_KEY
-      stream: true
-      max_tokens: 8192
-      context_window: 393216
-
-  # --- Sonnet fallback: ds4 @ M5 Max when M4 Pro is offline ---
-  - model_name: sonnet-fallback
-    litellm_params:
-      model: anthropic/deepseek-v4-flash
-      api_base: os.environ/LITELLM_OPUS_URL
-      api_key: os.environ/LITELLM_OPUS_API_KEY
-      stream: true
-      max_tokens: 8192
-      context_window: 393216
 
   # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy (Anthropic passthrough) ---
   - model_name: os.environ/LITELLM_OPUS_MODEL
@@ -72,18 +52,8 @@ general_settings:
 
 router_settings:
   routing_strategy: simple-shuffle
-  # M4 Pro offline: 60s timeout (litellm_params) triggers fallback after 1 attempt.
-  # 60s covers observed prefill time on long Claude Code prompts; once a stream has
-  # already started, litellm cannot fail over mid-stream regardless of this value,
-  # so raising it does not meaningfully slow down true-offline detection.
-  # cooldown_time excludes M4 Pro for 90s so subsequent requests go to ds4 directly,
-  # then retry M4 Pro automatically once it's likely back online.
+  # No fallback for Haiku/Sonnet tiers: this PC (llama-swap) is the sole backend.
+  # M4 Pro fallback was removed (2026-08) — its failure modes were not worth the
+  # diagnostic overhead. A request fails outright if this PC is offline.
   num_retries: 0
-  cooldown_time: 90
-  fallbacks:
-    - qwen25-1m-haiku: ["haiku-fallback"]
-    - qwen25-1m-sonnet: ["sonnet-fallback"]
-  context_window_fallbacks:
-    - qwen25-1m-haiku: ["haiku-fallback"]
-    - qwen25-1m-sonnet: ["sonnet-fallback"]
   enable_pre_call_routing: false
