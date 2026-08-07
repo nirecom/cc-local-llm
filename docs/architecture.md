@@ -115,8 +115,8 @@ by model name to three backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
-| Haiku | `qwen25-1m-haiku` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
-| Sonnet | `qwen25-1m-sonnet` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
+| Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
+| Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
 | Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
 
 Haiku and Sonnet have no fallback: llama-swap on <windows-host> is the sole backend for
