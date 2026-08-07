@@ -34,7 +34,7 @@ services:
       LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-qwen25-1m-haiku}
       LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen25-1m-sonnet}
       LITELLM_OPUS_MODEL: ${LITELLM_OPUS_MODEL:-deepseek-v4-flash}
-      LITELLM_M4PRO_URL: ${LITELLM_M4PRO_URL:-https://<m4pro-lan-ip>:8443/v1}
+      LITELLM_LLAMASWAP_URL: ${LITELLM_LLAMASWAP_URL:-http://host.docker.internal:18080/v1}
       LITELLM_OPUS_URL: ${LITELLM_OPUS_URL:-https://<mac-lan-ip>:8443}
       LITELLM_OPUS_API_KEY: ${LITELLM_OPUS_API_KEY:-dsv4-local}
       # PostgreSQL connection string for virtual key persistence.
@@ -59,8 +59,9 @@ services:
       start_period: 15s
     restart: unless-stopped
     extra_hosts:
-      # Allow the container to reach the Windows host via host.docker.internal
-      # for llama-swap access. The DS4 Proxy on <mac-host> is reached via LAN IP directly.
+      # Allow the container to reach the Windows host's llama-swap (:18080) via
+      # host.docker.internal for the Haiku/Sonnet route. The DS4 Proxy Opus route
+      # is reached via LAN IP directly.
       - "host.docker.internal:host-gateway"
 
   postgres:
