@@ -109,8 +109,8 @@ startup.
 | `LITELLM_LLAMASWAP_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint on this PC, shared by both Haiku and Sonnet tiers. Sole backend for these tiers -- no fallback. |
 | `LITELLM_OPUS_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy endpoint for Opus tier. Uses <mac-host>'s LAN IP directly -- NOT host.docker.internal. |
 | `LITELLM_OPUS_API_KEY` | `dsv4-local` | API key sent to DS4 Proxy for Opus route. Must match `CCGW_API_KEY`. |
-| `LITELLM_HAIKU_MODEL` | `qwen25-1m-haiku` | Model routing key for Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml. |
-| `LITELLM_SONNET_MODEL` | `qwen25-1m-sonnet` | Model routing key for Sonnet tier. |
+| `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
+| `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for Sonnet tier. Claude Code sends this value as the model name; LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
 | `LITELLM_OPUS_MODEL` | `deepseek-v4-flash` | Model routing key for Opus tier. |
 | `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.cmd. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
 | `LITELLM_VIRTUAL_KEY` | (required for client) | Scoped virtual key for client authentication with LiteLLM. Generated from a random key (not the master key). |

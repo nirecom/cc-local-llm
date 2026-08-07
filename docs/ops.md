@@ -139,14 +139,14 @@ curl -k -X POST https://localhost:8445/v1/messages ^
   -H "Content-Type: application/json" ^
   -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
   -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"qwen25-1m-haiku\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+  -d "{\"model\":\"devstral-small-2-24b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
 rem Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
 curl -k -X POST https://localhost:8445/v1/messages ^
   -H "Content-Type: application/json" ^
   -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
   -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"qwen25-1m-sonnet\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+  -d "{\"model\":\"qwen3-coder-30b-a3b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
 rem Opus tier (Anthropic format -- passthrough to DS4 Proxy)
 curl -k -X POST https://localhost:8445/v1/messages ^
