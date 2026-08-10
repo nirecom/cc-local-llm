@@ -6,7 +6,7 @@ set -eu
 _ds4_cmd() {
     case "$1" in
         proxy)
-            echo "uv run python -m proxy.server"
+            echo "PYTHONUNBUFFERED=1 uv run python -m proxy.server"
             ;;
         server)
             HOST="${DS4_SERVER_HOST:-127.0.0.1}"
