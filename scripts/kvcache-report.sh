@@ -1,51 +1,31 @@
 #!/bin/sh
 # kvcache-report — aggregate the ds4-server KV cache log into a fixed report.
 #
-# The report exists so that a before/after pair can be compared with `diff`:
-# every value printed is derived only from the log contents, never from the
-# current time, the elapsed run time, or the file size, and every column is a
-# fixed printf width so that row content never shifts neighbouring lines.
+# Output is diff-friendly by contract: values come only from the log (never
+# from the clock or file size) and every column is a fixed printf width.
 #
-# Line kinds (the log carries `reason=` and `size=` on TWO different kinds):
-# - `kv cache stored ...`  — a WRITE into the disk cache. Counted in [3].
-# - `kv cache evicted ...` — a DELETION from the disk cache (always
-#   reason=disk-cache-full). NOT counted as write volume, and not counted in
-#   any section: scanning fields without a line predicate would roughly double
-#   the write totals and silently add `disk-cache-full` to the reason table.
-#
-# Thresholds:
-# - [1] splits prompt processing at 60s, the value issue #34 used to classify
-#   cold prefills against warm continuations.
-# - [2] buckets the common prefix length at 1000 / 10000 / 50000 tokens.
-#   `lt_1000` comes first because it is the layer that throws away almost the
-#   whole prefix (the 55% share issue #34 reported); 1000_9999 is a partial
-#   reuse; 10000_49999 is a substantial reuse; ge_50000 is a near-full hit at
-#   the scale of the configured cold-max/continued-interval token counts.
+# `kv cache stored` is a write and is counted in [3]; `kv cache evicted` is a
+# deletion and is counted nowhere — matching it would double the write totals.
+# Thresholds are the ones issue #34 used: 60s for [1], and 1000 / 10000 /
+# 50000 common-prefix tokens for [2].
 set -eu
 
-# LC_ALL=C is pinned for two reasons: (a) it fixes awk string comparison to
-# byte order, so the self-sorted reason rows in [3] do not reorder with the
-# ambient locale, and (b) it keeps printf "%.2f" using "." as the decimal
-# separator in locales that would otherwise emit ",". Output determinism is
-# this script's contract, so the collation and the numeric format are made
-# explicit rather than inherited (CPR-UNV).
+# Pinned so [3]'s sort stays byte-ordered and "%.2f" keeps "." as the decimal
+# separator regardless of the ambient locale (CPR-UNV).
 export LC_ALL=C
 
 DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=scripts/lib/root.sh
 . "$DS4_SCRIPT_DIR/lib/root.sh"     # establishes DS4_OPS_ROOT (paths.sh requires it)
-# Intentionally does NOT source lib/load-dotenv.sh: this is a read-only log
-# analyzer with no .env-derived input, so it must not read the developer's
-# real .env. Other entrypoints source it because they launch services.
+# lib/load-dotenv.sh is deliberately not sourced: a read-only analyzer has no
+# .env-derived input and must not read the developer's real .env.
 # shellcheck source=scripts/lib/paths.sh
 . "$DS4_SCRIPT_DIR/lib/paths.sh"    # _ds4_log_file server is the SSOT for the log path
 
 LOG_DEFAULT="$(_ds4_log_file server)"
 
-# Display-only: renders a leading $HOME as "~" so a pasted report (this repo
-# is public) never discloses the account name baked into the absolute path.
-# The real, untouched path is still what every functional use (-f check,
-# awk input redirection) operates on.
+# Display only: hides the account name in a pasted report (public repo). Every
+# functional use still operates on the untouched path.
 _display_path() {
     case "$1" in
         "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
@@ -78,15 +58,11 @@ _usage_error() {
     exit 2
 }
 
-# The log timestamps are "MMDD HH:MM:SS" and carry no year, so date parsing is
-# not possible; a 10-digit key compared numerically is the only workable form.
-# Separators are stripped first so 0801 / "08-01" / "0801 12:00" normalize the
-# same way, without a per-format special case (CPR-UNV).
+# Log timestamps are "MMDD HH:MM:SS" with no year, so a numerically compared
+# 10-digit key replaces date parsing; separators are stripped first so every
+# accepted spelling normalizes the same way (CPR-UNV).
 #
-# Strips one leading '0' from a 2-digit field so plain shell arithmetic never
-# sees a leading zero: POSIX arithmetic parses that as octal and would reject
-# valid fields like "08"/"09". Returns via STRIPPED0 (see NORMALIZED_SPEC
-# above for why globals, not stdout).
+# Drops one leading '0' so POSIX arithmetic does not read "08"/"09" as octal.
 _strip_lead0() {
     case "$1" in
         0?) STRIPPED0="${1#0}" ;;
@@ -94,9 +70,8 @@ _strip_lead0() {
     esac
 }
 
-# Range-checks the padded 10-digit MMDDHHMMSS key field by field, so
-# "2025-08-01" (which strips to month "20") is rejected instead of silently
-# becoming a wrong range. Field slicing mirrors _format_key above.
+# Field-by-field range check, so "2025-08-01" (month "20" after stripping) is
+# rejected instead of silently becoming a wrong range.
 _validate_spec_fields() {
     _vf_side="$1"
     _vf_raw="$2"
@@ -118,9 +93,8 @@ _validate_spec_fields() {
     [ "$STRIPPED0" -ge 0 ] && [ "$STRIPPED0" -le 59 ] || _usage_error "invalid --$_vf_side value: $_vf_raw (second $_vf_ss out of range 00-59)"
 }
 
-# Result is returned in NORMALIZED_SPEC rather than on stdout: _usage_error
-# exits, and an exit from inside a command substitution would only leave the
-# subshell.
+# Returns via NORMALIZED_SPEC, not stdout: _usage_error's exit inside a command
+# substitution would only leave the subshell.
 _normalize_spec() {
     _ns_side="$1"
     _ns_raw="$2"
@@ -196,19 +170,15 @@ if [ ! -f "$LOG_FILE" ]; then
     exit 1
 fi
 
-# Single awk pass. The whole report (headers included) is emitted from END so
-# that line order is owned by one process: no external filter, no pipe, and
-# therefore no way for a child to write to the shared fd ahead of awk.
-# Zero matching lines is not an error — a zero-filled report is printed so that
-# the before/after diff stays line-aligned.
+# Single awk pass; the whole report is emitted from END so one process owns
+# line order (no pipe, no child racing on the shared fd). Zero matching lines
+# prints a zero-filled report, keeping the before/after diff line-aligned.
 LOGDISPLAY="$(_display_path "$LOG_FILE")"
 awk -v LOGPATH="$LOGDISPLAY" -v SINCE="$SINCE_KEY" -v UNTIL="$UNTIL_KEY" \
     -v REQ_SINCE="$REQ_SINCE" -v REQ_UNTIL="$REQ_UNTIL" '
-# Insertion sort, ascending by name. Row order must be the reason NAME and
-# never a quantity: the report is meant to be diffed, and a volume ranking
-# flips between runs, filling the diff with pure reordering noise.
-# Comparison forces string context ("" x) because awk compares numeric-looking
-# strings numerically otherwise.
+# Insertion sort, ascending by name — never by quantity, whose ranking flips
+# between runs and fills the diff with reordering noise. ("" x) forces string
+# context, which awk would otherwise drop for numeric-looking values.
 function isort(a, n,    i, j, key) {
     for (i = 2; i <= n; i++) {
         key = a[i]
@@ -226,10 +196,8 @@ function share(part, total) {
 function avg(sum, n) {
     return (n > 0 ? sum / n : 0)
 }
-# Output hygiene for log-derived tokens (reason=, unit) reaching a printf
-# argument: non-printable bytes (raw ESC/CR etc.) are replaced so they never
-# reach the terminal, and the token is truncated to the reason column width
-# so an oversized value cannot shift the fixed-width diff contract.
+# Hygiene for log-derived tokens reaching printf: non-printable bytes never
+# reach the terminal, and truncation keeps the fixed-width columns intact.
 function sanitize(s) {
     gsub(/[^ -~]/, "?", s)
     if (length(s) > 14) s = substr(s, 1, 14)
@@ -255,9 +223,8 @@ $1 ~ /^[0-9][0-9][0-9][0-9]$/ && $2 ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ {
     }
     obs_n++
 
-    # [1] prompt processing. The field count varies (8 or 9, depending on the
-    # TOOLS token), so the duration is located by text and read as the token
-    # right after it — never by field index.
+    # [1] prompt processing. Field count varies (the TOOLS token), so the
+    # duration is located by text, never by field index.
     p = index($0, "prompt done ")
     if (p > 0) {
         rest = substr($0, p + 12)
@@ -273,8 +240,7 @@ $1 ~ /^[0-9][0-9][0-9][0-9]$/ && $2 ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ {
         }
     }
 
-    # [2] live kv cache miss. The source format has a variable prefix, so the
-    # values are picked up by scanning fields for their key= prefix.
+    # [2] live kv cache miss. Variable prefix, so values are found by key=.
     if (index($0, "live kv cache miss") > 0) {
         m_total++
         r = ""; c = ""
@@ -295,9 +261,8 @@ $1 ~ /^[0-9][0-9][0-9][0-9]$/ && $2 ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ {
         }
     }
 
-    # [3] kv cache stored. The trailing space in the predicate keeps a future
-    # "kv cache stored-" style message from matching by accident. Evicted lines
-    # deliberately have no section: they are deletions, not writes.
+    # [3] kv cache stored. The trailing space keeps a future "kv cache stored-"
+    # message from matching. Evicted lines are deletions, so they have no row.
     if (index($0, "kv cache stored ") > 0) {
         r = ""; sz = ""; unit = ""
         for (i = 1; i <= NF; i++) {
@@ -312,9 +277,8 @@ $1 ~ /^[0-9][0-9][0-9][0-9]$/ && $2 ~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/ {
         scnt[r]++
         s_total_c++
         if (sz != "") {
-            # Only MiB is accumulated. Any other unit is counted separately and
-            # surfaced in the warnings line, so a log format change cannot
-            # silently under-report write volume (CPR-UNV).
+            # Only MiB accumulates; other units go to the warnings line, so a
+            # format change cannot silently under-report volume (CPR-UNV).
             if (unit == "MiB") {
                 smib[r] += sz + 0
                 s_total_m += sz + 0
@@ -368,13 +332,11 @@ END {
         r = skeys[i]
         printf(ROW5, sanitize(r), scnt[r], smib[r] + 0, (smib[r] + 0) / 1024.0, avg(smib[r] + 0, scnt[r]))
     }
-    # TOTAL is always printed, even with no rows above it, so its presence
-    # never shifts diff lines.
+    # Always printed, even with no rows above it, so it never shifts the diff.
     printf(ROW5, "TOTAL", s_total_c + 0, s_total_m + 0, (s_total_m + 0) / 1024.0, avg(s_total_m + 0, s_total_c + 0))
     printf("\n")
 
-    # The warnings line is always printed ("none" when clean) for the same
-    # reason: a warning must not shift the line count of the rest of the report.
+    # Same reason: "none" when clean, so a warning never shifts the line count.
     if (unk > 0) {
         isort(ukeys, unk)
         w = ""
@@ -387,7 +349,5 @@ END {
     }
 }
 ' < "$LOG_FILE"
-# The log path is fed by redirection, not as a trailing operand: POSIX awk
-# treats an operand containing "=" as a name=value assignment rather than a
-# filename, so a log literally named "SINCE=..." would be silently consumed
-# as a variable override and awk would fall back to reading stdin.
+# Redirection, not a trailing operand: POSIX awk reads an operand containing
+# "=" as a variable assignment, so such a filename would be silently swallowed.

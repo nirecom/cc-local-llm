@@ -8,14 +8,14 @@
 #
 # Skips (exit 77) until scripts/lib/lifecycle.sh exists.
 # TL3 gap (what this test does NOT catch):
-# - whether the real ds4-server binary actually accepts `--batched-session 2` (an unknown option exits 2)
+# - whether the real binary accepts `--batched-session 2` (unknown option = 2)
 # - whether the running launchd LaunchAgent picks up the new flags
-# Closest-to-action mitigation: verified at user_verification via a non-destructive
-# `ds4-server --help`-based flag-acceptance check before commit, and via `ps -o args=`
-# after the post-merge restart.
+# Mitigated at user_verification by a `ds4-server --help` acceptance check, and
+# by `ps -o args=` after the post-merge restart.
 set -u
 
-# REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
+# REPO comes from $0's logical location (no symlink resolution — see
+# test-repo-derivation.sh); export REPO=<path> to use another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 LIFECYCLE="$REPO/scripts/lib/lifecycle.sh"
 
@@ -24,21 +24,20 @@ LIFECYCLE="$REPO/scripts/lib/lifecycle.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
-# Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
-# read; seed it with a stub auth token so the start guard sees a value.
+# Pinned into this test's tmpdir so the real dotenv is never read; the stub
+# token is there so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
 printf 'DS4_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
 trap 'rm -rf "$WORK"' EXIT
 
-# _ds4_cmd server interpolates $HOME (--kv-disk-dir) and $HOST (from
-# DS4_SERVER_HOST, default 127.0.0.1). Pin both so the expected literal below is
-# deterministic; unsetting DS4_SERVER_HOST exercises the default branch.
+# _ds4_cmd server interpolates $HOME and $HOST; both are pinned so the expected
+# literal is deterministic, and unsetting DS4_SERVER_HOST takes the default.
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 unset DS4_SERVER_HOST
 
-# lifecycle.sh starts with `set -eu`, which would leak into this shell if sourced
-# directly — isolate it in a subshell and capture only the command string.
+# lifecycle.sh's `set -eu` would leak into this shell if sourced directly, so
+# it is isolated in a subshell and only the command string is captured.
 CMD="$(bash -c '. "$1"; _ds4_cmd server' _ "$LIFECYCLE")" || fail "_ds4_cmd server exited non-zero"
 
 EXPECT="caffeinate -ism ./ds4-server --metal --quality --ctx 393216 --kv-disk-dir \"$HOME/Library/Caches/ds4-server/kv\" --kv-disk-space-mb 32768 --kv-cache-cold-max-tokens 90000 --kv-cache-continued-interval-tokens 50000 --warm-weights --batched-session 2 --host \"127.0.0.1\""
