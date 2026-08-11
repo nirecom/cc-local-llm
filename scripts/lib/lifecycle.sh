@@ -6,7 +6,7 @@ set -eu
 _ds4_cmd() {
     case "$1" in
         proxy)
-            echo "uv run python -m proxy.server"
+            echo "env PYTHONUNBUFFERED=1 uv run python -m proxy.server"
             ;;
         server)
             HOST="${DS4_SERVER_HOST:-127.0.0.1}"
@@ -16,7 +16,7 @@ _ds4_cmd() {
                     exit 1
                     ;;
             esac
-            echo "caffeinate -ism ./ds4-server --metal --quality --ctx 393216 --kv-disk-dir \"$HOME/Library/Caches/ds4-server/kv\" --kv-disk-space-mb 32768 --kv-cache-cold-max-tokens 90000 --kv-cache-continued-interval-tokens 25000 --warm-weights --host \"$HOST\""
+            echo "caffeinate -ism ./ds4-server --metal --quality --ctx 393216 --kv-disk-dir \"$HOME/Library/Caches/ds4-server/kv\" --kv-disk-space-mb 32768 --kv-cache-cold-max-tokens 90000 --kv-cache-continued-interval-tokens 50000 --warm-weights --batched-session 2 --host \"$HOST\""
             ;;
     esac
 }

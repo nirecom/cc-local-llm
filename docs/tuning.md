@@ -14,8 +14,9 @@ incidents that produced these values in [history.md](history.md).
 | `--kv-disk-dir` | `~/Library/Caches/ds4-server/kv` | Persistent + Time Machine-excluded by macOS default. `/tmp` was rejected (non-persistent, and TM-*included* → would back up 100s of GB). Same SSD volume, so no speed loss. |
 | `--kv-disk-space-mb` | `32768` | 32 GB cap: skips pathologically large single checkpoints and bounds eviction. Not a total-write cap (eviction deletes, so churn can still exceed it). Lowered back from 64 GB (2026-07-13) — header analysis of the live cache showed only 34 total hits across 52 files, 68% of bytes never reused; the 2026-07-11 raise to 64 GB likely masked a gap in the eviction score (`(effective_hits+1) × tokens/file_size`, half-life-decayed) rather than fixing a real capacity shortfall — a brand-new unhit checkpoint scores identically to an ancient unhit one, so the larger budget mainly let dead sessions linger. Rolled back pending real `kv cache evicted`/`kv cache hit` log evidence (now persisted to `~/Library/Logs/ds4-server/kvcache.log`, see `scripts/ds4-server.sh`) on whether a live session's checkpoint is ever evicted prematurely at this budget. |
 | `--kv-cache-cold-max-tokens` | `90000` | Largest single cold-save snapshot; big enough to cache a typical CC initial context in one write, below `--ctx`. |
-| `--kv-cache-continued-interval-tokens` | `25000` | **The write-amplification lever.** Each continued checkpoint rewrites the whole live prefix (not a delta), doubled f16→f32. The default 10000 caused a 137 GB write storm; 25000 more than halved the churn. |
+| `--kv-cache-continued-interval-tokens` | `50000` | **The write-amplification lever.** Each continued checkpoint rewrites the whole live prefix (not a delta), doubled f16→f32. The default 10000 caused a 137 GB write storm; 25000 more than halved the churn. Doubled again to 50000 on 2026-08-10 (#34): over the 0713–0811 window `reason=continued` was still 317 writes / 325.94 GiB, 37% of all KV disk writes. Note the reduction is **not** linear — a longer interval means each individual checkpoint is larger, so halving the checkpoint count does not halve the bytes. |
 | `--warm-weights` | on | Page in the whole model at startup. RSS ~90.9 GB is expected, not a leak. |
+| `--batched-session` | `2` | **Number of resident KV sessions.** With a single live KV slot, the main conversation, sub-agents and one-off small prompts evict each other's prefix every time they interleave. Over the 0713–0811 window every one of the 548 live-cache misses was `token-mismatch`, and 55% of them shared under 1000 tokens of common prefix — i.e. the slot had been handed to an unrelated request. That eviction is also what produced `reason=evict` 475.00 GiB, 54% of all KV disk writes. So the single slot is the **common cause** of both the 30.7 hours of cold prefill and the bulk of the disk churn, which is why it is attacked first. Started at N=2 rather than N=3 because the premise for sizing N — "~1.3 GB per KV session" — is a derived figure that has never been measured (#34); confirm real RSS before deciding on N=3. |
 | `--host 127.0.0.1` | — | Loopback only; the proxy (scripts/ds4-proxy.sh) is the LAN endpoint. |
 
 ## Memory budget (128 GB)
@@ -29,6 +30,11 @@ Weights ~90.9 GB resident; KV grows lazily as a session fills (startup RSS ≈ w
 
 393216 fits comfortably as a dedicated server. `1M` ctx (~26 GB KV → ~117 GB peak) is too
 much — do not.
+
+The peak RSS figures above assume **one** resident KV session. With `--batched-session 2` a
+second resident session's KV can add on top, so the real headroom is smaller than the table
+says. The numbers are left unchanged until the actual RSS under N=2 is measured — update this
+section once that measurement exists rather than substituting an estimate.
 
 ## Thinking control
 
