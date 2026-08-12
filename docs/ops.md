@@ -250,8 +250,19 @@ After changing `DS4_LOG` in `.env`, run `ds4ctl install all` to regenerate the p
 
 **Stopping a launchd-managed service**: `ds4ctl stop` will refuse with an error when the
 service is launchd-managed (KeepAlive would restart it immediately anyway). Use
-`ds4ctl uninstall <svc>` to stop and disable auto-start. To restart a launchd-managed
-service: `ds4ctl uninstall <svc>` then `ds4ctl install <svc>`.
+`ds4ctl uninstall <svc>` to stop and disable auto-start.
+
+**Restarting a launchd-managed service**: `ds4ctl install <svc>` on its own is the restart —
+`ds4_install()` (`scripts/lib/launchd.sh`) runs `_ds4_write_plist` → `launchctl unload` →
+`launchctl load -w` in sequence. Do **not** do `uninstall` then `install`: the two-step form
+only opens a window in which no LaunchAgent exists, and buys nothing.
+
+**Run `install` from the checkout the plist should point at.** `_ds4_write_plist` bakes the
+absolute path `$DS4_OPS_ROOT/scripts/ds4-<svc>.sh` into `ProgramArguments`, and
+`DS4_OPS_ROOT` is derived by `scripts/lib/root.sh` from the parent directory of the script
+that was actually executed. Installing from a throwaway checkout (a git worktree, say) leaves
+the LaunchAgent pointing at a path that disappears when that checkout is removed, and the
+service then fails to start. Always run it from the everyday checkout (`~/git/cc-local-llm`).
 
 **start vs stop asymmetry**: when launchd manages a service, `ds4ctl start` is a silent
 no-op (informational — launchd's KeepAlive is already running it), while `ds4ctl stop`
@@ -340,6 +351,21 @@ returns `400 context_length_exceeded`.
 | Memory pressure / swap | `sysctl vm.swapusage` |
 | Thinking on/off per request | grep the server log for `THINKING` in the `chat ...` lines |
 | Process alive / one instance | `pgrep -fl ds4-server` |
+| KV cache report (long-prefill counts, cache-miss prefix distribution, per-reason write volume) | `~/git/cc-local-llm/scripts/kvcache-report.sh` |
+
+The report reads `~/Library/Logs/ds4-server/kvcache.log` and takes `--since` / `--until` to
+restrict the window. A SPEC is a timestamp with 4, 8 or 10 digits once separators are removed
+(`0801`, `"08-01"`, `"0801 12:00"`, `0801120000`); `--since` pads the missing part with
+`00:00:00` and `--until` with `23:59:59`. The log carries no year, so these are the only way
+to split a window — the file is appended across restarts and is never rotated on restart.
+
+The output is deterministic for a given input range, so a before/after comparison is just a
+`diff` of two runs:
+```sh
+~/git/cc-local-llm/scripts/kvcache-report.sh --until "0811 07:21:29" > /tmp/before.txt
+~/git/cc-local-llm/scripts/kvcache-report.sh --since "0811 07:21:29" > /tmp/after.txt
+diff /tmp/before.txt /tmp/after.txt
+```
 
 ## Recovery
 
