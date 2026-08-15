@@ -30,7 +30,11 @@ fi
 
 echo "Installing litellm (proxy extra)..."
 # The proxy extra is what provides the `litellm --config ...` server entrypoint.
-if ! uv tool install "litellm[proxy]"; then
+# litellm's own fastapi constraint (>=0.136.3,<1.0) is too loose: fastapi 0.140.7
+# removed the internal get_flat_dependant() that litellm's proxy code still
+# imports, breaking `litellm --version` / server startup. Pin below that until
+# litellm ships a release compatible with newer fastapi.
+if ! uv tool install --with "fastapi<0.140.7" "litellm[proxy]"; then
     printf "${C_YELLOW}litellm installation failed.${C_RESET}\n" >&2
     exit 1
 fi
