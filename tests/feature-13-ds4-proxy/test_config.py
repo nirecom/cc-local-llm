@@ -10,6 +10,8 @@
 #
 # L3 gap: none (pure function, no I/O beyond os.environ)
 
+import pytest
+
 from proxy.config import load_config
 
 
@@ -35,3 +37,94 @@ def test_load_config_upstream_override_is_honored(monkeypatch):
     config = load_config()
 
     assert config.upstream == "http://127.0.0.1:8000"
+
+
+# ===========================================================================
+# DS4_PROXY_TLS / DS4_PROXY_HOST (issue #41 / detail plan D4, D4a)
+#
+# The proxy becomes a loopback plaintext hop in the final topology, but the
+# demotion must be a reversible .env toggle, not a code change: during the
+# cutover the old Windows LiteLLM still connects over HTTPS. The shipped code
+# default therefore stays TLS ON / bind 0.0.0.0 — asserted here so a
+# well-meaning "we're plaintext now" change cannot silently break the cutover.
+#
+# Every case pins the variable explicitly (config-dependent branch): the
+# developer's ambient .env must never decide the verdict.
+# ===========================================================================
+
+_TLS_HOST_VARS = ("DS4_PROXY_TLS", "DS4_PROXY_HOST")
+
+
+def _clear(monkeypatch):
+    for name in _TLS_HOST_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DS4_PROXY_AUTH_TOKEN", "test-token")
+
+
+def test_tls_defaults_to_on_when_unset(monkeypatch):
+    _clear(monkeypatch)
+
+    assert load_config().tls is True
+
+
+@pytest.mark.parametrize("value", ["on", "ON", "On"])
+def test_tls_explicit_on_is_honored(monkeypatch, value):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_TLS", value)
+
+    assert load_config().tls is True
+
+
+def test_tls_off_is_honored(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_TLS", "off")
+
+    assert load_config().tls is False
+
+
+@pytest.mark.parametrize(
+    "value", ["", "0", "false", "no", "yes", "true", "1", "onn"]
+)
+def test_tls_non_off_values_fail_safe_to_on(monkeypatch, value):
+    """Anything that is not the literal "off" must keep TLS enabled.
+
+    Fail-safe direction: a typo'd DS4_PROXY_TLS must never silently expose a
+    plaintext listener on 0.0.0.0.
+    """
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_TLS", value)
+
+    assert load_config().tls is True
+
+
+def test_host_defaults_to_all_interfaces(monkeypatch):
+    _clear(monkeypatch)
+
+    assert load_config().host == "0.0.0.0"
+
+
+def test_host_override_is_honored(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_HOST", "127.0.0.1")
+
+    assert load_config().host == "127.0.0.1"
+
+
+def test_tls_and_host_are_independent_toggles(monkeypatch):
+    """The final topology sets both at once; neither may imply the other.
+
+    D4a's four-variable simultaneous switch is an operational procedure, not a
+    code coupling — a config that derived host from tls would make the
+    documented partial-switch failure impossible to reproduce.
+    """
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_TLS", "off")
+    config = load_config()
+    assert config.tls is False
+    assert config.host == "0.0.0.0"
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("DS4_PROXY_HOST", "127.0.0.1")
+    config = load_config()
+    assert config.tls is True
+    assert config.host == "127.0.0.1"

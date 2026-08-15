@@ -89,57 +89,55 @@ Read by `scripts/ds4-proxy.sh` (from the repo-root `.env`). Design: [architectur
 | Var | Value | Why |
 |---|---|---|
 | `DS4_PROXY_PORT` | `8443` (default) | HTTPS listen port. Must match the port in the client's `ANTHROPIC_BASE_URL`. |
-| `DS4_PROXY_UPSTREAM` | `http://127.0.0.1:8000` (default) | The ds4 backend the proxy forwards to. |
-| `DS4_PROXY_AUTH_TOKEN` | required | Token every client request must present; must match the client's `CCGW_API_KEY`. The proxy refuses to start if unset. |
-| `DS4_PROXY_CERT` / `DS4_PROXY_KEY` | `~/.config/ds4-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. |
-| `DS4_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. |
+| `DS4_PROXY_UPSTREAM` | `http://127.0.0.1:18080` (default) | Mac llama-swap, which routes by model name to ds4-server or Laguna. An origin with no path — the incoming path is appended verbatim. |
+| `DS4_PROXY_AUTH_TOKEN` | required | Token every request reaching the proxy must present; must match the gateway's `LITELLM_DS4_PROXY_API_KEY`. The proxy refuses to start if unset. |
+| `DS4_PROXY_TLS` | `on` (default) / `off` | Whether the proxy terminates TLS. Only the literal `off` disables it, so a typo fails towards an encrypted listener. Must be switched together with `DS4_PROXY_HOST`, `LITELLM_DS4_PROXY_URL` and `SSL_CERT_FILE`. |
+| `DS4_PROXY_HOST` | `0.0.0.0` (default) | Bind address. `127.0.0.1` restricts the proxy to gateways on this Mac. Authentication is required either way. |
+| `DS4_PROXY_CERT` / `DS4_PROXY_KEY` | `~/.config/ds4-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. Unused while `DS4_PROXY_TLS=off`. |
+| `DS4_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. The filename carries the body shape (`anthropic` / `openai`). |
 | `DS4_PROXY_LOG_DIR` | `~/Library/Caches/ds4-proxy/log` (default) | Where tee logs are written when `DS4_PROXY_TEE=on`. |
 
 ### LiteLLM env vars
 
-Read by the LiteLLM container (passed through from `.env` via the compose file).
-Designed in `litellm-client/config.yaml`. The `model_name` fields use `os.environ/` pattern;
-the `litellm_params.model` values are hardcoded backend model names (env vars cannot
-be embedded after a provider prefix). Defaults are documented here but are NOT
-embedded in config.yaml; they are set in `.env.example` and resolved at container
-startup.
+Read by the native LiteLLM process on the Mac, started by `serverctl.sh start litellm`.
+Designed in `litellm-server/config.yaml`. The `model_name` fields use the `os.environ/` pattern;
+the `litellm_params.model` values are hardcoded backend model names (env vars cannot be embedded
+after a provider prefix). Defaults are documented here but are NOT embedded in config.yaml; they
+are set in `.env.example` and resolved at process startup.
 
 | Var | Default | Why |
 |-----|---------|-----|
-| `LITELLM_MASTER_KEY` | (required) | Master key for LiteLLM admin API and virtual key generation. Generate with `openssl rand -hex 32`. Never expose to clients. |
-| `LITELLM_PORT` | `8445` | HTTPS listen port. Must match the port in `ANTHROPIC_BASE_URL` when routing through LiteLLM. |
-| `LITELLM_TLS_DIR` | (required) | Directory containing `cert.pem` and `key.pem` (mkcert-issued). Mounted into the container at `/app/certs`. No default -- user must set this in `.env`. |
-| `LITELLM_CA_CERT_FILE` | (required for Opus) | Path to mkcert root CA `.pem` file. Mounted into the container so LiteLLM trusts the DS4 Proxy TLS cert. Same root CA as `CCGW_CA_CERT`. |
-| `LITELLM_DB_URL` | `postgresql://litellm:litellm@postgres:5432/litellm` | Database URL for virtual key persistence. PostgreSQL via bundled postgres service. Leave unset to use the compose default. |
-| `LITELLM_CONFIG_DIR` | `C:\git\cc-local-llm\litellm-client` | Config directory containing `config.yaml`. Renamed from `litellm\` -- an existing `.env` still pointing at the old path breaks the container's config mount. |
-| `LITELLM_LLAMASWAP_URL` | `http://host.docker.internal:18080/v1` | llama-swap endpoint on this PC, shared by both Haiku and Sonnet tiers. Sole backend for these tiers -- no fallback. |
-| `LITELLM_OPUS_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy endpoint for Opus tier. Uses <mac-host>'s LAN IP directly -- NOT host.docker.internal. |
-| `LITELLM_OPUS_API_KEY` | `dsv4-local` | API key sent to DS4 Proxy for Opus route. Must match `CCGW_API_KEY`. |
-| `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
-| `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for Sonnet tier. Claude Code sends this value as the model name; LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
+| `LITELLM_MASTER_KEY` | (required) | The gateway's credential. With no database there are no virtual keys, so clients present this same value as `LITELLM_CLIENT_KEY`. Generate with `/create-key`. |
+| `LITELLM_HOST` | `0.0.0.0` | Bind address. `127.0.0.1` restricts the gateway to this Mac. |
+| `LITELLM_PORT` | `8445` | HTTPS listen port. Must match the port in `LITELLM_ANTHROPIC_BASE_URL`. |
+| `LITELLM_TLS` | `on` | Whether the gateway terminates TLS. Clients verify against `CCGW_CA_CERT`, so `off` is only usable from this Mac. |
+| `LITELLM_TLS_CERT` / `LITELLM_TLS_KEY` | (required while `LITELLM_TLS=on`) | mkcert-issued leaf cert/key the gateway serves. The start guard refuses to launch when either is missing. |
+| `SSL_CERT_FILE` | (required while the proxy or llama-swap hop is HTTPS) | Root CA the gateway trusts when connecting to the DS4 Proxy and to the Windows PC's Caddy TLS front — both are signed by the same mkcert root CA. Absolute path — tilde is not expanded. |
+| `LITELLM_DS4_PROXY_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy origin for the Fable and Opus tiers. No path component: the proxy appends the incoming path verbatim. |
+| `LITELLM_DS4_PROXY_API_KEY` | (required) | Credential the gateway presents to the DS4 Proxy. Must match `DS4_PROXY_AUTH_TOKEN`. |
+| `LITELLM_LLAMASWAP_URL` | `https://<windows-lan-ip>:8443/v1` | Windows PC endpoint shared by the Haiku and Sonnet tiers: the host's Caddy TLS front, which reverse-proxies to llama-swap's loopback-only `:18080`. Sole backend for these tiers — no fallback. Its certificate is verified against `SSL_CERT_FILE`; the hop carries no auth key. The only endpoint here carrying a `/v1` suffix, because it addresses a host directly rather than through the DS4 Proxy. |
+| `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
+| `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for the Sonnet tier. LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
 | `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
 | `LITELLM_OPUS_MODEL` | `laguna-s-2.1` | Model routing key for the Opus tier — Laguna S 2.1 on the Mac. The two Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches between them. |
-| `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.ps1. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
-| `LITELLM_VIRTUAL_KEY` | (required for client) | Scoped virtual key for client authentication with LiteLLM. Generated from a random key (not the master key). |
+| `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct DS4 Proxy route is retired, so the launcher exits when this is unset. |
+| `LITELLM_CLIENT_KEY` | (required for client) | Credential the launcher presents to the gateway. Same value as `LITELLM_MASTER_KEY`. `LITELLM_VIRTUAL_KEY` is accepted for one release as a deprecated alias, with a warning. |
+| `CCGW_SUBAGENT_MODEL` | (empty) | Pins every subagent to one routing key. Empty — the default — lets each agent's frontmatter decide. |
 
-### Client env vars update
+### Client env vars
 
-The `ANTHROPIC_BASE_URL` now points at LiteLLM (`https://<windows-host>:8445`) rather than
-directly at DS4 Proxy when `LITELLM_ANTHROPIC_BASE_URL` is set. The model alias vars use
-conditional logic: when `LITELLM_ANTHROPIC_BASE_URL` is set they take the `LITELLM_*_MODEL`
-routing keys; otherwise they name the Mac backends directly, since the swap layer routes on
-the model name itself and DS4 Proxy would not recognise a LiteLLM routing key.
-
-Tier assignment on both paths:
+`ANTHROPIC_BASE_URL` points at the gateway (`https://<mac-lan-ip>:8445`); there is no second
+path. The per-tier alias vars take the `LITELLM_*_MODEL` routing keys verbatim — the launchers
+own no backend names, so an unknown key surfaces as a 400 from the gateway rather than as a
+guess made client-side.
 
 | Tier | Backend |
 |---|---|
-| Fable | ds4 (`deepseek-v4-flash`) |
-| Opus | Laguna S 2.1 (`laguna-s-2.1`) |
-| Sonnet / Haiku | LiteLLM path: the Windows PC's own smaller models. Direct path: ds4 — the Mac hosts nothing smaller. |
+| Fable | ds4 (`deepseek-v4-flash`), Mac |
+| Opus | Laguna S 2.1 (`laguna-s-2.1`), Mac |
+| Sonnet | Qwen3-Coder-30B-A3B, Windows llama-swap |
+| Haiku | Devstral-Small-2-24B, Windows llama-swap |
 
-`CLAUDE_CODE_SUBAGENT_MODEL` is set by the launchers, not by `.env`, and points subagents at
-whichever backend is resident: the Fable routing key on the LiteLLM path, `CCGW_DEFAULT_MODEL`
-on the direct path. It deliberately does not follow Opus — the two Mac backends cannot be
-resident at once, so a subagent on the other backend would evict the model the main session
-is using.
+`CLAUDE_CODE_SUBAGENT_MODEL` is no longer set unconditionally. The gateway multiplexes across
+four backends, so pinning subagents to the resident Mac model bought nothing and silently
+overrode the model an agent definition asks for. Set `CCGW_SUBAGENT_MODEL` to opt back in.

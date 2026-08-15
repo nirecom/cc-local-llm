@@ -3,6 +3,44 @@
 # Sourced by serverctl.sh after launchd.sh (source order matters).
 set -eu
 
+# Everything _ds4_cmd prints is handed to `eval` by ds4_exec, so a value that
+# carries a double quote or a shell metacharacter escapes its quoted argument
+# and is executed as code. Every value sourced from .env is therefore screened
+# against a charset allowlist before it is interpolated into the command
+# string — refusing here, by name, beats debugging an injected command later.
+_ds4_check_hostport() {
+    case "$2" in
+        *[!0-9a-zA-Z:.%-]*)
+            echo "[serverctl] invalid $1 value (allowed chars: 0-9 a-z A-Z : . % -)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+_ds4_check_path() {
+    case "$2" in
+        *[!0-9a-zA-Z/._-]*)
+            echo "[serverctl] invalid $1 value (allowed chars: 0-9 a-z A-Z / . _ -)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Fail-closed TLS toggle, mirroring proxy/config.py's DS4_PROXY_TLS handling:
+# only an explicit, case-insensitive "off" (surrounding whitespace ignored)
+# disables TLS. A typo such as "ON" or "0" must never silently drop the gateway
+# to plaintext on a LAN-visible bind.
+_ds4_litellm_tls_enabled() {
+    _tls="${LITELLM_TLS:-on}"
+    # POSIX sh has no trim builtin; strip leading then trailing whitespace.
+    _tls="${_tls#"${_tls%%[![:space:]]*}"}"
+    _tls="${_tls%"${_tls##*[![:space:]]}"}"
+    case "$_tls" in
+        [Oo][Ff][Ff]) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 _ds4_cmd() {
     case "$1" in
         proxy)
@@ -10,16 +48,32 @@ _ds4_cmd() {
             ;;
         server)
             HOST="${DS4_SERVER_HOST:-127.0.0.1}"
-            case "$HOST" in
-                *[!0-9a-zA-Z:.%-]*)
-                    echo "[serverctl] invalid DS4_SERVER_HOST value (allowed chars: 0-9 a-z A-Z : . %)" >&2
-                    exit 1
-                    ;;
-            esac
+            _ds4_check_hostport DS4_SERVER_HOST "$HOST"
             echo "caffeinate -ism ./ds4-server --metal --quality --ctx 393216 --kv-disk-dir \"$HOME/Library/Caches/ds4-server/kv\" --kv-disk-space-mb 32768 --kv-cache-cold-max-tokens 90000 --kv-cache-continued-interval-tokens 50000 --warm-weights --batched-session 2 --host \"$HOST\""
             ;;
         llama-swap)
-            echo "llama-swap -config \"$LLAMA_SWAP_ROOT/config.yaml\" -listen \"${LLAMA_SWAP_HOST:-127.0.0.1}:${LLAMA_SWAP_PORT:-18080}\""
+            _host="${LLAMA_SWAP_HOST:-127.0.0.1}"
+            _port="${LLAMA_SWAP_PORT:-18080}"
+            _ds4_check_path LLAMA_SWAP_ROOT "$LLAMA_SWAP_ROOT"
+            _ds4_check_hostport LLAMA_SWAP_HOST "$_host"
+            _ds4_check_hostport LLAMA_SWAP_PORT "$_port"
+            echo "llama-swap -config \"$LLAMA_SWAP_ROOT/config.yaml\" -listen \"$_host:$_port\""
+            ;;
+        litellm)
+            _host="${LITELLM_HOST:-0.0.0.0}"
+            _port="${LITELLM_PORT:-8445}"
+            _ds4_check_path LITELLM_ROOT "$LITELLM_ROOT"
+            _ds4_check_hostport LITELLM_HOST "$_host"
+            _ds4_check_hostport LITELLM_PORT "$_port"
+            _cmd="litellm --config \"$LITELLM_ROOT/config.yaml\" --host \"$_host\" --port \"$_port\""
+            if _ds4_litellm_tls_enabled; then
+                _cert="${LITELLM_TLS_CERT:-}"
+                _key="${LITELLM_TLS_KEY:-}"
+                _ds4_check_path LITELLM_TLS_CERT "$_cert"
+                _ds4_check_path LITELLM_TLS_KEY "$_key"
+                _cmd="$_cmd --ssl_certfile_path \"$_cert\" --ssl_keyfile_path \"$_key\""
+            fi
+            echo "$_cmd"
             ;;
     esac
 }
@@ -29,7 +83,41 @@ _ds4_cwd() {
         proxy)      echo "$DS4_OPS_ROOT" ;;
         server)     echo "$DS4_SERVER_ROOT" ;;
         llama-swap) echo "$LLAMA_SWAP_ROOT" ;;
+        litellm)    echo "$LITELLM_ROOT" ;;
     esac
+}
+
+# Required configuration for a service, checked before anything is launched.
+# A LaunchAgent has KeepAlive set, so a service that starts and then dies on a
+# missing credential respawns forever and buries the cause in its log; refusing
+# here names the variable once, on stderr, when the user asked for the start.
+_ds4_check_config() {
+    case "$1" in
+        proxy)
+            if [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
+                echo "[ds4-proxy] DS4_PROXY_AUTH_TOKEN is not set in .env — refusing to start" >&2
+                return 1
+            fi
+            ;;
+        litellm)
+            _bad=0
+            if [ -z "${LITELLM_MASTER_KEY:-}" ]; then
+                echo "[litellm] LITELLM_MASTER_KEY is not set in .env — refusing to start" >&2
+                _bad=1
+            fi
+            if [ -z "${LITELLM_DS4_PROXY_URL:-}" ]; then
+                echo "[litellm] LITELLM_DS4_PROXY_URL is not set in .env — refusing to start" >&2
+                _bad=1
+            fi
+            if _ds4_litellm_tls_enabled &&
+               { [ -z "${LITELLM_TLS_CERT:-}" ] || [ -z "${LITELLM_TLS_KEY:-}" ]; }; then
+                echo "[litellm] LITELLM_TLS is on but LITELLM_TLS_CERT / LITELLM_TLS_KEY is not set in .env — refusing to start" >&2
+                _bad=1
+            fi
+            [ "$_bad" = "0" ] || return 1
+            ;;
+    esac
+    return 0
 }
 
 _ds4_running() {
@@ -48,10 +136,7 @@ _ds4_running() {
 
 ds4_exec() {
     _svc="$1"
-    if [ "$_svc" = "proxy" ] && [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
-        echo "[ds4-proxy] DS4_PROXY_AUTH_TOKEN is not set in .env — refusing to start" >&2
-        exit 1
-    fi
+    _ds4_check_config "$_svc" || exit 1
     mkdir -p "$(_ds4_log_dir "$_svc")"
     _logfile="$(_ds4_log_file "$_svc")"
     _cmd="$(_ds4_cmd "$_svc")"
@@ -91,10 +176,7 @@ ds4_start() {
         echo "[serverctl] $_svc already running (untracked)"
         return 0
     fi
-    if [ "$_svc" = "proxy" ] && [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
-        echo "[ds4-proxy] DS4_PROXY_AUTH_TOKEN is not set in .env — refusing to start" >&2
-        exit 1
-    fi
+    _ds4_check_config "$_svc" || exit 1
     mkdir -p "$DS4_RUN_DIR"
     mkdir -p "$(_ds4_log_dir "$_svc")"
     _logfile="$(_ds4_log_file "$_svc")"
@@ -106,6 +188,10 @@ ds4_start() {
     fi
     echo $! > "$_pid_file"
     _started_pid=$(cat "$_pid_file")
+    # The `&` fork returns before the child has exec'd the service, so anything
+    # that inspects the log or the process table right after `start` (including
+    # the next service in an `all` loop) would otherwise race the launch.
+    sleep 0.5
     echo "[serverctl] started $_svc (pid $_started_pid)"
 }
 
@@ -167,7 +253,7 @@ ds4_logs() {
     fi
     if [ "$_svc" = "all" ]; then
         _files=""
-        for _s in proxy llama-swap; do
+        for _s in proxy llama-swap litellm; do
             _f="$(_ds4_log_file "$_s")"
             [ -f "$_f" ] && _files="$_files $_f"
         done
