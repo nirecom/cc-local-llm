@@ -18,6 +18,10 @@ $RepoRoot = $PSScriptRoot
 Write-Host "=== cc-local-llm installer (Windows, client) ===" -ForegroundColor Cyan
 
 Write-Host ""
+Write-Host "--- Retiring obsolete Windows-side LiteLLM artifacts ---"
+& "$RepoRoot\install\win\uninstall-obsolete.ps1"
+
+Write-Host ""
 Write-Host "--- Installing mkcert ---"
 & "$RepoRoot\install\win\mkcert.ps1"
 
