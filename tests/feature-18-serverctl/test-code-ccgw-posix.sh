@@ -2,13 +2,24 @@
 # Tests: scripts/code-ccgw.sh
 # Tags: lifecycle, client-launcher, scope:issue-specific
 #
-# Scenario: the POSIX client launcher (macOS/Linux counterpart of
-# scripts/code-ccgw.ps1) — base-URL / auth-token / TLS-CA precedence chains, the
-# mutually-exclusive model-selection branch (LiteLLM routing keys vs the direct
-# DS4-Proxy path), the per-tier map that puts the two Mac backends on separate
-# /model tiers with subagents pinned to the ds4/fable tier, CCGW_DEFAULT_MODEL
-# picking which backend is resident at startup, per-OS VS Code --user-data-dir
-# isolation, and the missing-`code` error.
+# Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
+# retired, so the POSIX client launcher (macOS/Linux counterpart of
+# scripts/code-ccgw.ps1) has exactly ONE path — through the Mac LiteLLM.
+#
+# Why the precedence chains had to go, rather than merely being re-pointed:
+# keeping a direct fallback would split the credential a client holds into two
+# systems (a LiteLLM key and a proxy token), which defeats the TLS termination
+# this change consolidates. With a single source there is nothing to fall back
+# to, so an unconfigured base URL / key is an error, never a dummy default —
+# a dummy default is what turns a misconfiguration into a confusing 401 much
+# later, at request time.
+#
+# What this covers: the single-source base URL and its exit-1 on absence, the
+# LITELLM_CLIENT_KEY credential with LITELLM_VIRTUAL_KEY accepted for one
+# deprecation cycle (with a warning), the retained CCGW_CA_CERT + mkcert
+# derivation, the unconditional LITELLM_*_MODEL tier assignment, the new
+# subagent contract, per-OS VS Code --user-data-dir isolation, and the
+# missing-`code` error.
 #
 # Method: `code` is stubbed on PATH with a script that dumps its inherited env
 # and argv to files, so every assertion is made against the environment the
@@ -17,10 +28,10 @@
 # runs under `env -i`, so an ambient LITELLM_*/CCGW_*/DS4_* value in the
 # developer's shell can never satisfy an assertion by accident.
 #
-# L3 gap: real VS Code startup and profile creation under the derived
+# TL3 gap: real VS Code startup and profile creation under the derived
 #   --user-data-dir; a real mkcert CA actually being trusted by Node's TLS
-#   stack; genuine end-to-end routing of the selected model through the Mac
-#   swap layer (llama-swap) to a loaded backend.
+#   stack; genuine end-to-end routing of the selected routing key through
+#   LiteLLM to a loaded backend.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -119,56 +130,86 @@ assert_no_ca_warning() { # assert_no_ca_warning <context>
 
 # The four /model tiers Claude Code switches between.
 TIER_VARS="ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL"
-# The vars that name the model in play at startup (main session + subagents).
-ACTIVE_VARS="ANTHROPIC_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION CLAUDE_CODE_SUBAGENT_MODEL"
-MODEL_VARS="$TIER_VARS $ACTIVE_VARS"
+# The vars that name the model in play at startup. CLAUDE_CODE_SUBAGENT_MODEL
+# is deliberately NOT here any more: it is now opt-in (section 4d).
+ACTIVE_VARS="ANTHROPIC_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION"
+MODEL_VARS="$TIER_VARS $ACTIVE_VARS CLAUDE_CODE_SUBAGENT_MODEL"
 
-# --- 1. Base URL precedence --------------------------------------------------
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 CCGW_ANTHROPIC_BASE_URL=https://ccgw:2 DS4_ANTHROPIC_BASE_URL=https://ds4:3
-[ "$RC" -eq 0 ] || fail "base-url/all-three: exited $RC: $(cat "$WORK/err")"
-assert_env ANTHROPIC_BASE_URL https://lite:1 "base-url: LITELLM must win over CCGW and DS4"
+# --- Retired variable names --------------------------------------------------
+# The cases that prove a retired variable no longer configures anything need
+# its exact spelling, but those spellings are banned repo-wide by
+# tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring
+# match over every tracked file — this one included. The names are therefore
+# assembled at runtime instead of appearing as literals. The cases themselves
+# must stay: a stale .env still carrying them is precisely the situation where
+# a surviving fallback would silently route around the new single path.
+R_BASE_DS4="DS4_ANTHROPIC""_BASE_URL"
+R_BASE_CCGW="CCGW_ANTHROPIC""_BASE_URL"
+R_KEY_DS4="DS4_API""_KEY"
+R_KEY_CCGW="CCGW_API""_KEY"
+R_CA_DS4="DS4_CA""_CERT"
+R_DEFAULT_MODEL="CCGW_DEFAULT""_MODEL"
 
-run_launcher CCGW_ANTHROPIC_BASE_URL=https://ccgw:2 DS4_ANTHROPIC_BASE_URL=https://ds4:3
-assert_env ANTHROPIC_BASE_URL https://ccgw:2 "base-url: CCGW must win over DS4"
+# --- 1. Base URL: single source, hard failure when absent --------------------
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
+[ "$RC" -eq 0 ] || fail "base-url/configured: exited $RC: $(cat "$WORK/err")"
+assert_env ANTHROPIC_BASE_URL https://lite:1 "base-url: LITELLM_ANTHROPIC_BASE_URL is the only source"
 
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
-assert_env ANTHROPIC_BASE_URL https://ds4:3 "base-url: DS4 is the last named source"
+# The retired sources must not be honored — a stale .env carrying them is
+# exactly the situation where a silent fallback would send traffic down the
+# route this change removed.
+run_launcher "$R_BASE_CCGW=https://ccgw:2" "$R_BASE_DS4=https://ds4:3" LITELLM_CLIENT_KEY=ck
+[ "$RC" -ne 0 ] || fail "base-url/retired-only: exited 0; CCGW_/DS4_ base URLs are retired and must not configure the launcher"
 
-run_launcher
-assert_env ANTHROPIC_BASE_URL https://localhost:8443 "base-url: unset falls back to loopback"
-assert_stderr 'WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor CCGW_ANTHROPIC_BASE_URL set' "base-url: unset must warn"
+run_launcher LITELLM_CLIENT_KEY=ck
+[ "$RC" -ne 0 ] || fail "base-url/unset: exited 0; an unset base URL must be a hard failure, not a dummy default"
+assert_stderr 'LITELLM_ANTHROPIC_BASE_URL' "base-url/unset: the error must name the variable to set"
+assert_stderr 'docs/ops.md' "base-url/unset: the error must point at the setup procedure"
 
-# An empty (but defined) value must not be treated as configured — `-n` semantics,
+# An empty (but defined) value must not count as configured — `-n` semantics,
 # unlike the retired .cmd's `if defined`, which would accept an empty string.
 # The .ps1 port matches this `-n` behaviour via its Get-EnvOrNull helper.
-run_launcher LITELLM_ANTHROPIC_BASE_URL= CCGW_ANTHROPIC_BASE_URL=https://ccgw:2
-assert_env ANTHROPIC_BASE_URL https://ccgw:2 "base-url: empty LITELLM value must fall through to CCGW"
+run_launcher LITELLM_ANTHROPIC_BASE_URL= LITELLM_CLIENT_KEY=ck
+[ "$RC" -ne 0 ] || fail "base-url/empty: an empty LITELLM_ANTHROPIC_BASE_URL must be treated as unset"
 
-# --- 2. Auth token precedence ------------------------------------------------
-run_launcher LITELLM_VIRTUAL_KEY=vk CCGW_API_KEY=ck DS4_API_KEY=dk
-assert_env ANTHROPIC_AUTH_TOKEN vk "auth: LITELLM_VIRTUAL_KEY must win"
+# --- 2. Auth token: LITELLM_CLIENT_KEY, with a one-cycle deprecated alias ----
+# No virtual keys exist without a LiteLLM database, so the client credential is
+# the master key itself; LITELLM_VIRTUAL_KEY survives one cycle because an
+# existing .env carrying only the old name would otherwise 401 with no clue.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
+assert_env ANTHROPIC_AUTH_TOKEN ck "auth: LITELLM_CLIENT_KEY is the credential"
+! grep -qi 'deprecat' "$WORK/err" || fail "auth/current-name: warned about deprecation even though the current name was used: $(cat "$WORK/err")"
 
-run_launcher CCGW_API_KEY=ck DS4_API_KEY=dk
-assert_env ANTHROPIC_AUTH_TOKEN ck "auth: CCGW_API_KEY must win over DS4_API_KEY"
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_VIRTUAL_KEY=vk
+assert_env ANTHROPIC_AUTH_TOKEN vk "auth: the deprecated alias is still accepted for one cycle"
+assert_stderr 'LITELLM_VIRTUAL_KEY' "auth/alias: using the deprecated name must warn"
+assert_stderr 'LITELLM_CLIENT_KEY' "auth/alias: the warning must name the replacement"
 
-run_launcher DS4_API_KEY=dk
-assert_env ANTHROPIC_AUTH_TOKEN dk "auth: DS4_API_KEY is the last named source"
+# Both set: the current name wins, so a half-migrated .env behaves predictably.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck LITELLM_VIRTUAL_KEY=vk
+assert_env ANTHROPIC_AUTH_TOKEN ck "auth: LITELLM_CLIENT_KEY must win over the deprecated alias"
 
-run_launcher
-assert_env ANTHROPIC_AUTH_TOKEN dsv4-local "auth: unset falls back to the shared local token"
-assert_stderr 'WARNING: Neither LITELLM_VIRTUAL_KEY nor CCGW_API_KEY set' "auth: unset must warn"
+# The retired client credentials must not configure anything.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 "$R_KEY_CCGW=ck" "$R_KEY_DS4=dk"
+[ "$RC" -ne 0 ] || fail "auth/retired-only: exited 0; the retired client key variables must not configure the launcher (the proxy token is now internal to LiteLLM)"
+
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1
+[ "$RC" -ne 0 ] || fail "auth/unset: exited 0; a missing credential must be a hard failure, not a shared dummy token"
+assert_stderr 'LITELLM_CLIENT_KEY' "auth/unset: the error must name the variable to set"
+! grep -q 'dsv4-local' "$WORK/err" || fail "auth/unset: the retired dummy token still appears: $(cat "$WORK/err")"
 
 # A real cloud key in the ambient env must be neutralised, not forwarded.
-run_launcher ANTHROPIC_API_KEY=cloud-key-must-not-survive DS4_API_KEY=dk
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck ANTHROPIC_API_KEY=cloud-key-must-not-survive
 assert_env ANTHROPIC_API_KEY "" "auth: a pre-existing ANTHROPIC_API_KEY must be cleared so the local backend is used"
 
-# --- 3. TLS CA precedence ----------------------------------------------------
-run_launcher CCGW_CA_CERT=/ca/ccgw.pem DS4_CA_CERT=/ca/ds4.pem
-assert_env NODE_EXTRA_CA_CERTS /ca/ccgw.pem "ca: CCGW_CA_CERT must win over DS4_CA_CERT"
+# --- 3. TLS CA (retained: LiteLLM terminates TLS with the mkcert leaf) -------
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck CCGW_CA_CERT=/ca/ccgw.pem
+assert_env NODE_EXTRA_CA_CERTS /ca/ccgw.pem "ca: CCGW_CA_CERT is honored"
 assert_no_ca_warning "ca: explicit CCGW_CA_CERT"
 
-run_launcher DS4_CA_CERT=/ca/ds4.pem
-assert_env NODE_EXTRA_CA_CERTS /ca/ds4.pem "ca: DS4_CA_CERT is the second source"
+# The direct-path CA variable is retired along with the route it served.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck "$R_CA_DS4=/ca/ds4.pem"
+assert_unset NODE_EXTRA_CA_CERTS "ca: the retired direct-path CA variable must not be picked up"
 
 # NODE_TLS_REJECT_UNAUTHORIZED=0 must never be the launcher's answer to TLS.
 assert_unset NODE_TLS_REJECT_UNAUTHORIZED "ca: TLS verification must never be disabled"
@@ -185,12 +226,12 @@ cp "$STUB/code" "$MKCERT_OK/code"
 
 SAVED_PATH="$STUB_PATH"
 STUB_PATH="$MKCERT_OK:/usr/bin:/bin"
-run_launcher
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 assert_env NODE_EXTRA_CA_CERTS "$CAROOT_OK/rootCA.pem" "ca: mkcert -CAROOT must be derived when no CA var is set"
 grep -q 'CCGW_CA_CERT not set' "$WORK/err" && fail "ca/mkcert-ok: warned even though the CA was successfully derived: $(cat "$WORK/err")"
 
 # An explicit CA still outranks the mkcert derivation.
-run_launcher CCGW_CA_CERT=/ca/explicit.pem
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck CCGW_CA_CERT=/ca/explicit.pem
 assert_env NODE_EXTRA_CA_CERTS /ca/explicit.pem "ca: explicit CCGW_CA_CERT must outrank the mkcert derivation"
 
 # 3b. mkcert present but its CAROOT holds no rootCA.pem -> warn, export nothing.
@@ -201,114 +242,114 @@ make_mkcert "$MKCERT_BAD" "$CAROOT_EMPTY"
 make_uname "$MKCERT_BAD" Darwin
 cp "$STUB/code" "$MKCERT_BAD/code"
 STUB_PATH="$MKCERT_BAD:/usr/bin:/bin"
-run_launcher
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 assert_unset NODE_EXTRA_CA_CERTS "ca/mkcert-empty: a CAROOT without rootCA.pem must not yield a bogus NODE_EXTRA_CA_CERTS"
 assert_stderr 'CCGW_CA_CERT not set' "ca/mkcert-empty: must warn"
 
 # 3c. mkcert absent entirely -> warn, export nothing.
 STUB_PATH="$SAVED_PATH"
-run_launcher
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 assert_unset NODE_EXTRA_CA_CERTS "ca/no-mkcert: nothing to derive from"
 assert_stderr 'CCGW_CA_CERT not set' "ca/no-mkcert: must warn"
 
-# --- 4. Model selection (the two backends on separate /model tiers) ----------
-# The two mutually-exclusive Mac backends are placed on different Claude Code
-# tiers so `/model` switches between them: fable -> ds4, opus -> Laguna S 2.1.
-# Subagents stay pinned to the ds4/fable tier — a subagent landing on the other
-# backend would evict the resident one mid-session.
+# --- 4. Model selection (unconditional LiteLLM routing keys) ----------------
+# With the direct path gone there is no branch left: each LITELLM_*_MODEL is a
+# LiteLLM routing key and goes onto its own /model tier verbatim. The launcher
+# owns no backend names of its own — inventing one would route to a model the
+# gateway has no entry for, and the error would surface as a 400 from LiteLLM
+# rather than as a launcher message.
 
-# 4a. Direct path defaults: each tier lands on its own backend.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
-assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct: fable tier is ds4"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct: opus tier is the other backend"
-assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct: sonnet tier is ds4"
-assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct: haiku tier is ds4"
-for v in $ACTIVE_VARS; do
-    assert_env "$v" deepseek-v4-flash "direct: startup model defaults to ds4"
-done
-# Stated as an inequality too: a regression that collapses both tiers onto one
-# backend would still satisfy each literal individually if both literals moved.
-assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
-    "direct: fable and opus must address different backends or /model cannot switch"
-
-# 4b. CCGW_DEFAULT_MODEL only picks which backend is resident at startup — it
-# must not disturb the tier map, or /model would lose one of the two backends.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=laguna-s-2.1
-for v in $ACTIVE_VARS; do
-    assert_env "$v" laguna-s-2.1 "direct: CCGW_DEFAULT_MODEL selects the startup-resident backend"
-done
-assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct/ccgw-default: fable tier must stay on ds4"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct/ccgw-default: opus tier must stay on Laguna"
-assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct/ccgw-default: sonnet tier must stay on ds4"
-assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct/ccgw-default: haiku tier must stay on ds4"
-assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
-    "direct/ccgw-default: the tier map must survive a startup-model override"
-
-# A defined-but-empty CCGW_DEFAULT_MODEL must fall back to the default, not send
-# an empty model name the swap layer cannot route (`:-`, not `-`).
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=
-for v in $ACTIVE_VARS; do
-    assert_env "$v" deepseek-v4-flash "direct: empty CCGW_DEFAULT_MODEL must fall back to the default"
-done
-
-# 4c. LiteLLM path: routing keys are used verbatim on their own tiers.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 \
+# 4a. All four keys present.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
     LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
-    CCGW_DEFAULT_MODEL=laguna-s-2.1
-assert_env ANTHROPIC_DEFAULT_FABLE_MODEL lite-fable "litellm: fable routing key"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "litellm: opus routing key"
-assert_env ANTHROPIC_DEFAULT_SONNET_MODEL lite-sonnet "litellm: sonnet routing key"
-assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL lite-haiku "litellm: haiku routing key"
-assert_env ANTHROPIC_MODEL lite-fable "litellm: startup model follows the fable tier"
-assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "litellm: custom model option follows the fable tier"
-# Load-bearing: subagents must track the fable/ds4 tier, never opus. A subagent
-# on the opus backend would evict the resident ds4 model mid-session.
-assert_env CLAUDE_CODE_SUBAGENT_MODEL lite-fable "litellm: subagent must follow fable, not opus"
-assert_env_differs CLAUDE_CODE_SUBAGENT_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
-    "litellm: subagent must not be pinned to the opus tier"
-# CCGW_DEFAULT_MODEL was also set above: on the LiteLLM path it must be ignored,
-# and no deepseek-*/laguna-* name may appear in any model var.
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
+[ "$RC" -eq 0 ] || fail "models/all-keys: exited $RC: $(cat "$WORK/err")"
+assert_env ANTHROPIC_DEFAULT_FABLE_MODEL lite-fable "models: fable routing key"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models: opus routing key"
+assert_env ANTHROPIC_DEFAULT_SONNET_MODEL lite-sonnet "models: sonnet routing key"
+assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL lite-haiku "models: haiku routing key"
+assert_env ANTHROPIC_MODEL lite-fable "models: startup model follows the fable tier"
+assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "models: custom model option follows the fable tier"
+# Stated as an inequality too: a regression that collapses the tiers onto one
+# key would still satisfy each literal individually if all literals moved.
+assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
+    "models: fable and opus must address different routing keys or /model cannot switch"
+
+# 4b. The retired direct-path backend names must never appear. The launcher is
+# not allowed to know them any more.
 for v in $MODEL_VARS; do
     val="$(dump_get "$v")"
     case "$(printf '%s' "$val" | tr 'A-Z' 'a-z')" in
-        *deepseek*|*laguna*) fail "litellm: $v='$val' leaked a direct-path backend name; LiteLLM routing keys are exclusive" ;;
+        *deepseek*|*laguna*) fail "models: $v='$val' is a backend name, not a LiteLLM routing key; the launcher must carry no backend literals" ;;
     esac
 done
 
-# 4d. LiteLLM base URL set but no routing keys: nothing may be invented — in
-# particular the launcher must not fall back to a direct-path backend name.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1
-for v in $MODEL_VARS; do
-    assert_unset "$v" "litellm/no-keys: launcher must not substitute a direct-path model"
-done
+# 4c. The retired startup-model variable goes with the direct path: setting it
+# must change nothing at all.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
+    "$R_DEFAULT_MODEL=laguna-s-2.1"
+assert_env ANTHROPIC_MODEL lite-fable "models/ccgw-default: the retired startup-model variable must be ignored"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/ccgw-default: the tier map must be unaffected"
 
-# 4e. LiteLLM base URL with the non-fable keys only: the fable tier drives the
-# startup/subagent vars, so with LITELLM_FABLE_MODEL absent they must stay unset
-# rather than borrowing the opus key or a direct-path name.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 \
-    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "litellm/no-fable: opus routing key still applies"
-assert_unset ANTHROPIC_DEFAULT_FABLE_MODEL "litellm/no-fable: no fable key means no fable tier"
-for v in $ACTIVE_VARS; do
-    assert_unset "$v" "litellm/no-fable: launcher must invent no backend name of its own"
-done
+# 4d. Subagent contract (three cases).
+#
+# Why it changed: the old launcher pinned CLAUDE_CODE_SUBAGENT_MODEL to the
+# fable tier so a subagent could not evict the resident backend. Routing now
+# goes through LiteLLM, which multiplexes, so the pin is no longer needed — and
+# it actively harms, because it silently overrides the model an agent
+# definition's frontmatter declares. Default is therefore "say nothing";
+# CCGW_SUBAGENT_MODEL exists only for the case where a user deliberately wants
+# every subagent confined to one route.
 
-# 4f. Stale LITELLM_*_MODEL keys in .env/shell must never reach the direct path —
-# DS4 Proxy / the swap layer do not recognise them.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 \
+# (i) Default: not set at all, so agent frontmatter decides.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
     LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
     LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct/stale-litellm-keys: fable tier stays on ds4"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct/stale-litellm-keys: opus tier stays on Laguna"
-assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct/stale-litellm-keys: sonnet tier stays on ds4"
-assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct/stale-litellm-keys: haiku tier stays on ds4"
+assert_unset CLAUDE_CODE_SUBAGENT_MODEL "subagent/default: must not be exported — an unconditional value overrides agent frontmatter"
+
+# (ii) Opt-in: CCGW_SUBAGENT_MODEL is exported verbatim.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
+    CCGW_SUBAGENT_MODEL=lite-haiku
+assert_env CLAUDE_CODE_SUBAGENT_MODEL lite-haiku "subagent/opt-in: CCGW_SUBAGENT_MODEL must be exported as given"
+
+# (iii) Value domain is a routing key, passed through untranslated: an
+# arbitrary key the launcher has never heard of must survive intact, and a tier
+# name must NOT be mapped to a tier's value.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
+    CCGW_SUBAGENT_MODEL=some-other-routing-key
+assert_env CLAUDE_CODE_SUBAGENT_MODEL some-other-routing-key "subagent/domain: the value is a LiteLLM routing key and must not be translated"
+
+# A defined-but-empty value counts as unset — exporting an empty model name
+# would make Claude Code request "" and fail at the gateway.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_FABLE_MODEL=lite-fable CCGW_SUBAGENT_MODEL=
+assert_unset CLAUDE_CODE_SUBAGENT_MODEL "subagent/empty: an empty CCGW_SUBAGENT_MODEL must be treated as unset"
+
+# 4e. No routing keys at all: nothing may be invented.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
+for v in $MODEL_VARS; do
+    assert_unset "$v" "models/no-keys: the launcher must substitute no model name of its own"
+done
+
+# 4f. Partial keys: each tier is independent, and the fable tier drives the
+# startup vars, so with LITELLM_FABLE_MODEL absent they stay unset rather than
+# borrowing another tier's key.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/no-fable: opus routing key still applies"
+assert_unset ANTHROPIC_DEFAULT_FABLE_MODEL "models/no-fable: no fable key means no fable tier"
 for v in $ACTIVE_VARS; do
-    assert_env "$v" deepseek-v4-flash "direct/stale-litellm-keys: LiteLLM routing keys must not leak onto the direct path"
+    assert_unset "$v" "models/no-fable: the launcher must invent no model name of its own"
 done
 
 # --- 5. VS Code profile isolation and argv passthrough ----------------------
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 -- /some/project --new-window
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck -- /some/project --new-window
 [ "$RC" -eq 0 ] || fail "argv: exited $RC: $(cat "$WORK/err")"
 EXPECT_ARGV="--user-data-dir
 $HOME/Library/Application Support/vscode-ccgw
@@ -324,7 +365,7 @@ LINUX_STUB="$WORK/stub-linux"
 make_uname "$LINUX_STUB" Linux
 cp "$STUB/code" "$LINUX_STUB/code"
 STUB_PATH="$LINUX_STUB:/usr/bin:/bin"
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 GOT_ARGV="$(cat "$ARGV")"
 EXPECT_ARGV="--user-data-dir
 $HOME/.local/share/vscode-ccgw"
@@ -333,7 +374,7 @@ $HOME/.local/share/vscode-ccgw"
   actual:   $GOT_ARGV"
 
 # Linux: explicit XDG_DATA_HOME is honored.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 XDG_DATA_HOME="$WORK/xdg"
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck XDG_DATA_HOME="$WORK/xdg"
 GOT_ARGV="$(cat "$ARGV")"
 EXPECT_ARGV="--user-data-dir
 $WORK/xdg/vscode-ccgw"
@@ -347,7 +388,7 @@ STUB_PATH="$SAVED_PATH"
 NO_CODE="$WORK/stub-nocode"
 make_uname "$NO_CODE" Darwin
 STUB_PATH="$NO_CODE:/usr/bin:/bin"
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 [ "$RC" -ne 0 ] || fail "missing-code: exited 0; a missing 'code' must be a hard failure"
 assert_stderr "ERROR: 'code' command not found on PATH" "missing-code: must name the problem"
 assert_stderr "Install 'code' command in PATH" "missing-code: must state the remedy"

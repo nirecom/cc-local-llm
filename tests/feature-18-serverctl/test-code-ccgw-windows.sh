@@ -3,16 +3,17 @@
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
 # Scenario: bash driver for the Pester suite that covers the Windows client
-# launcher (code-ccgw-windows.Tests.ps1) — base-URL / auth-token / TLS-CA
-# precedence, the LiteLLM-vs-direct model branch, and CCGW_DEFAULT_MODEL moving
-# only the startup-resident model while the /model tier map stays put.
+# launcher (code-ccgw-windows.Tests.ps1) — the single-source base URL and its
+# hard failure when absent, the LITELLM_CLIENT_KEY credential with its one-cycle
+# deprecated alias, the retained CCGW_CA_CERT + mkcert derivation, the
+# unconditional LiteLLM routing-key tier map, and the opt-in subagent contract.
 #
 # The assertions live in the .Tests.ps1; this file exists so the suite is
 # reachable from the same `bash tests/.../test-*.sh` convention as its siblings.
 # Skips (exit 0) when pwsh is unavailable — the launcher is Windows-only, and a
 # Mac/Linux developer must not see a red run for a shell they do not have.
 #
-# L3 gap: everything a real Windows host provides — a real VS Code, a real
+# TL3 gap: everything a real Windows host provides — a real VS Code, a real
 #   mkcert CA in the Windows trust store, and the LOCALAPPDATA profile path
 #   actually being writable.
 set -u

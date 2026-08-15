@@ -30,3 +30,9 @@ models:
       --model ${env.HOME}/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
+    # mlx_lm.server resolves any body `model` other than `default_model` as a
+    # Hugging Face repo path and answers 401. The routing key llama-swap matches
+    # on stays laguna-s-2.1 (so LiteLLM can address it by name); only the body
+    # forwarded upstream is rewritten. Not set on deepseek-v4-flash: ds4-server
+    # accepts any model name, so the rewrite would be pure side effect.
+    useModelName: default_model

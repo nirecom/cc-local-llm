@@ -7,7 +7,7 @@
 # Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 #
 # L3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
+#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.

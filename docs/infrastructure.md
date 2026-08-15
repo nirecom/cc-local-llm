@@ -6,8 +6,8 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Host | Role | Spec |
 |---|---|---|
-| Mac (this machine) | ds4-server / Laguna S 2.1 (backend, mutually exclusive) + llama-swap | MacBook Pro M5 Max, 128 GB unified memory |
-| <windows-host> (Windows) | LiteLLM proxy + llama-swap | Windows 11, Docker Desktop WSL2 |
+| Mac (this machine) | LiteLLM gateway + DS4 Proxy + ds4-server / Laguna S 2.1 (backend, mutually exclusive) + llama-swap | MacBook Pro M5 Max, 128 GB unified memory |
+| <windows-host> (Windows) | llama-swap (Haiku/Sonnet tiers) + Caddy TLS front | Windows 11 |
 | windows-client | Claude Code client | Windows (same machine as <windows-host>) |
 
 ## Engine & model (on the Mac)
@@ -32,12 +32,12 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | Mac llama-swap listen | `127.0.0.1:18080` (OpenAI+Anthropic-compatible, this Mac — model-process manager for ds4-server / Laguna) |
 | Proxy listen | `0.0.0.0:8443` (HTTPS, TLS terminated, mkcert cert) |
 | Proxy upstream | `http://127.0.0.1:18080` (Mac llama-swap directly) |
-| Client base URL | `https://<mac-ip>:8443` (fill in the Mac's LAN IP) |
-| Windows llama-swap listen | `127.0.0.1:18080` (OpenAI-compatible, <windows-host> — separate instance, Haiku/Sonnet tiers) |
-| LiteLLM listen | `0.0.0.0:8445` (HTTPS, TLS terminated, mkcert cert, <windows-host>) |
-| Client base URL (LiteLLM path) | `https://<windows-host>:8445` |
-| DS4 Proxy listen | `0.0.0.0:8443` (HTTPS, <mac-host> Mac, reachable from WSL2 via LAN) |
-| <mac-host> LAN IP | `<mac-lan-ip>` (for WSL2 container direct access) |
+| Windows llama-swap listen | `127.0.0.1:18080` (OpenAI-compatible, <windows-host> — separate instance, Haiku/Sonnet tiers; loopback only, reached via the Caddy front below) |
+| Windows Caddy TLS front | `<windows-lan-ip>:8443` (HTTPS, TLS terminated with the same mkcert root CA, reverse-proxies to `http://127.0.0.1:18080`) |
+| LiteLLM listen | `0.0.0.0:8445` (HTTPS, TLS terminated, mkcert cert, native process on the Mac) |
+| Client base URL | `https://<mac-lan-ip>:8445` (the gateway; the only endpoint clients talk to) |
+| DS4 Proxy listen | `0.0.0.0:8443` (HTTPS, this Mac) |
+| <mac-host> LAN IP | `<mac-lan-ip>` |
 | Protocols served | `/v1/messages` (Anthropic), `/v1/chat/completions`, `/v1/completions`, `/v1/responses` (OpenAI), `/v1/models` |
 
 ## Paths (Mac)
@@ -48,6 +48,10 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | Start script (manual debug only) | `~/git/cc-local-llm/scripts/ds4-server.sh` — not launchd-installed; llama-swap owns ds4-server's lifecycle |
 | Proxy start script | `~/git/cc-local-llm/scripts/ds4-proxy.sh` |
 | llama-swap start script | `~/git/cc-local-llm/scripts/llama-swap.sh` |
+| LiteLLM start script | `~/git/cc-local-llm/scripts/litellm.sh` |
+| LiteLLM config | `~/git/cc-local-llm/litellm-server/config.yaml` |
+| LiteLLM TLS cert/key | `~/.config/litellm/cert.pem` / `key.pem` (mkcert-generated) |
+| LiteLLM CA cert (DS4 Proxy + Windows Caddy trust) | `<mkcert -CAROOT>/rootCA.pem` (`SSL_CERT_FILE`) |
 | Mac llama-swap config | `~/git/cc-local-llm/llama-swap/config.yaml` |
 | Proxy TLS cert/key | `~/.config/ds4-proxy/cert.pem` / `key.pem` (mkcert-generated) |
 | Client launcher (POSIX) | `~/git/cc-local-llm/scripts/code-ccgw.sh` (macOS/Linux counterpart of `code-ccgw.ps1`) |
@@ -59,11 +63,6 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| LiteLLM config | `C:\git\cc-local-llm\litellm-client\config.yaml` |
-| LiteLLM compose | `C:\git\cc-local-llm\litellm-client\docker-compose.yml` |
-| LiteLLM start script | `C:\git\cc-local-llm\scripts\litellm-start.ps1` |
-| LiteLLM setup script | `C:\git\cc-local-llm\scripts\setup-litellm.ps1` |
-| LiteLLM TLS cert/key | `C:\Users\<user>\.config\litellm\cert.pem` / `key.pem` (mkcert-generated) |
-| LiteLLM CA cert (Opus trust) | `<mkcert -CAROOT>\rootCA.pem` (same as CCGW_CA_CERT) |
-| LiteLLM database volume | `litellm-postgres` (Docker named volume, PostgreSQL data at /var/lib/postgresql/data) |
+| Client launcher | `C:\git\cc-local-llm\scripts\code-ccgw.ps1` |
+| Client root CA (gateway trust) | `<mkcert -CAROOT>\rootCA.pem` (the Mac's CA, imported here; `CCGW_CA_CERT`) |
 | llama-swap config | `C:\LLM\llama-swap\config.yaml` (not in this repo) |

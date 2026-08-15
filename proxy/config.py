@@ -15,6 +15,8 @@ from pathlib import Path
 @dataclass(frozen=True)
 class ProxyConfig:
     port: int
+    host: str
+    tls: bool
     upstream: str
     cert: Path
     key: Path
@@ -26,6 +28,10 @@ class ProxyConfig:
 def load_config() -> ProxyConfig:
     """Build a ProxyConfig from the DS4_PROXY_* environment variables."""
     port = int(os.environ.get("DS4_PROXY_PORT", "8443"))
+    host = os.environ.get("DS4_PROXY_HOST", "0.0.0.0")
+    # Only the literal "off" (any case) disables TLS: a typo must fail towards
+    # an encrypted listener, never towards plaintext on a LAN-visible bind.
+    tls = os.environ.get("DS4_PROXY_TLS", "on").strip().lower() != "off"
     upstream = os.environ.get("DS4_PROXY_UPSTREAM", "http://127.0.0.1:18080")
 
     cert = Path(
@@ -50,6 +56,8 @@ def load_config() -> ProxyConfig:
 
     return ProxyConfig(
         port=port,
+        host=host,
+        tls=tls,
         upstream=upstream,
         cert=cert,
         key=key,

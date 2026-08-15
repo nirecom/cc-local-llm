@@ -1,17 +1,17 @@
-# Tests: litellm/docker-compose.yml, litellm/config.yaml, scripts/*.cmd, .env.example, docs/*.md
+# Tests: litellm-server/config.yaml, scripts/code-ccgw.*, .env.example, docs/*.md
 # Tags: scope:issue-specific, layer:TL1
 #
 # TL1 gap (what this test suite does NOT catch — explicitly deferred):
-# - Whether the renamed Compose project name actually resolves the 401 auth bug
-#     (requires a live LiteLLM + Postgres stack; TL3)
-# - Whether the renamed .cmd launchers still start Claude Code successfully
-#     (requires a real Windows shell; TL3, category pwsh-required)
-# - context_window additions in config.yaml (Haiku=32768, Sonnet=32768, Opus=393216)
-#     are in the main worktree's uncommitted diff and are NOT part of this rename PR;
-#     they are separate tuning work. Coverage deferred to that PR.
+# - Whether the renamed / relocated LiteLLM config actually serves the four
+#     model routes (requires a live LiteLLM + llama-swap + DS4 Proxy stack; TL3)
+# - Whether scripts/code-ccgw.sh still starts Claude Code successfully against
+#     the Mac-side gateway (requires a real shell + running services; TL3)
+# - Whether the retired Windows Docker assets are actually gone from the
+#     developer's machine (host state, not repo state; manual cutover step)
 # Closest-to-action mitigation: this gap is checked at WORKFLOW_USER_VERIFIED
 # preflight via bin/check-verification-gate.sh category: pwsh-required
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -31,7 +31,41 @@ LEGACY_TOKENS = [
     "git/ds4-ops",
     "git\\ds4-ops",
     "ds4-ops/run",
+    # --- issue #41: the Windows-side LiteLLM/Docker deployment is retired -----
+    # The gateway moves to a native Mac service, so the client-side directory,
+    # the Compose container name, and every PowerShell bootstrap script that
+    # existed only to run Docker Desktop on Windows must disappear.
+    "litellm-client",
+    "ccgw-litellm",
+    "litellm-start.ps1",
+    "setup-litellm.ps1",
+    "generate-litellm-key.ps1",
+    "docker-desktop.ps1",
+    # --- issue #41: env vars retired with the Windows deployment --------------
+    # The opus route now shares the single DS4 Proxy origin (LITELLM_DS4_PROXY_URL),
+    # and TLS/CA/DB/config-dir variables belonged to the Docker stack only.
+    "LITELLM_OPUS_URL",
+    "LITELLM_OPUS_API_KEY",
+    "LITELLM_TLS_DIR",
+    "LITELLM_CA_CERT_FILE",
+    "LITELLM_DB_URL",
+    "LITELLM_CONFIG_DIR",
+    # --- issue #41: client-side variables collapsed into one launcher path ----
+    # code-ccgw no longer branches on a per-user gateway URL/key/model triple.
+    "CCGW_ANTHROPIC_BASE_URL",
+    "CCGW_API_KEY",
+    "CCGW_DEFAULT_MODEL",
+    # --- issue #41: direct-to-DS4-Proxy client variables retired --------------
+    # Claude Code never talks to the proxy directly any more; it goes through
+    # LiteLLM. These three previously bypassed the gateway entirely.
+    "DS4_ANTHROPIC_BASE_URL",
+    "DS4_API_KEY",
+    "DS4_CA_CERT",
 ]
+
+# NOTE: LITELLM_VIRTUAL_KEY is deliberately absent. It survives one deprecation
+# cycle as an alias for LITELLM_CLIENT_KEY, so banning it now would fail against
+# the intended transitional state.
 
 # docs/history.md is an append-only historical record.
 HISTORY_PATH = "docs/history.md"
@@ -39,46 +73,89 @@ HISTORY_PATH = "docs/history.md"
 # This test file necessarily carries every legacy token as data.
 SELF_PATH = "tests/ccgw-naming/test_no_legacy_names.py"
 
-EXCLUDED_PATHS = {HISTORY_PATH, SELF_PATH}
+# Asserts the *absence* of retired env vars by naming them as literal fixture
+# data (test_no_retired_env_var_is_still_referenced) — same rationale as SELF_PATH.
+CONFIG_ENV_VARS_TEST_PATH = "tests/litellm-config/test_config_env_vars.py"
 
-# These name the DS4 Proxy backend directly, not the ccgw gateway — the rename
-# must not touch them.
-RETAINED_ENV_VARS = [
-    "DS4_ANTHROPIC_BASE_URL",
-    "DS4_API_KEY",
-    "DS4_CA_CERT",
-]
+EXCLUDED_PATHS = {HISTORY_PATH, SELF_PATH, CONFIG_ENV_VARS_TEST_PATH}
 
-LAUNCHER_PATH = "scripts/code-ccgw.cmd"
-
-# New env var names that must appear in the gateway source files after rename.
+# New env var names that must appear in the gateway source files after the move.
 NEW_GATEWAY_ENV_VARS = [
-    "LITELLM_OPUS_URL",
-    "LITELLM_OPUS_API_KEY",
-    "LITELLM_HAIKU_URL",
-    "LITELLM_SONNET_URL",
+    "LITELLM_HAIKU_MODEL",
+    "LITELLM_SONNET_MODEL",
+    "LITELLM_FABLE_MODEL",
+    "LITELLM_OPUS_MODEL",
+    "LITELLM_DS4_PROXY_URL",
+    "LITELLM_DS4_PROXY_API_KEY",
+    "LITELLM_LLAMASWAP_URL",
 ]
 
 # Files where the new env var names are expected to appear.
 NEW_ENV_SOURCE_FILES = [
-    "litellm/docker-compose.yml",
-    "litellm/config.yaml",
+    "litellm-server/config.yaml",
 ]
 
-COMPOSE_FILE = "litellm/docker-compose.yml"
-
-# Path tokens added by the ds4-ops path audit. They are scanned with the same
-# raw substring rule as every other token (`if token in line`), so each one
-# needs a positive control proving it *can* match, and a near-miss proving it
-# does not over-match. Without these, a typo'd token would silently pass
-# test_legacy_token_absent_from_tracked_files forever (one-sided classifier).
+# Every LEGACY_TOKEN is scanned with the same raw substring rule
+# (`if token in line`), so each one needs a positive control proving it *can*
+# match, and a near-miss proving it does not over-match. Without these, a
+# typo'd token would silently pass test_legacy_token_absent_from_tracked_files
+# forever (one-sided classifier).
+#
+# The near-miss line is chosen, wherever possible, to be the *replacement*
+# spelling this rename introduces — so the control also proves the ban cannot
+# flag the new name.
 #
 # (token, line that must match, line that must NOT match)
 PATH_TOKEN_CONTROLS = [
     (
+        "ds4-litellm",
+        "  container_name: ds4-litellm",
+        "  brew services restart litellm",
+    ),
+    (
+        "ds4-litellm-postgres",
+        "    depends_on: [ds4-litellm-postgres]",
+        "    depends_on: [ds4-litellm-db]",
+    ),
+    (
+        "LITELLM_DS4_URL",
+        "LITELLM_DS4_URL=https://127.0.0.1:8443",
+        "LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443",
+    ),
+    (
+        "LITELLM_DS4_API_KEY",
+        "LITELLM_DS4_API_KEY=sk-example-value",
+        "LITELLM_DS4_PROXY_API_KEY=sk-example-value",
+    ),
+    (
+        "LITELLM_LLAMA_SWAP_URL",
+        "LITELLM_LLAMA_SWAP_URL=http://127.0.0.1:18080/v1",
+        "LITELLM_LLAMASWAP_URL=http://127.0.0.1:18080/v1",
+    ),
+    (
+        "code-ds4.cmd",
+        "doskey cc=code-ds4.cmd $*",
+        "doskey cc=code-ccgw.cmd $*",
+    ),
+    (
+        "vscode-ds4",
+        "alias vscode-ds4='code --profile ds4'",
+        "alias vscode-ccgw='code --profile ccgw'",
+    ),
+    (
+        "nirecom/ds4-ops",
+        "git clone https://github.com/nirecom/ds4-ops.git",
+        "git clone https://github.com/nirecom/cc-local-llm.git",
+    ),
+    (
+        "[ds4-ops]",
+        "echo \"[ds4-ops] starting proxy\"",
+        "echo \"[cc-local-llm] starting proxy\"",
+    ),
+    (
         "git/ds4-ops",
         "DOTENV_FILE=\"$HOME/git/ds4-ops/.env\"",
-        "DOTENV_FILE=\"$HOME/git-ds4-ops/.env\"",
+        "DOTENV_FILE=\"$HOME/git/cc-local-llm/.env\"",
     ),
     (
         # Single backslash — the Windows spelling as it appears in raw file
@@ -94,6 +171,97 @@ PATH_TOKEN_CONTROLS = [
         "ds4-ops/run",
         'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops/run"',
         'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops-run"',
+    ),
+    # --- issue #41 additions -------------------------------------------------
+    (
+        "litellm-client",
+        "LITELLM_CONFIG_DIR=C:\\git\\cc-local-llm\\litellm-client",
+        "  - litellm-server/config.yaml",
+    ),
+    (
+        "ccgw-litellm",
+        "docker exec ccgw-litellm sh -c 'litellm --version'",
+        "brew services restart litellm",
+    ),
+    (
+        "litellm-start.ps1",
+        "powershell -NoProfile -File scripts\\litellm-start.ps1",
+        "scripts/litellm.sh",
+    ),
+    (
+        "setup-litellm.ps1",
+        ".\\scripts\\setup-litellm.ps1 -Force",
+        "./scripts/serverctl.sh start litellm",
+    ),
+    (
+        "generate-litellm-key.ps1",
+        ".\\scripts\\generate-litellm-key.ps1 -Alias laptop",
+        "openssl rand -hex 32  # LITELLM_CLIENT_KEY",
+    ),
+    (
+        "docker-desktop.ps1",
+        ".\\scripts\\docker-desktop.ps1 -Start",
+        "Docker Desktop is no longer required on Windows.",
+    ),
+    (
+        "LITELLM_OPUS_URL",
+        "LITELLM_OPUS_URL=https://127.0.0.1:8443",
+        "LITELLM_OPUS_MODEL=laguna-s-2.1",
+    ),
+    (
+        "LITELLM_OPUS_API_KEY",
+        "LITELLM_OPUS_API_KEY=sk-example-value",
+        "LITELLM_DS4_PROXY_API_KEY=sk-example-value",
+    ),
+    (
+        "LITELLM_TLS_DIR",
+        "LITELLM_TLS_DIR=C:\\git\\cc-local-llm\\tls",
+        "DS4_PROXY_TLS=on",
+    ),
+    (
+        "LITELLM_CA_CERT_FILE",
+        "LITELLM_CA_CERT_FILE=C:\\certs\\rootCA.pem",
+        "SSL_CERT_FILE=/opt/homebrew/etc/rootCA.pem",
+    ),
+    (
+        "LITELLM_DB_URL",
+        "LITELLM_DB_URL=postgresql://litellm@127.0.0.1:5432/litellm",
+        "LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443",
+    ),
+    (
+        "LITELLM_CONFIG_DIR",
+        "LITELLM_CONFIG_DIR=C:\\git\\cc-local-llm",
+        "config_path=litellm-server/config.yaml",
+    ),
+    (
+        "CCGW_ANTHROPIC_BASE_URL",
+        "set CCGW_ANTHROPIC_BASE_URL=https://127.0.0.1:4000",
+        "export ANTHROPIC_BASE_URL=http://127.0.0.1:4000",
+    ),
+    (
+        "CCGW_API_KEY",
+        "set CCGW_API_KEY=sk-example-value",
+        "export LITELLM_CLIENT_KEY=sk-example-value",
+    ),
+    (
+        "CCGW_DEFAULT_MODEL",
+        "CCGW_DEFAULT_MODEL=sonnet",
+        "ANTHROPIC_MODEL=sonnet",
+    ),
+    (
+        "DS4_ANTHROPIC_BASE_URL",
+        "set DS4_ANTHROPIC_BASE_URL=https://127.0.0.1:8443",
+        "export ANTHROPIC_BASE_URL=http://127.0.0.1:4000",
+    ),
+    (
+        "DS4_API_KEY",
+        "set DS4_API_KEY=sk-example-value",
+        "export DS4_PROXY_AUTH_TOKEN=sk-example-value",
+    ),
+    (
+        "DS4_CA_CERT",
+        "DS4_CA_CERT=C:\\certs\\rootCA.pem",
+        "DS4_PROXY_CERT=/opt/homebrew/etc/ds4-proxy.pem",
     ),
 ]
 
@@ -173,6 +341,47 @@ def test_path_token_matches_positive_control(token, matching_line, near_miss_lin
     )
 
 
+def test_every_legacy_token_has_a_control():
+    """No token may be added to the ban list without both controls.
+
+    The absence assertion is one-sided: a token that can never match passes it
+    silently forever. PATH_TOKEN_CONTROLS is what makes it two-sided, so the
+    two lists must stay in lockstep.
+    """
+    controlled = {c[0] for c in PATH_TOKEN_CONTROLS}
+    missing = [t for t in LEGACY_TOKENS if t not in controlled]
+    assert not missing, (
+        "legacy token(s) with no positive/negative control: "
+        f"{missing} — add a (token, matching_line, near_miss_line) row to "
+        "PATH_TOKEN_CONTROLS"
+    )
+
+
+def test_legacy_and_new_token_sets_are_disjoint():
+    """A banned token must never be a substring of a required one (or vice versa).
+
+    Match granularity matters: the file scan uses `if token in line`
+    (substring), so a set-intersection check would miss containment pairs like
+    legacy `DS4_API_KEY` vs new `LITELLM_DS4_API_KEY` — the scan would flag
+    every line that writes the new variable while the disjointness test stayed
+    green. All-pairs mutual-substring subsumes exact equality.
+    """
+    conflicts = []
+    for legacy in LEGACY_TOKENS:
+        for new in NEW_GATEWAY_ENV_VARS:
+            if legacy in new:
+                conflicts.append(f"legacy {legacy!r} is a substring of new {new!r}")
+            if new in legacy:
+                conflicts.append(f"new {new!r} is a substring of legacy {legacy!r}")
+
+    assert not conflicts, (
+        "LEGACY_TOKENS and NEW_GATEWAY_ENV_VARS overlap under the same "
+        "substring rule the file scan uses — every file that correctly writes "
+        "the new name would be reported as a legacy leak:\n  "
+        + "\n  ".join(conflicts)
+    )
+
+
 def test_feature_13_fixtures_scanned_and_clean():
     """The escaped Windows spelling is a deliberate non-token boundary.
 
@@ -225,27 +434,12 @@ def test_exclusion_paths_resolve():
     )
 
 
-@pytest.mark.parametrize("env_var", RETAINED_ENV_VARS)
-def test_retained_ds4_backend_env_var_still_referenced(env_var):
-    launcher = _repo_root() / LAUNCHER_PATH
-    assert launcher.is_file(), (
-        f"{LAUNCHER_PATH} not found — the launcher must be git-mv'd from "
-        f"scripts/code-ds4.cmd as part of the ccgw rename"
-    )
-    content = launcher.read_text(encoding="utf-8", errors="replace")
-    assert env_var in content, (
-        f"{env_var} no longer appears in {LAUNCHER_PATH} — this variable names "
-        f"the DS4 Proxy backend, not the ccgw gateway, and must survive the "
-        f"rename (over-replacement bug)"
-    )
-
-
-def test_compose_project_name_pinned():
-    compose = _repo_root() / COMPOSE_FILE
-    lines = compose.read_text(encoding="utf-8", errors="replace").splitlines()
-    assert any("name: ccgw" in line for line in lines), (
-        f"{COMPOSE_FILE} must have a top-level `name: ccgw` line to pin the "
-        "Compose project name (fixes the 401 volume-mismatch root cause)"
+@pytest.mark.parametrize("rel", NEW_ENV_SOURCE_FILES)
+def test_new_env_source_file_exists(rel):
+    path = _repo_root() / rel
+    assert path.is_file(), (
+        f"{rel} not found — litellm-client/ must be git-mv'd to litellm-server/ "
+        "(the assets are server-side now, so the old name is simply wrong)"
     )
 
 
@@ -254,9 +448,34 @@ def test_new_gateway_env_var_wired_in_source_files(env_var):
     root = _repo_root()
     for rel in NEW_ENV_SOURCE_FILES:
         path = root / rel
+        assert path.is_file(), f"{rel} not found"
         content = path.read_text(encoding="utf-8", errors="replace")
         assert env_var in content, (
-            f"{env_var} must appear in {rel} after the rename — the env var "
-            "passthrough in docker-compose.yml and the os.environ/ reference in "
-            f"config.yaml must both use the new name"
+            f"{env_var} must appear in {rel} — every model route resolves its "
+            "backend through os.environ/ so the deployment stays config-only"
         )
+
+
+def test_new_gateway_env_vars_are_actually_used_as_env_refs():
+    """Guard against the required-name list drifting into decoration.
+
+    `in content` would be satisfied by a mention inside a comment. The contract
+    is that each name is an actual `os.environ/<NAME>` reference.
+    """
+    root = _repo_root()
+    refs: set[str] = set()
+    for rel in NEW_ENV_SOURCE_FILES:
+        path = root / rel
+        assert path.is_file(), f"{rel} not found"
+        content = path.read_text(encoding="utf-8", errors="replace")
+        refs.update(re.findall(r"os\.environ/([A-Z0-9_]+)", content))
+
+    missing = [name for name in NEW_GATEWAY_ENV_VARS if name not in refs]
+    assert not missing, (
+        f"declared new gateway env vars are not os.environ/ references: "
+        f"{missing} (found: {sorted(refs)})"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-v"]))
