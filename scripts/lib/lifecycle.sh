@@ -1,6 +1,6 @@
 #!/bin/sh
 # Lifecycle management for ds4 services (start/stop/restart/status/logs/exec).
-# Sourced by ds4ctl.sh after launchd.sh (source order matters).
+# Sourced by serverctl.sh after launchd.sh (source order matters).
 set -eu
 
 _ds4_cmd() {
@@ -12,19 +12,23 @@ _ds4_cmd() {
             HOST="${DS4_SERVER_HOST:-127.0.0.1}"
             case "$HOST" in
                 *[!0-9a-zA-Z:.%-]*)
-                    echo "[ds4ctl] invalid DS4_SERVER_HOST value (allowed chars: 0-9 a-z A-Z : . %)" >&2
+                    echo "[serverctl] invalid DS4_SERVER_HOST value (allowed chars: 0-9 a-z A-Z : . %)" >&2
                     exit 1
                     ;;
             esac
             echo "caffeinate -ism ./ds4-server --metal --quality --ctx 393216 --kv-disk-dir \"$HOME/Library/Caches/ds4-server/kv\" --kv-disk-space-mb 32768 --kv-cache-cold-max-tokens 90000 --kv-cache-continued-interval-tokens 50000 --warm-weights --batched-session 2 --host \"$HOST\""
+            ;;
+        llama-swap)
+            echo "llama-swap -config \"$LLAMA_SWAP_ROOT/config.yaml\" -listen \"${LLAMA_SWAP_HOST:-127.0.0.1}:${LLAMA_SWAP_PORT:-18080}\""
             ;;
     esac
 }
 
 _ds4_cwd() {
     case "$1" in
-        proxy)  echo "$DS4_OPS_ROOT" ;;
-        server) echo "$DS4_SERVER_ROOT" ;;
+        proxy)      echo "$DS4_OPS_ROOT" ;;
+        server)     echo "$DS4_SERVER_ROOT" ;;
+        llama-swap) echo "$LLAMA_SWAP_ROOT" ;;
     esac
 }
 
@@ -76,15 +80,15 @@ ds4_exec() {
 ds4_start() {
     _svc="$1"
     if _ds4_launchd_active "$_svc"; then
-        echo "[ds4ctl] $_svc is managed by launchd (KeepAlive). Use 'ds4ctl install $_svc' instead of 'start'." >&2
+        echo "[serverctl] $_svc is managed by launchd (KeepAlive). Use 'serverctl install $_svc' instead of 'start'." >&2
         return 0
     fi
     if _pid=$(_ds4_running "$_svc"); then
-        echo "[ds4ctl] $_svc already running (pid $_pid)"
+        echo "[serverctl] $_svc already running (pid $_pid)"
         return 0
     fi
     if pgrep -f "$(_ds4_pgrep_pattern "$_svc")" >/dev/null 2>&1; then
-        echo "[ds4ctl] $_svc already running (untracked)"
+        echo "[serverctl] $_svc already running (untracked)"
         return 0
     fi
     if [ "$_svc" = "proxy" ] && [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
@@ -96,13 +100,13 @@ ds4_start() {
     _logfile="$(_ds4_log_file "$_svc")"
     _pid_file="$(_ds4_pid_file "$_svc")"
     if [ "${DS4_LOG:-on}" = "on" ]; then
-        nohup "$DS4CTL" __run "$_svc" >>"$_logfile" 2>&1 &
+        nohup "$SERVERCTL" __run "$_svc" >>"$_logfile" 2>&1 &
     else
-        nohup "$DS4CTL" __run "$_svc" >/dev/null 2>&1 &
+        nohup "$SERVERCTL" __run "$_svc" >/dev/null 2>&1 &
     fi
     echo $! > "$_pid_file"
     _started_pid=$(cat "$_pid_file")
-    echo "[ds4ctl] started $_svc (pid $_started_pid)"
+    echo "[serverctl] started $_svc (pid $_started_pid)"
 }
 
 _ds4_stop_pid() {
@@ -127,15 +131,15 @@ _ds4_stop_pid() {
 ds4_stop() {
     _svc="$1"
     if _ds4_launchd_active "$_svc"; then
-        echo "[ds4ctl] $_svc is managed by launchd (KeepAlive — it will restart immediately if killed). To stop: 'ds4ctl uninstall $_svc'" >&2
+        echo "[serverctl] $_svc is managed by launchd (KeepAlive — it will restart immediately if killed). To stop: 'serverctl uninstall $_svc'" >&2
         return 1
     fi
     if _pid=$(_ds4_running "$_svc"); then
         _ds4_stop_pid "$_pid" "$_svc"
         rm -f "$(_ds4_pid_file "$_svc")"
-        echo "[ds4ctl] stopped $_svc"
+        echo "[serverctl] stopped $_svc"
     else
-        echo "[ds4ctl] $_svc not running"
+        echo "[serverctl] $_svc not running"
     fi
 }
 
@@ -158,26 +162,25 @@ ds4_status() {
 ds4_logs() {
     _svc="$1"
     if [ "${DS4_LOG:-on}" != "on" ]; then
-        echo "[ds4ctl] log recording is disabled (DS4_LOG=off)" >&2
+        echo "[serverctl] log recording is disabled (DS4_LOG=off)" >&2
         return 1
     fi
     if [ "$_svc" = "all" ]; then
-        _pf="$(_ds4_log_file proxy)"
-        _sf="$(_ds4_log_file server)"
-        if [ ! -f "$_pf" ] && [ ! -f "$_sf" ]; then
-            echo "[ds4ctl] no log files found" >&2
+        _files=""
+        for _s in proxy llama-swap; do
+            _f="$(_ds4_log_file "$_s")"
+            [ -f "$_f" ] && _files="$_files $_f"
+        done
+        if [ -z "$_files" ]; then
+            echo "[serverctl] no log files found" >&2
             return 1
         fi
-        # Use only existing files
-        _files=""
-        [ -f "$_pf" ] && _files="$_pf"
-        [ -f "$_sf" ] && _files="$_files $_sf"
         # shellcheck disable=SC2086
         tail -f $_files
     else
         _logfile="$(_ds4_log_file "$_svc")"
         if [ ! -f "$_logfile" ]; then
-            echo "[ds4ctl] log file not found: $_logfile" >&2
+            echo "[serverctl] log file not found: $_logfile" >&2
             return 1
         fi
         if [ -t 1 ] && [ "$_svc" = "server" ] && [ "${DS4_SERVER_COLOR_LOG:-on}" = "on" ]; then

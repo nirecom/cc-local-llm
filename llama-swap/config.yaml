@@ -1,0 +1,32 @@
+# Mac-side llama-swap configuration. Manages ds4-server and Laguna S 2.1's
+# mlx_lm.server as two entries with no shared group -- llama-swap's default
+# behavior already keeps exactly one model process loaded at a time, killing
+# the previous one before starting the next. That default alone gives ds4 and
+# Laguna mutual exclusivity (both together exceed the Mac's 128 GB unified
+# memory), so no explicit `groups:` block is needed here.
+#
+# ttl: 0 disables idle-based auto-unload for both entries -- swap-on-request
+# is the only unload trigger. Both backends take a long time to warm-load
+# (ds4: ~90.9 GB resident; Laguna: ~72-90 GB), so an idle timeout would cause
+# painful reload latency mid-session.
+healthCheckTimeout: 600
+logLevel: info
+models:
+  deepseek-v4-flash:
+    cmd: >-
+      caffeinate -ism ${env.HOME}/git/ds4/ds4-server
+      --port ${PORT} --host 127.0.0.1
+      --metal --quality --ctx 393216
+      --kv-disk-dir ${env.HOME}/Library/Caches/ds4-server/kv
+      --kv-disk-space-mb 32768
+      --kv-cache-cold-max-tokens 90000
+      --kv-cache-continued-interval-tokens 50000
+      --warm-weights --batched-session 2
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 0
+  laguna-s-2.1:
+    cmd: >-
+      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      --model ${env.HOME}/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 0

@@ -27,7 +27,7 @@ Add the shared auth token to the server-side `.env` (repo root, gitignored):
 
 Start the proxy in the background:
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh start proxy
+~/git/cc-local-llm/scripts/serverctl.sh start proxy
 ```
 
 Or foreground (for debugging):
@@ -41,15 +41,19 @@ Client-side (Windows): set `CCGW_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in th
 
 ## LiteLLM (Windows, Docker Desktop WSL2)
 
+Run `install.ps1` first (once) to install Docker Desktop and mkcert and scaffold `.env` — see
+[README.md](../README.md#quick-start). The steps below (TLS/CA/master key/container start) are
+interactive and follow on from it.
+
 ### TLS setup (one-time)
 
 The LiteLLM proxy needs an mkcert leaf cert/key. Use the same root CA as the DS4 Proxy
 so the client trusts both endpoints with one `CCGW_CA_CERT`:
 
-```bat
+```powershell
 mkcert localhost 127.0.0.1 ::1 <windows-host>
-rem Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
-rem (e.g., C:\Users\<user>\.config\litellm\)
+# Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
+# (e.g., C:\Users\<user>\.config\litellm\)
 ```
 
 ### CA cert setup (one-time)
@@ -57,9 +61,9 @@ rem (e.g., C:\Users\<user>\.config\litellm\)
 The LiteLLM container needs to trust the DS4 Proxy's TLS certificate for the Opus route.
 Set `LITELLM_CA_CERT_FILE` in `.env` to the path of the mkcert root CA `.pem` file:
 
-```bat
-rem Get the path from mkcert -CAROOT, then append /rootCA.pem
-rem e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
+```powershell
+# Get the path from mkcert -CAROOT, then append /rootCA.pem
+# e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
 ```
 
 This is the same root CA file used for `CCGW_CA_CERT`. The compose file mounts it into
@@ -68,43 +72,43 @@ the container and the entrypoint installs it into the system trust store.
 ### Initial setup (one-time)
 
 1. Generate a master key and set it in `.env`:
-   ```bat
-   openssl rand -hex 32
-   rem Set LITELLM_MASTER_KEY=sk-<output> in .env
+   ```powershell
+   .\scripts\generate-litellm-key.ps1
+   # Set LITELLM_MASTER_KEY=sk-<output> in .env
    ```
 
 2. Generate a TLS cert and set LITELLM_TLS_DIR in `.env` to point at the cert directory:
-   ```bat
+   ```powershell
    mkcert localhost 127.0.0.1 ::1 <windows-host>
-   rem Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
+   # Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
    ```
 
 3. Set the CA cert path in `.env`:
-   ```bat
-   rem Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
+   ```powershell
+   # Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
    ```
 
 4. Start the LiteLLM container:
-   ```bat
-   scripts\litellm-start.cmd up
+   ```powershell
+   .\scripts\litellm-start.ps1 up
    ```
 
 5. Wait a few seconds for the SQLite database tables to be created, then generate a
    scoped virtual key for client auth:
-   ```bat
-   scripts\setup-litellm.cmd
-   rem Copy the returned key into .env as LITELLM_VIRTUAL_KEY
+   ```powershell
+   .\scripts\setup-litellm.ps1
+   # Copy the returned key into .env as LITELLM_VIRTUAL_KEY
    ```
 
 6. Restart the container so it picks up the new env vars:
-   ```bat
-   scripts\litellm-start.cmd restart
+   ```powershell
+   .\scripts\litellm-start.ps1 restart
    ```
 
 ### Start LiteLLM
 
-```bat
-scripts\litellm-start.cmd up
+```powershell
+.\scripts\litellm-start.ps1 up
 ```
 
 This starts the container via `docker compose up -d`. The container listens on
@@ -112,19 +116,19 @@ This starts the container via `docker compose up -d`. The container listens on
 
 ### Stop LiteLLM
 
-```bat
-scripts\litellm-start.cmd down
+```powershell
+.\scripts\litellm-start.ps1 down
 ```
 
 ### Verify LiteLLM is running
 
-```bat
-scripts\litellm-start.cmd status
+```powershell
+.\scripts\litellm-start.ps1 status
 ```
 
 Or check the health endpoint directly:
-```bat
-curl -k https://localhost:8445/health/
+```powershell
+curl.exe -k https://localhost:8445/health/
 ```
 
 ### Verify routing
@@ -133,27 +137,15 @@ Send a test request to confirm each tier routes correctly. Use the **Anthropic
 /v1/messages** endpoint (the format Claude Code sends) to verify LiteLLM's
 Anthropic-to-OpenAI conversion works end-to-end:
 
-```bat
-rem Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"devstral-small-2-24b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+```powershell
+# Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"devstral-small-2-24b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 
-rem Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"qwen3-coder-30b-a3b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+# Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3-coder-30b-a3b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 
-rem Opus tier (Anthropic format -- passthrough to DS4 Proxy)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+# Opus tier (Anthropic format -- passthrough to DS4 Proxy)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"deepseek-v4-flash","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 Note: Use the virtual key, NOT the master key. The `/v1/messages` endpoint confirms
@@ -164,24 +156,24 @@ fails outright if llama-swap is offline.
 ### Client (Windows) with LiteLLM
 
 First time only, ensure the repo-root `.env` has the LiteLLM vars filled in. The
-`code-ccgw.cmd` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
+`code-ccgw.ps1` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
 
 Set in `.env`:
-```bat
+```ini
 LITELLM_ANTHROPIC_BASE_URL=https://<windows-host>:8445
 LITELLM_VIRTUAL_KEY=sk-<generated-token>
 ```
 
 Then launch as before:
-```bat
-scripts\code-ccgw.cmd .
+```powershell
+.\scripts\code-ccgw.ps1 .
 ```
 
 ### Recovery
 
 | Symptom | Action |
 |---------|--------|
-| LiteLLM container not running | `litellm-start.cmd up`; check Docker Desktop is running |
+| LiteLLM container not running | `litellm-start.ps1 up`; check Docker Desktop is running |
 | `Connection refused` on :8445 | Verify container status; check port mapping |
 | Haiku/Sonnet tier returns `Cannot connect to host host.docker.internal:18080` | llama-swap service is down on this PC (`nssm status llama-swap`); no fallback exists — start it and retry |
 | DS4 Proxy unreachable | Verify <mac-host> Mac is reachable (<mac-lan-ip>); check DS4 Proxy status |
@@ -191,81 +183,130 @@ scripts\code-ccgw.cmd .
 | `/key/generate` fails | Verify `DATABASE_URL` is set (SQLite configured in compose); wait for database initialisation |
 | Keys lost after restart | Verify `litellm-postgres` volume persists; check `docker volume ls` for the named volume |
 
-## Run the server (Mac)
+## Install llama-swap and Laguna S 2.1 (Mac, one-time)
+
+llama-swap owns the full start/stop lifecycle of both ds4-server and Laguna's
+`mlx_lm.server` (see [architecture.md](architecture.md#mac-backend-layer-llama-swap)); it must
+be installed before either backend can be reached through the proxy.
+
+Run the bundled installer, which installs llama-swap (via Homebrew) and `mlx-lm` from git
+`main` (Laguna architecture support is not yet in a PyPI release), then scaffolds `.env`:
+```sh
+~/git/cc-local-llm/install.sh
+```
+It cannot download the Laguna model itself — confirm
+`~/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx` exists (via LM Studio or `huggingface-cli`)
+before starting llama-swap. The individual steps live under
+[install/mac/](../install/mac/) (`llama-swap.sh`, `mlx-lm.sh`) if you need to re-run just one.
+
+`LLAMA_SWAP_HOST` / `LLAMA_SWAP_PORT` in `.env` default to `127.0.0.1:18080`, which matches
+`DS4_PROXY_UPSTREAM` — leave them as-is unless you have a reason to change the port.
+
+## Retire the always-on ds4-server LaunchAgent (one-time, existing installs only)
+
+Skip this if `com.nire.ds4-server.plist` was never installed. Otherwise, llama-swap now owns
+ds4-server's lifecycle exclusively — leaving the old LaunchAgent running would fight llama-swap
+for the same process and break ds4/Laguna exclusivity. Run this once, yourself, before starting
+llama-swap for the first time:
 
 ```sh
-mkdir -p ~/Library/Caches/ds4-server/kv     # first time only
-~/git/cc-local-llm/scripts/ds4ctl.sh start server
+~/git/cc-local-llm/scripts/serverctl.sh uninstall server
+```
+
+This stops the resident ds4-server process and removes
+`~/Library/LaunchAgents/com.nire.ds4-server.plist`. After this, `server` is a manual-debug-only
+`serverctl` target — it is not part of `all`.
+
+## Run llama-swap (Mac)
+
+llama-swap is the DS4 Proxy's sole upstream; starting it makes both ds4-server and Laguna
+reachable (llama-swap spawns whichever one is requested, on demand):
+
+```sh
+~/git/cc-local-llm/scripts/serverctl.sh start llama-swap
 ```
 
 For foreground (debugging):
 ```sh
-~/git/cc-local-llm/scripts/ds4-server.sh
+~/git/cc-local-llm/scripts/llama-swap.sh
 ```
 
 Stop:
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh stop server
+~/git/cc-local-llm/scripts/serverctl.sh stop llama-swap
 ```
 
 Note: if the service is launchd-managed (auto-start installed), `stop` exits with an error
-and guides you to use `ds4ctl uninstall server` instead.
+and guides you to use `serverctl uninstall llama-swap` instead.
 
-`caffeinate` is baked into the script and exits with the server; no separate step.
+### Manual foreground ds4-server (debugging only)
+
+For debugging ds4-server in isolation, outside llama-swap's management:
+```sh
+mkdir -p ~/Library/Caches/ds4-server/kv     # first time only
+~/git/cc-local-llm/scripts/ds4-server.sh
+```
+`caffeinate` is baked into the script and exits with the server; no separate step. Do not run
+this alongside llama-swap — both would try to manage the same process.
 
 ## Unified control (Mac)
 
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh start all      # start both services
-~/git/cc-local-llm/scripts/ds4ctl.sh stop all       # stop both
-~/git/cc-local-llm/scripts/ds4ctl.sh restart all    # restart both
-~/git/cc-local-llm/scripts/ds4ctl.sh status all     # show status
-~/git/cc-local-llm/scripts/ds4ctl.sh logs server    # tail ds4-server log (color in TTY)
-~/git/cc-local-llm/scripts/ds4ctl.sh logs proxy     # tail ds4-proxy log
-~/git/cc-local-llm/scripts/ds4ctl.sh logs all       # tail both logs
+~/git/cc-local-llm/scripts/serverctl.sh start all         # start proxy + llama-swap
+~/git/cc-local-llm/scripts/serverctl.sh stop all          # stop both
+~/git/cc-local-llm/scripts/serverctl.sh restart all       # restart both
+~/git/cc-local-llm/scripts/serverctl.sh status all        # show status
+~/git/cc-local-llm/scripts/serverctl.sh logs llama-swap   # tail llama-swap log (color in TTY)
+~/git/cc-local-llm/scripts/serverctl.sh logs proxy        # tail ds4-proxy log
+~/git/cc-local-llm/scripts/serverctl.sh logs all          # tail both logs
 ```
 
-Targets: `proxy`, `server`, `all` (default when omitted).
+Targets: `proxy`, `llama-swap`, `all` (default when omitted). `server` (bare ds4-server) is a
+separate manual-debug-only target, excluded from `all` — see above.
 
 ## Automatic startup (launchd)
 
 Install both services as LaunchAgents (start at login, restart on crash):
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh install all
+~/git/cc-local-llm/scripts/serverctl.sh install all
 ```
 
 Uninstall (stops the service and removes auto-start):
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh uninstall all
+~/git/cc-local-llm/scripts/serverctl.sh uninstall all
 ```
 
 Plist locations and labels:
 - `~/Library/LaunchAgents/com.nire.ds4-proxy.plist` (`com.nire.ds4-proxy`)
-- `~/Library/LaunchAgents/com.nire.ds4-server.plist` (`com.nire.ds4-server`)
+- `~/Library/LaunchAgents/com.nire.ds4-llama-swap.plist` (`com.nire.ds4-llama-swap`)
+
+`server` (bare ds4-server) has no plist — it is not launchd-installable; llama-swap starts and
+stops it on demand instead.
 
 KeepAlive=true means launchd restarts the service automatically on crash.
 
 **DS4_LOG change requires reinstall**: the log paths are baked into the plist at install time.
-After changing `DS4_LOG` in `.env`, run `ds4ctl install all` to regenerate the plist.
+After changing `DS4_LOG` in `.env`, run `serverctl install all` to regenerate the plist.
 
-**Stopping a launchd-managed service**: `ds4ctl stop` will refuse with an error when the
+**Stopping a launchd-managed service**: `serverctl stop` will refuse with an error when the
 service is launchd-managed (KeepAlive would restart it immediately anyway). Use
-`ds4ctl uninstall <svc>` to stop and disable auto-start.
+`serverctl uninstall <svc>` to stop and disable auto-start.
 
-**Restarting a launchd-managed service**: `ds4ctl install <svc>` on its own is the restart —
+**Restarting a launchd-managed service**: `serverctl install <svc>` on its own is the restart —
 `ds4_install()` (`scripts/lib/launchd.sh`) runs `_ds4_write_plist` → `launchctl unload` →
 `launchctl load -w` in sequence. Do **not** do `uninstall` then `install`: the two-step form
 only opens a window in which no LaunchAgent exists, and buys nothing.
 
 **Run `install` from the checkout the plist should point at.** `_ds4_write_plist` bakes the
-absolute path `$DS4_OPS_ROOT/scripts/ds4-<svc>.sh` into `ProgramArguments`, and
+absolute path `$DS4_OPS_ROOT/scripts/<wrapper>.sh` into `ProgramArguments` (`ds4-proxy.sh`,
+`ds4-server.sh`, or `llama-swap.sh` — see `_ds4_wrapper_script` in `scripts/lib/paths.sh`), and
 `DS4_OPS_ROOT` is derived by `scripts/lib/root.sh` from the parent directory of the script
 that was actually executed. Installing from a throwaway checkout (a git worktree, say) leaves
 the LaunchAgent pointing at a path that disappears when that checkout is removed, and the
 service then fails to start. Always run it from the everyday checkout (`~/git/cc-local-llm`).
 
-**start vs stop asymmetry**: when launchd manages a service, `ds4ctl start` is a silent
-no-op (informational — launchd's KeepAlive is already running it), while `ds4ctl stop`
+**start vs stop asymmetry**: when launchd manages a service, `serverctl start` is a silent
+no-op (informational — launchd's KeepAlive is already running it), while `serverctl stop`
 returns an error (stopping would be immediately undone by KeepAlive, so the command refuses
 to create that confusion). This asymmetry is intentional.
 
@@ -282,30 +323,33 @@ Three independent toggles control different log streams:
 `DS4_LOG=off` stops only the stdout/stderr log files. If `DS4_PROXY_TEE=on`, the proxy
 still writes body-dump logs to `DS4_PROXY_LOG_DIR` — they are independent.
 
-Log file paths: `~/Library/Logs/ds4-proxy/proxy.log` and `~/Library/Logs/ds4-server/kvcache.log`.
+Log file paths: `~/Library/Logs/ds4-proxy/proxy.log` and `~/Library/Logs/llama-swap/llama-swap.log`
+(ds4-server's own stdout/stderr flow through llama-swap into the latter file — see
+`kvcache.log` under [Monitoring](#monitoring-mac) for the separate KV-cache log ds4-server writes
+directly).
 
 For color-highlighted live log viewing:
 ```sh
-~/git/cc-local-llm/scripts/ds4ctl.sh logs server   # TTY: color; pipe/file: plain
+~/git/cc-local-llm/scripts/serverctl.sh logs llama-swap   # TTY: color; pipe/file: plain
 ```
 
 ## Client (Windows)
 
 First time only, create the repo-root `.env` from the template and put the Mac's LAN IP in it
 (the IP is never committed — `.env` is gitignored):
-```bat
-copy .env.example .env
-rem then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
-rem and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
+```powershell
+Copy-Item .env.example .env
+# then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
+# and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
 ```
 Then launch VS Code with the ds4 backend via the bundled wrapper:
-```bat
-scripts\code-ccgw.cmd .
+```powershell
+.\scripts\code-ccgw.ps1 .
 ```
 The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
-the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
+the per-tier model aliases (the tier table under "Client (macOS / Linux)" applies here too),
 `NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`,
-and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=393216` /
+and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. The base URL now points at the
 proxy (`https://<mac-ip>:8443`), not ds4 directly. If `CCGW_ANTHROPIC_BASE_URL` is set
 in neither `.env` nor the shell, the wrapper warns and falls back to `https://localhost:8443`
@@ -315,7 +359,7 @@ in neither `.env` nor the shell, the wrapper warns and falls back to `https://lo
 so Node trusts the proxy certificate (if unset the wrapper warns and TLS will not be trusted).
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
-`--user-data-dir "%LOCALAPPDATA%\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
+`--user-data-dir "$env:LOCALAPPDATA\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
 shares one process — and thus one environment — across every window under the same
 user-data-dir, so without this flag the ds4 env bleeds into native subscription windows. The
 separate profile keeps the ds4 session and native `code` / `codes` sessions independent on the
@@ -329,18 +373,86 @@ Caveat: if the ds4 profile is already running, close *all* its windows before ch
 environment) persists until the last window of the profile closes, and new windows inherit the
 old value. The same folder may be open in the native and ds4 profiles at the same time: the
 "reuse the existing window for this folder" dedup is per-profile, so `codes .` followed by
-`code-ccgw.cmd .` on one repo yields two independent windows (native backend + ds4 backend),
+`code-ccgw.ps1 .` on one repo yields two independent windows (native backend + ds4 backend),
 not one activated window.
 
 Terminal alternative (no VS Code): set the same env vars the wrapper does
-(see [scripts/code-ccgw.cmd](../scripts/code-ccgw.cmd) for the full list) and run `claude`.
+(see [scripts/code-ccgw.ps1](../scripts/code-ccgw.ps1) for the full list) and run `claude`.
 
 Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars from
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).
 
-**Verify connectivity:** after launch, run `/context` and confirm CC reports a window near
-393216 (not 200K / 1M). Grow the conversation and confirm auto-compaction fires *before* ds4
-returns `400 context_length_exceeded`.
+**Verify connectivity:** after launch, run `/context` and confirm CC reports the local window
+(65536, the floor the launcher sets) rather than a cloud 200K / 1M. Grow the conversation and
+confirm auto-compaction fires *before* the backend returns `400 context_length_exceeded`.
+
+## Client (macOS / Linux)
+
+The Windows box is the primary client, but the backend Mac — and any Linux host on the LAN —
+can drive the same backend through [scripts/code-ccgw.sh](../scripts/code-ccgw.sh), the POSIX
+counterpart of `code-ccgw.ps1`. On the backend Mac this is the cheapest path of all: the proxy
+is already on loopback, so no LiteLLM container and no LAN IP are involved.
+
+One-time setup:
+```bash
+./install.sh --client     # installs mkcert (Linux: apt/dnf/pacman; Mac: Homebrew)
+cp .env.example .env      # if not already present
+```
+Then fill in `.env`:
+- **On the backend Mac:** `CCGW_ANTHROPIC_BASE_URL=https://127.0.0.1:8443` and
+  `CCGW_API_KEY=<same value as DS4_PROXY_AUTH_TOKEN>`. `CCGW_CA_CERT` may be omitted — the
+  wrapper falls back to `$(mkcert -CAROOT)/rootCA.pem`, which is already correct on the host
+  that issued the certificate.
+- **On another Linux host:** `CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443`, `CCGW_API_KEY`,
+  and `CCGW_CA_CERT` pointing at a copy of the Mac's `rootCA.pem`.
+
+Launch:
+```bash
+./scripts/code-ccgw.sh .
+```
+
+**Choosing the backend model.** On the direct path the model name is what the Mac swap layer
+routes on, so it must be a name that layer knows (see
+[llama-swap/config.yaml](../llama-swap/config.yaml)). The two backends sit on separate Claude
+Code tiers, so `/model` is what switches between them:
+
+| Tier | Backend |
+|---|---|
+| Fable | ds4 (`deepseek-v4-flash`) |
+| Opus | Laguna S 2.1 (`laguna-s-2.1`) |
+| Sonnet / Haiku | ds4 — the Mac hosts nothing smaller |
+
+`CCGW_DEFAULT_MODEL` in `.env` only picks which backend is resident at launch. The two are
+mutually exclusive: selecting the other tier unloads the resident model and cold-starts the
+new one, so expect a long first response after each switch. Subagents follow the resident model
+(`CLAUDE_CODE_SUBAGENT_MODEL` tracks `CCGW_DEFAULT_MODEL`) rather than the Opus tier for that
+reason — a subagent on the other backend would evict the model the main session is using.
+
+**Isolation from native (subscription) VS Code** works the same way as on Windows: the wrapper
+passes its own `--user-data-dir` (`~/Library/Application Support/vscode-ccgw` on macOS,
+`${XDG_DATA_HOME:-~/.local/share}/vscode-ccgw` on Linux), so this env never bleeds into native
+subscription windows. The Windows section above covers the reasoning and the caveats — they
+apply verbatim here.
+
+Terminal alternative (no VS Code): set the same env vars the wrapper does (see
+[scripts/code-ccgw.sh](../scripts/code-ccgw.sh) for the full list) and run `claude`.
+
+## Verify Laguna S 2.1 (Mac)
+
+With llama-swap running, send a direct request naming the Laguna model. This forces llama-swap
+to kill any resident ds4-server and cold-start `mlx_lm.server` — expect the first response to
+take as long as a full model load (see [infrastructure.md](infrastructure.md#engine--model-on-the-mac)
+for expected weight size):
+```sh
+curl -s http://127.0.0.1:18080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $DS4_PROXY_AUTH_TOKEN" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"laguna-s-2.1","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+```
+Then confirm exclusivity: sending a `deepseek-v4-flash` request next should make llama-swap kill
+the Laguna process and cold-start ds4-server in its place — `pgrep -fl mlx_lm.server` should
+show nothing once ds4-server is back up.
 
 ## Monitoring (Mac)
 
@@ -375,6 +487,8 @@ diff /tmp/before.txt /tmp/after.txt
 | `error during compaction` | The compaction request itself exceeds ctx. Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` + `PCT_OVERRIDE` are set so compaction fires *before* the ceiling; otherwise `/clear` or restart the server at higher ctx so the current conversation fits, then compact. |
 | Server unresponsive / client API errors after idle | Check `pmset -g log` for a sleep window. caffeinate should prevent it; confirm the process is still wrapped. |
 | `kv cache evicted reason=disk-cache-full` | Normal capacity management — not an error. Ignore. |
+| Switching between ds4/Laguna is slow every time | Expected — llama-swap fully unloads the previous model before loading the next (`ttl: 0`, no idle auto-unload; see [architecture.md](architecture.md#mac-backend-layer-llama-swap)). Both together exceed 128 GB, so there is no way to keep both warm. |
+| `502 Bad Gateway` from the proxy right after a model switch | llama-swap is still loading the newly-requested model. Retry after the load completes (`serverctl logs llama-swap` shows progress). |
 
 ## Enable Think Max (accuracy option)
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # launchd LaunchAgent helpers for ds4 services.
-# Sourced by ds4ctl.sh before lifecycle.sh.
+# Sourced by serverctl.sh before lifecycle.sh.
 set -eu
 
 _ds4_plist_path() { echo "$HOME/Library/LaunchAgents/com.nire.ds4-${1}.plist"; }
@@ -16,7 +16,7 @@ _ds4_write_plist() {
     _svc="$1"
     _plist="$(_ds4_plist_path "$_svc")"
     _label="$(_ds4_plist_label "$_svc")"
-    _wrapper="$DS4_OPS_ROOT/scripts/ds4-${_svc}.sh"
+    _wrapper="$DS4_OPS_ROOT/scripts/$(_ds4_wrapper_script "$_svc")"
     _cwd="$(_ds4_cwd "$_svc")"
     _logfile="$(_ds4_log_file "$_svc")"
 
@@ -80,7 +80,7 @@ ds4_install() {
     _ds4_write_plist "$_svc"
     launchctl unload "$_plist" 2>/dev/null || true
     launchctl load -w "$_plist"
-    echo "[ds4ctl] installed $_label"
+    echo "[serverctl] installed $_label"
 }
 
 ds4_uninstall() {
@@ -89,5 +89,5 @@ ds4_uninstall() {
     _label="$(_ds4_plist_label "$_svc")"
     launchctl unload -w "$_plist" 2>/dev/null || true
     rm -f "$_plist"
-    echo "[ds4ctl] uninstalled $_label"
+    echo "[serverctl] uninstalled $_label"
 }

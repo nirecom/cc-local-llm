@@ -66,7 +66,10 @@ than push ds4 past its ceiling.
 
 ## Reverse proxy layer
 
-A Python asyncio reverse proxy (`proxy/`) sits between Claude Code (HTTPS client) and ds4 (plain HTTP on 127.0.0.1:8000). It serves three goals that cannot be achieved by env-var wiring alone.
+A Python asyncio reverse proxy (`proxy/`) sits between Claude Code (HTTPS client) and Mac
+llama-swap (plain HTTP, 127.0.0.1:18080 — see
+[Mac backend layer](#mac-backend-layer-llama-swap) below). It serves three goals that cannot
+be achieved by env-var wiring alone.
 
 ### Why TLS termination
 
@@ -108,16 +111,67 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 
 Until then it stays here as a deliberate hold, not drift.
 
+## Mac backend layer (llama-swap)
+
+The Mac hosts two mutually-exclusive local models — ds4-server (DeepSeek V4 Flash) and
+Laguna S 2.1 (`mlx_lm.server`, 4-bit NVFP4 MLX). Together their resident weights (~90.9 GB +
+~72-90 GB) exceed the Mac's 128 GB unified memory, so at most one may be loaded at a time.
+
+**Mac llama-swap** (`llama-swap/config.yaml`, listen `127.0.0.1:18080`) is the DS4 Proxy's
+sole upstream and the only service needed to manage this — it spawns and kills ds4-server /
+`mlx_lm.server` on demand, keyed by the requested model name. Its **default** behavior (no
+`groups:` block) already keeps exactly one model process loaded at a time, which is
+sufficient here since neither backend needs to stay resident while the other runs — unlike a
+judge+reasoner setup with an always-on small model, there is no asymmetry to encode with an
+explicit group.
+
+An earlier draft of this design added a `litellm-server` hop between the DS4 Proxy and Mac
+llama-swap, to do model-name routing and Anthropic↔OpenAI protocol conversion. That hop
+turned out to be redundant: `mostlygeek/llama-swap` already speaks Anthropic `/v1/messages`
+natively (translating to whatever the spawned backend needs) and already routes by the
+model name in the request, so it needed no proxy in front of it. The DS4 Proxy forwards the
+client's `x-api-key` header unchanged (see [Why token auth](#why-token-auth)), and Mac
+llama-swap is loopback-only, so no extra auth hop was needed either — the DS4 Proxy is
+already the sole gate. `litellm-server` was removed before ever being deployed.
+
+### Why ds4-server is no longer a launchd-managed always-on service
+
+Before Laguna, ds4-server ran as an always-on `launchd` `KeepAlive` service
+(`com.nire.ds4-server.plist`) — the Mac only ever hosted one model, so permanent residency
+was harmless. With Laguna added, permanent ds4-server residency would fight llama-swap for
+control of the same process and defeat the exclusivity goal (launchd would keep ds4-server
+resident even while a Laguna request is in flight). ds4-server's lifecycle is now owned
+exclusively by Mac llama-swap; the KeepAlive LaunchAgent is retired, and llama-swap itself
+becomes the always-on `launchd` service instead. `scripts/ds4-server.sh` (direct binary
+invocation) remains available for manual foreground debugging only, deliberately excluded
+from `serverctl`'s `all` target — see [ops.md](ops.md) for the exact retirement/install steps.
+
+### Why no explicit llama-swap `groups:` block
+
+`mostlygeek/llama-swap`'s `groups:` feature exists to model asymmetric cases (e.g. an
+always-on small "judge" model plus an on-demand "reasoner" — the pattern used by the
+`portable-llm-server` reference repo). ds4/Laguna is symmetric: both are large, both are
+requested on demand, neither needs to stay warm while idle. The tool's default behavior
+(exactly one model process alive, previous one killed before the next starts) already
+implements that symmetric exclusivity, so an explicit `groups:` block would only add
+config surface without changing behavior.
+
 ## LiteLLM routing layer (Windows)
 
 A LiteLLM proxy on <windows-host> (Windows, Docker Desktop WSL2) routes Claude Code requests
-by model name to three backends:
+by model name to four backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
 | Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
 | Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
-| Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Fable | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Opus | `laguna-s-2.1` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+
+Fable and Opus deliberately land on the same DS4 Proxy but on different tiers. The Mac's two
+backends cannot be resident together, so putting them on separate tiers makes `/model` the
+switch — no extra routing key, no second base URL. The cost is a cold start on every switch,
+which is inherent to the memory constraint rather than to this arrangement.
 
 Haiku and Sonnet have no fallback: llama-swap on <windows-host> is the sole backend for
 both tiers. A Mac (M4 Pro) fallback existed briefly during the 2026-08 migration but was
@@ -150,7 +204,7 @@ is reused -- no separate CA setup.
 
 LiteLLM uses virtual_key authentication. The `LITELLM_MASTER_KEY` is used for the admin
 API and virtual key generation -- it is NEVER exposed to the client. A one-time setup
-step (`scripts/setup-litellm.cmd`) creates a scoped virtual key from a randomly-generated
+step (`scripts/setup-litellm.ps1`) creates a scoped virtual key from a randomly-generated
 key (NOT the master key). Claude Code presents the virtual key as `ANTHROPIC_AUTH_TOKEN`
 to authenticate with LiteLLM. The DS4 Proxy's own token auth is preserved for the Opus
 route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the DS4 Proxy.
