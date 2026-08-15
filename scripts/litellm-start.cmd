@@ -20,7 +20,7 @@ set "ACTION=%~1"
 if not defined ACTION set "ACTION=up"
 
 rem Compose file path (absolute Windows path)
-set "COMPOSE_FILE=%~dp0..\litellm\docker-compose.yml"
+set "COMPOSE_FILE=%~dp0..\litellm-client\docker-compose.yml"
 
 if /i "%ACTION%"=="up" (
     echo [litellm] Starting LiteLLM container...
