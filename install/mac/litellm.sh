@@ -3,6 +3,11 @@
 # The gateway used to run as a Docker container on the Windows PC; it is now a
 # single native process on the Mac (see docs/architecture.md), so it is installed
 # in user scope with no daemon and no sudo.
+#
+# This script has no macOS-specific dependency (plain `uv tool install`) -- it
+# lives under install/mac/ because the gateway is deliberately colocated with
+# the Metal/MLX-only backend (llama-swap.sh, mlx-lm.sh) on the same host, not
+# because litellm itself requires macOS.
 
 # Color fallback (no dotfiles dependency -- standalone-safe pattern from claude-code.sh)
 if [ -z "${C_RESET+x}" ]; then
