@@ -2,8 +2,10 @@
 
 Terminates TLS from Claude Code, authenticates the request against a shared
 token, normalizes the /v1/messages body for a stable prompt-cache prefix, then
-forwards to the plain-HTTP ds4 backend and relays the (possibly streamed)
-response back. One handler runs per client connection.
+forwards to the plain-HTTP Mac llama-swap (which routes by model name to
+ds4-server or Laguna's mlx_lm.server, and speaks Anthropic /v1/messages
+natively) and relays the (possibly streamed) response back. One handler runs
+per client connection.
 """
 
 import asyncio

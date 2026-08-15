@@ -26,7 +26,7 @@ class ProxyConfig:
 def load_config() -> ProxyConfig:
     """Build a ProxyConfig from the DS4_PROXY_* environment variables."""
     port = int(os.environ.get("DS4_PROXY_PORT", "8443"))
-    upstream = os.environ.get("DS4_PROXY_UPSTREAM", "http://127.0.0.1:8000")
+    upstream = os.environ.get("DS4_PROXY_UPSTREAM", "http://127.0.0.1:18080")
 
     cert = Path(
         os.environ.get("DS4_PROXY_CERT", "~/.config/ds4-proxy/cert.pem")
