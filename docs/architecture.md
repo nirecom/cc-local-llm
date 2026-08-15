@@ -86,11 +86,13 @@ Claude Code injects volatile content into every system prompt: working directory
 | `strip_system_reminders` | Removes `<system-reminder>…</system-reminder>` blocks | Session-scoped injections differ across turns; stripping them stabilises the prefix |
 | `sort_tools` | Sorts the `tools` array by name | Tool order can vary; deterministic order gives the same prompt bytes across requests |
 
-Each rule is a pure function; all four are applied in order via `apply_all()`. The pipeline is transparent for non-`/v1/messages` paths and non-JSON bodies.
+Each rule is a pure function; all four are applied in order via `apply_all()`. The pipeline is transparent for unrecognized paths and non-JSON bodies.
+
+Two body shapes reach the proxy, because the gateway in front of it converts the Opus tier to the OpenAI shape while the Fable tier stays Anthropic. The shape is decided from the request path alone (`/v1/messages` → Anthropic, `/v1/chat/completions` and `/chat/completions` → OpenAI) and passed to every rule as a mandatory argument — never sniffed from the body, which the client controls, and never defaulted, since a forgotten argument would then normalize the wrong field set silently.
 
 ### Why token auth
 
-ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only Claude Code with the correct `CCGW_API_KEY` can reach ds4. This matters because the proxy is exposed to the LAN via HTTPS rather than `0.0.0.0` plain HTTP; auth prevents use by other devices on the network.
+ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only a caller with the correct `DS4_PROXY_AUTH_TOKEN` (sent by the gateway as `LITELLM_DS4_PROXY_API_KEY`) can reach ds4. This matters whenever the proxy is reachable beyond loopback; auth prevents use by other devices on the network.
 
 ### Design choices
 
@@ -101,7 +103,7 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 
 ### Repository placement — may split out later
 
-`proxy/` currently lives inside cc-local-llm rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the client's `CCGW_API_KEY`, its listen port must match the client's base URL), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
+`proxy/` currently lives inside cc-local-llm rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the gateway's `LITELLM_DS4_PROXY_API_KEY`, its listen port must match `LITELLM_DS4_PROXY_URL`), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
 
 `proxy/` is nonetheless a self-contained Python package (its own `pyproject.toml` / `uv.lock`), so extraction stays cheap and can preserve history via `git filter-repo`. Split it into its own repository when any of these triggers fires:
 
@@ -125,14 +127,17 @@ sufficient here since neither backend needs to stay resident while the other run
 judge+reasoner setup with an always-on small model, there is no asymmetry to encode with an
 explicit group.
 
-An earlier draft of this design added a `litellm-server` hop between the DS4 Proxy and Mac
-llama-swap, to do model-name routing and Anthropic↔OpenAI protocol conversion. That hop
-turned out to be redundant: `mostlygeek/llama-swap` already speaks Anthropic `/v1/messages`
-natively (translating to whatever the spawned backend needs) and already routes by the
-model name in the request, so it needed no proxy in front of it. The DS4 Proxy forwards the
-client's `x-api-key` header unchanged (see [Why token auth](#why-token-auth)), and Mac
-llama-swap is loopback-only, so no extra auth hop was needed either — the DS4 Proxy is
-already the sole gate. `litellm-server` was removed before ever being deployed.
+llama-swap routes by the model name in the request, but it does **not** convert protocols:
+it forwards the body to whichever backend it spawned. ds4-server implements the Anthropic
+`/v1/messages` shape itself, while Laguna's `mlx_lm.server` speaks only the OpenAI
+`/v1/chat/completions` shape. Anthropic↔OpenAI conversion therefore has to happen upstream
+of llama-swap, and the LiteLLM gateway is the single place that does it — one converter for
+every tier rather than a second, ds4-specific one inside the proxy.
+
+One llama-swap directive is needed for Laguna: `useModelName: default_model`.
+`mlx_lm.server` resolves any body `model` other than `default_model` as a Hugging Face repo
+path and answers 401, so llama-swap rewrites the forwarded body while still matching on the
+`laguna-s-2.1` routing key. ds4-server accepts any model name, so its entry does not set it.
 
 ### Why ds4-server is no longer a launchd-managed always-on service
 
@@ -156,17 +161,43 @@ requested on demand, neither needs to stay warm while idle. The tool's default b
 implements that symmetric exclusivity, so an explicit `groups:` block would only add
 config surface without changing behavior.
 
-## LiteLLM routing layer (Windows)
+## LiteLLM gateway layer (Mac, native)
 
-A LiteLLM proxy on <windows-host> (Windows, Docker Desktop WSL2) routes Claude Code requests
-by model name to four backends:
+A single LiteLLM process on <mac-host> (native, `uv`-installed, managed by
+`serverctl`) is the one endpoint every client talks to. It terminates client TLS, converts
+the Anthropic wire format where the backend needs it, and routes by model name to four
+backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
-| Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
-| Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
+| Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
+| Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Fable | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `laguna-s-2.1` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Opus | `laguna-s-2.1` | DS4 Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+
+### Why the gateway moved off Windows/Docker
+
+The gateway used to run as a Docker Compose stack (LiteLLM + PostgreSQL) on the Windows PC.
+Two of its three backends are on the Mac, so every Fable/Opus request crossed the LAN twice;
+the container also needed `host.docker.internal` plumbing, a CA bundle mounted at startup,
+and a database whose only purpose was virtual-key persistence. Running it natively next to
+the backends removes all four moving parts. The Windows PC keeps only its llama-swap, which
+the gateway now reaches by LAN IP over HTTPS — through that host's existing Caddy front, which
+terminates TLS on `:8443` and reverse-proxies to llama-swap's loopback-only `:18080`, so the
+LAN hop is encrypted rather than plaintext. Caddy's certificate comes from the same mkcert root
+CA as the DS4 Proxy's, so the gateway verifies it with the `SSL_CERT_FILE` trust it already
+carries — no second CA to distribute. This is transport encryption only: like the DS4 Proxy hop
+it is not mutual TLS, and unlike that hop it still presents no auth key, matching the
+Haiku/Sonnet tiers' existing no-credential design.
+
+### Why the Opus tier is converted, not passed through
+
+Both Mac tiers reach the same DS4 Proxy, but Laguna is served by `mlx_lm.server`, which
+speaks only the OpenAI shape. LiteLLM converts that tier with the same `openai/` provider
+pattern already used for Haiku/Sonnet, so protocol conversion stays in exactly one component
+(see [Mac backend layer](#mac-backend-layer-llama-swap)). The DS4 Proxy is a path-preserving
+generic hop underneath: it appends the incoming path to its upstream verbatim and never
+rewrites the model name.
 
 Fable and Opus deliberately land on the same DS4 Proxy but on different tiers. The Mac's two
 backends cannot be resident together, so putting them on separate tiers makes `/model` the
@@ -182,45 +213,52 @@ llama-swap is offline.
 ### Why LiteLLM and not a custom router
 
 LiteLLM is an established open-source proxy that supports Anthropic-to-OpenAI conversion
-natively. Building a custom router would duplicate its model routing, virtual key auth,
-and protocol translation -- a net cost with no benefit given LiteLLM's maturity.
+natively. Building a custom router would duplicate its model routing, auth, and protocol
+translation -- a net cost with no benefit given LiteLLM's maturity.
 
 ### TLS termination
 
 LiteLLM listens on HTTPS with an mkcert-signed certificate, sharing the same root CA
-already used by the DS4 Proxy. The Windows client trusts it via `NODE_EXTRA_CA_CERTS`
-pointing at `<mkcert -CAROOT>/rootCA.pem` (same `CCGW_CA_CERT` value). No new CA setup
-is needed.
+already used by the DS4 Proxy. Clients trust it via `NODE_EXTRA_CA_CERTS` pointing at
+`<mkcert -CAROOT>/rootCA.pem` (the `CCGW_CA_CERT` value). No new CA setup is needed. On the
+Mac itself the issuing CA is already trusted, so `CCGW_CA_CERT` may be left empty there.
 
-### CA cert trust for Opus route (container to <mac-host>)
+The hop from the gateway to the DS4 Proxy is configurable in the same way: while the proxy
+still terminates TLS (`DS4_PROXY_TLS=on`), the gateway trusts its certificate through
+`SSL_CERT_FILE`. Once both processes sit on the same Mac, the pair can be switched to plain
+loopback HTTP — but only as a set, together with `DS4_PROXY_HOST` and
+`LITELLM_DS4_PROXY_URL`; changing some and not the others leaves the gateway unable to
+connect.
 
-The LiteLLM container connects to the DS4 Proxy (<mac-host>:8443) over HTTPS for Opus requests.
-Inside the container, the mkcert root CA is mounted and appended to the system CA bundle
-at startup (via the compose file's entrypoint). This ensures LiteLLM can verify the DS4
-Proxy's TLS certificate. The same root CA file used for the Windows client (`CCGW_CA_CERT`)
-is reused -- no separate CA setup.
+### Master-key authentication
 
-### Virtual key authentication
+Auth is master-key only: `LITELLM_MASTER_KEY` is the gateway's credential, and clients
+present the same value as `LITELLM_CLIENT_KEY`. The previous deployment issued scoped
+virtual keys through `/key/generate`, which required a PostgreSQL database purely to
+persist them. With a single trusted user on a LAN, that database bought nothing but
+operational surface, so it is gone along with the container. Deleting the database is what
+makes virtual keys impossible — not a policy choice layered on top of it.
 
-LiteLLM uses virtual_key authentication. The `LITELLM_MASTER_KEY` is used for the admin
-API and virtual key generation -- it is NEVER exposed to the client. A one-time setup
-step (`scripts/setup-litellm.ps1`) creates a scoped virtual key from a randomly-generated
-key (NOT the master key). Claude Code presents the virtual key as `ANTHROPIC_AUTH_TOKEN`
-to authenticate with LiteLLM. The DS4 Proxy's own token auth is preserved for the Opus
-route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the DS4 Proxy.
+The DS4 Proxy's own token auth is unchanged and independent: the gateway sends
+`LITELLM_DS4_PROXY_API_KEY`, which must equal the proxy's `DS4_PROXY_AUTH_TOKEN`.
 
-### Database for virtual key persistence
+### One client route, no fallback
 
-LiteLLM requires a database backend for key generation and verification. The compose file
-configures PostgreSQL (`DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm`) with a named
-volume for persistence across restarts. 
-### Host.docker.internal (Haiku/Sonnet route to this PC)
+Clients used to have two ways in: the gateway, and a direct DS4 Proxy connection with its own
+base URL and its own credential. Two paths for one request means two auth models to keep in
+sync and two explanations for any failure, and the direct path could not reach the Haiku or
+Sonnet tiers at all. It is retired: `LITELLM_ANTHROPIC_BASE_URL` and `LITELLM_CLIENT_KEY` are
+required, and the launchers exit when either is missing. A placeholder default would only defer
+the same failure to a 401 at request time, where it is much harder to read.
 
-The Haiku and Sonnet backends run on llama-swap on <windows-host> itself -- the same
-machine running the LiteLLM container. The container reaches it via
-`host.docker.internal:18080`, resolved through the `extra_hosts: host-gateway` entry in
-docker-compose.yml. The DS4 Proxy endpoint (Opus tier) is a separate machine (<mac-host>)
-reached by LAN IP directly.
+### Subagent pinning is opt-in
+
+The launchers used to export `CLAUDE_CODE_SUBAGENT_MODEL` unconditionally, because the two Mac
+backends are mutually exclusive: a subagent on the other backend would evict the model the main
+session is using. With the gateway multiplexing across four backends on two machines, that
+premise no longer holds for the Haiku and Sonnet tiers, while the unconditional export silently
+overrode the model each agent definition's frontmatter asks for. `CCGW_SUBAGENT_MODEL` now makes
+the pin opt-in, and it takes a routing key that is passed through untranslated.
 
 ### Two strategies update
 

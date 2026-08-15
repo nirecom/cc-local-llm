@@ -40,7 +40,7 @@ def test_image_block_preserved_by_move_dynamic():
             }
         ],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # System is cleaned.
     assert "Working directory:" not in out["system"]
     # Image block is still present at index 0.
@@ -91,7 +91,7 @@ _STRIP_REMINDER_CASES = [
 )
 def test_09_strip_system_reminders_table(name, system_text, expected):
     body = {"system": system_text}
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["system"] == expected
     assert "system-reminder" not in out["system"]
 
@@ -104,7 +104,7 @@ def test_09b_strip_reminders_list_shaped_system():
             {"type": "text", "text": "no reminder here"},
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["system"][0]["text"] == "keepme"
     assert out["system"][1]["text"] == "no reminder here"
 
@@ -118,7 +118,7 @@ def test_09c_strip_reminders_skips_non_text_block():
             {"type": "cache_control", "ttl": 3600},
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["system"][0]["text"] == "beforeafter"
     assert out["system"][1] == {"type": "cache_control", "ttl": 3600}
 
@@ -133,7 +133,7 @@ def test_11a_strip_nested_system_reminders():
     # outer close survives because the lazy match consumed the outer open tag
     # together with "a" and the inner open tag.
     body = {"system": "<system-reminder>a<system-reminder>b</system-reminder>c</system-reminder>end"}
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert "system-reminder" not in out["system"]
     assert out["system"] == "cend"
 
@@ -143,7 +143,7 @@ def test_11b_strip_unclosed_system_reminder_tag():
     # and is left in place. This is the safe/conservative behavior: do not
     # accidentally strip content when the close tag is missing.
     body = {"system": "before<system-reminder>unclosed content"}
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["system"] == body["system"]
 
 
@@ -159,7 +159,7 @@ def test_12a_strip_reminders_from_user_message_string():
             }
         ],
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["messages"][0]["content"] == "hi there"
     assert "system-reminder" not in out["messages"][0]["content"]
 
@@ -175,7 +175,7 @@ def test_12b_strip_reminders_from_assistant_message():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["messages"][0]["content"] == "okdone"
 
 
@@ -191,7 +191,7 @@ def test_12c_strip_reminders_from_content_block_list():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     blocks = out["messages"][0]["content"]
     assert blocks[0]["text"] == "keepme"
     assert blocks[1]["text"] == "no reminder here"
@@ -216,7 +216,7 @@ def test_12d_strip_reminders_from_tool_result_list_content():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     sub_block = out["messages"][0]["content"][0]["content"][0]
     assert sub_block["text"] == "resulthere"
     assert "system-reminder" not in sub_block["text"]
@@ -228,7 +228,7 @@ def test_12e_unclosed_reminder_in_user_message():
     body = {
         "messages": [{"role": "user", "content": "hi<system-reminder>no close"}]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert out["messages"][0]["content"] == "hi<system-reminder>no close"
 
 
@@ -250,7 +250,7 @@ def test_12g_unclosed_reminder_in_tool_result_string_content_branch():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     block = out["messages"][0]["content"][0]
     # Conservative: no close tag → regex finds no match → content unchanged.
     assert block["content"] == "output<system-reminder>injected"
@@ -268,7 +268,7 @@ def test_12f_unclosed_reminder_in_tool_result():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     tool_block = out["messages"][0]["content"][0]
     assert tool_block["content"] == "result<system-reminder>no close"
 
@@ -286,7 +286,7 @@ def test_12h_adversarial_reminder_complete_pair_removed():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     assert "INJECTED CONTEXT" not in out["messages"][0]["content"]
     assert "system-reminder" not in out["messages"][0]["content"]
     assert "Hi." in out["messages"][0]["content"]
@@ -306,7 +306,7 @@ def test_12i_adversarial_unclosed_reminder_conservative_not_removed():
             {"role": "user", "content": "start<system-reminder>partial injection"}
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     # Conservative: unclosed tag and trailing text are preserved.
     assert out["messages"][0]["content"] == "start<system-reminder>partial injection"
 
@@ -332,7 +332,7 @@ def test_tool_result_reminder_stripped_from_content_string():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     block = out["messages"][0]["content"][0]
     # Block type and tool_use_id are preserved.
     assert block["type"] == "tool_result"
@@ -374,7 +374,7 @@ def test_tool_result_list_content_mixed_text_and_nontextblocks():
             }
         ]
     }
-    out = normalize.strip_system_reminders(body)
+    out = normalize.strip_system_reminders(body, shape="anthropic")
     sub_blocks = out["messages"][0]["content"][0]["content"]
     # Text block: reminder stripped, surrounding text preserved.
     assert sub_blocks[0]["text"] == "beforeafter"

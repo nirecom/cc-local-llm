@@ -7,9 +7,9 @@
 # Runs against the EXISTING proxy/server.py (not serverctl). Before Phase 1 lands
 # this is expected to FAIL (raw KeyboardInterrupt traceback); it is intentionally
 # NOT skipped on missing implementation so the regression is recorded.
-# Skips (exit 77) only when prerequisites (DS4_API_KEY / uv / openssl) are absent.
-# L3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
+# Skips (exit 77) only when prerequisites (DS4_PROXY_AUTH_TOKEN / uv / openssl) are absent.
+# TL3 gap: real launchctl load/unload persistence across reboots; actual
+#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -17,7 +17,7 @@ REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 SERVER="$REPO/proxy/server.py"
 
 [ -f "$SERVER" ] || { echo "SKIP: $SERVER not found"; exit 77; }
-printenv DS4_API_KEY >/dev/null 2>&1 || { echo "SKIP: DS4_API_KEY not set"; exit 77; }
+printenv DS4_PROXY_AUTH_TOKEN >/dev/null 2>&1 || { echo "SKIP: DS4_PROXY_AUTH_TOKEN not set"; exit 77; }
 command -v uv >/dev/null 2>&1 || { echo "SKIP: uv not available"; exit 77; }
 command -v openssl >/dev/null 2>&1 || { echo "SKIP: openssl not available"; exit 77; }
 
@@ -56,7 +56,6 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "$WORK/key.pem" \
 PORT=$(( (RANDOM % 2000) + 18000 ))
 LOG="$WORK/proxy.log"
 
-export DS4_PROXY_AUTH_TOKEN="$DS4_API_KEY"
 export DS4_PROXY_CERT="$WORK/cert.pem"
 export DS4_PROXY_KEY="$WORK/key.pem"
 export DS4_PROXY_PORT="$PORT"

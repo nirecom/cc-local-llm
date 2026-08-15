@@ -1,6 +1,7 @@
 #!/bin/sh
-# serverctl — unified control command for the Mac backend stack (DS4 Proxy, llama-swap).
-# Usage: serverctl <start|stop|restart|status|logs|install|uninstall> [proxy|llama-swap|server|all]
+# serverctl — unified control command for the Mac backend stack
+# (LiteLLM gateway, DS4 Proxy, llama-swap).
+# Usage: serverctl <start|stop|restart|status|logs|install|uninstall> [proxy|llama-swap|litellm|server|all]
 set -eu
 
 DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -21,7 +22,7 @@ SERVERCTL="$DS4_SCRIPT_DIR/serverctl.sh"
 
 _usage() {
     cat >&2 <<'EOF'
-Usage: serverctl <command> [proxy|llama-swap|server|all]
+Usage: serverctl <command> [proxy|llama-swap|litellm|server|all]
 
 Commands:
   start     Start service(s) in the background (nohup + PID)
@@ -32,7 +33,7 @@ Commands:
   install   Install launchd LaunchAgent for auto-start
   uninstall Remove launchd LaunchAgent
 
-Targets: proxy, llama-swap, all (default). 'server' (bare ds4-server) is a
+Targets: proxy, llama-swap, litellm, all (default). 'server' (bare ds4-server) is a
 separate manual-debug-only target, excluded from 'all' -- llama-swap owns
 ds4-server's start/stop lifecycle, so running it outside llama-swap would
 double-manage the same process.
@@ -49,7 +50,7 @@ target="${2:-all}"
 
 # Validate target
 case "$target" in
-    proxy|llama-swap|server|all) ;;
+    proxy|llama-swap|litellm|server|all) ;;
     *)
         echo "[serverctl] unknown target: $target" >&2
         _usage
@@ -60,7 +61,7 @@ esac
 # Expand 'all' to list of services. 'server' is intentionally excluded --
 # see _usage.
 if [ "$target" = "all" ]; then
-    _services="proxy llama-swap"
+    _services="proxy llama-swap litellm"
 else
     _services="$target"
 fi

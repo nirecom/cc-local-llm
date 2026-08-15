@@ -1,11 +1,17 @@
 """asyncio TLS reverse proxy for ds4.
 
-Terminates TLS from Claude Code, authenticates the request against a shared
-token, normalizes the /v1/messages body for a stable prompt-cache prefix, then
-forwards to the plain-HTTP Mac llama-swap (which routes by model name to
-ds4-server or Laguna's mlx_lm.server, and speaks Anthropic /v1/messages
-natively) and relays the (possibly streamed) response back. One handler runs
-per client connection.
+Terminates TLS from LiteLLM, authenticates the request against a shared token,
+normalizes the request body for a stable prompt-cache prefix, then forwards to
+the plain-HTTP Mac llama-swap and relays the (possibly streamed) response back.
+One handler runs per client connection.
+
+The proxy is a path-preserving generic hop: it appends the incoming path to
+DS4_PROXY_UPSTREAM verbatim and never rewrites the model name. llama-swap
+routes by model name to ds4-server or Laguna's mlx_lm.server, both of which
+speak the OpenAI /v1/chat/completions shape — Anthropic-to-OpenAI conversion
+is LiteLLM's job, upstream of here. Normalization therefore has to understand
+both shapes, which is what the `shape` argument threaded through
+proxy.normalize selects.
 """
 
 import asyncio
@@ -36,14 +42,27 @@ def _get_header(headers: dict, name: str) -> str | None:
     return None
 
 
-def _is_v1_messages_post(method: str, path: str) -> bool:
-    """Return True for a POST to /v1/messages, ignoring any query string.
+_SHAPE_BY_PATH = {
+    "/v1/messages": "anthropic",
+    "/v1/chat/completions": "openai",
+    # llama-swap also exposes the bare alias, and LiteLLM may address it.
+    "/chat/completions": "openai",
+}
+
+
+def _normalize_shape(method: str, path: str) -> str | None:
+    """Body shape to normalize this request as, or None to forward verbatim.
+
+    Decided from the request path alone — never by sniffing the body, which
+    would make routing depend on client-controlled content.
 
     Only the query string is stripped (path.partition("?")[0]); no urlsplit
     normalization and no trailing-slash tolerance, so "/v1/messages/" and
     "/v1/messages/count_tokens" deliberately do NOT match.
     """
-    return method == "POST" and path.partition("?")[0] == "/v1/messages"
+    if method != "POST":
+        return None
+    return _SHAPE_BY_PATH.get(path.partition("?")[0])
 
 
 async def _read_request_head(
@@ -145,8 +164,9 @@ async def _handle(
             await _drain(writer)
             return
 
-        if _is_v1_messages_post(method, path):
-            body = _normalize_body(body, tee)
+        shape = _normalize_shape(method, path)
+        if shape is not None:
+            body = _normalize_body(body, tee, shape)
 
         upstream_url = config.upstream.rstrip("/") + path
         headers = _build_upstream_headers(req_headers, body)
@@ -180,8 +200,8 @@ async def _handle(
         writer.close()
 
 
-def _normalize_body(body: bytes, tee: TeeLogger) -> bytes:
-    """Normalize a /v1/messages JSON body; pass through on non-JSON.
+def _normalize_body(body: bytes, tee: TeeLogger, shape: str) -> bytes:
+    """Normalize a JSON body in the given shape; pass through on non-JSON.
 
     On any JSON decode failure the original bytes are forwarded unchanged, so a
     non-JSON POST is never dropped.
@@ -191,10 +211,10 @@ def _normalize_body(body: bytes, tee: TeeLogger) -> bytes:
     except (json.JSONDecodeError, UnicodeDecodeError):
         return body
 
-    normalized = normalize.apply_all(body_dict)
+    normalized = normalize.apply_all(body_dict, shape=shape)
     if tee.enabled:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        tee.log(timestamp, body_dict, normalized)
+        tee.log(timestamp, body_dict, normalized, shape=shape)
     return json.dumps(
         normalized, ensure_ascii=False, separators=(",", ":")
     ).encode("utf-8")
@@ -204,24 +224,28 @@ async def main() -> None:
     config = load_config()
     tee = TeeLogger(enabled=config.tee, log_dir=config.log_dir)
 
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    try:
-        ctx.load_cert_chain(config.cert, config.key)
-    except (FileNotFoundError, ssl.SSLError) as exc:
-        sys.exit(
-            f"[ds4-proxy] failed to load TLS cert/key "
-            f"({config.cert} / {config.key}): {exc}"
-        )
+    ctx = None
+    if config.tls:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        try:
+            ctx.load_cert_chain(config.cert, config.key)
+        except (FileNotFoundError, ssl.SSLError) as exc:
+            sys.exit(
+                f"[ds4-proxy] failed to load TLS cert/key "
+                f"({config.cert} / {config.key}): {exc}"
+            )
 
+    scheme = "https" if config.tls else "http"
     async with httpx.AsyncClient(timeout=None) as client:
         server = await asyncio.start_server(
             lambda r, w: _handle(r, w, config, client, tee),
-            host="0.0.0.0",
+            host=config.host,
             port=config.port,
             ssl=ctx,
         )
         print(
-            f"[ds4-proxy] listening on 0.0.0.0:{config.port} → {config.upstream}"
+            f"[ds4-proxy] listening on {scheme}://{config.host}:{config.port}"
+            f" → {config.upstream}"
         )
         async with server:
             await server.serve_forever()

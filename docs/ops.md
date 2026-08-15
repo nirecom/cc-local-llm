@@ -35,153 +35,98 @@ Or foreground (for debugging):
 ~/git/cc-local-llm/scripts/ds4-proxy.sh
 ```
 
-Client-side (Windows): set `CCGW_CA_CERT` to `<mkcert -CAROOT>/rootCA.pem` in the repo-root
-`.env` so Node trusts the proxy certificate, and set `CCGW_API_KEY` to the same value as
-`DS4_PROXY_AUTH_TOKEN`.
+The gateway sends `LITELLM_DS4_PROXY_API_KEY`, which must equal `DS4_PROXY_AUTH_TOKEN`. Clients
+never talk to the proxy directly — see [Client (Windows)](#client-windows).
 
-## LiteLLM (Windows, Docker Desktop WSL2)
+## LiteLLM gateway (Mac)
 
-Run `install.ps1` first (once) to install Docker Desktop and mkcert and scaffold `.env` — see
-[README.md](../README.md#quick-start). The steps below (TLS/CA/master key/container start) are
-interactive and follow on from it.
-
-### TLS setup (one-time)
-
-The LiteLLM proxy needs an mkcert leaf cert/key. Use the same root CA as the DS4 Proxy
-so the client trusts both endpoints with one `CCGW_CA_CERT`:
-
-```powershell
-mkcert localhost 127.0.0.1 ::1 <windows-host>
-# Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
-# (e.g., C:\Users\<user>\.config\litellm\)
-```
-
-### CA cert setup (one-time)
-
-The LiteLLM container needs to trust the DS4 Proxy's TLS certificate for the Opus route.
-Set `LITELLM_CA_CERT_FILE` in `.env` to the path of the mkcert root CA `.pem` file:
-
-```powershell
-# Get the path from mkcert -CAROOT, then append /rootCA.pem
-# e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
-```
-
-This is the same root CA file used for `CCGW_CA_CERT`. The compose file mounts it into
-the container and the entrypoint installs it into the system trust store.
+The gateway is the single endpoint every client uses, and the only place the Anthropic wire
+format is converted. It runs as a native process on this Mac, installed by `install.sh --server`
+(`install/mac/litellm.sh`, `uv tool install "litellm[proxy]"`) and managed by `serverctl`.
 
 ### Initial setup (one-time)
 
 1. Generate a master key and set it in `.env`:
-   ```powershell
-   .\scripts\generate-litellm-key.ps1
-   # Set LITELLM_MASTER_KEY=sk-<output> in .env
+   ```sh
+   # .env: LITELLM_MASTER_KEY=sk-<generated>   (generate with /create-key)
+   ```
+   There is no database and no `/key/generate` step: clients present this same value as
+   `LITELLM_CLIENT_KEY`.
+
+2. Issue an mkcert leaf cert/key for the gateway from the same root CA the DS4 Proxy uses, so
+   one `CCGW_CA_CERT` covers every endpoint, and point `.env` at the files:
+   ```sh
+   mkcert localhost 127.0.0.1 ::1 <mac-lan-ip>
+   # .env: LITELLM_TLS_CERT=/Users/<you>/.config/litellm/cert.pem
+   #       LITELLM_TLS_KEY=/Users/<you>/.config/litellm/key.pem
    ```
 
-2. Generate a TLS cert and set LITELLM_TLS_DIR in `.env` to point at the cert directory:
-   ```powershell
-   mkcert localhost 127.0.0.1 ::1 <windows-host>
-   # Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
+3. Point the gateway at the DS4 Proxy and at the root CA that signed the proxy's certificate.
+   The same CA also signs the Windows PC's TLS front, so one value covers both hops:
+   ```sh
+   # .env: LITELLM_DS4_PROXY_URL=https://<mac-lan-ip>:8443
+   #       LITELLM_DS4_PROXY_API_KEY=<same value as DS4_PROXY_AUTH_TOKEN>
+   #       SSL_CERT_FILE=<mkcert -CAROOT>/rootCA.pem      (absolute path, no ~)
    ```
 
-3. Set the CA cert path in `.env`:
-   ```powershell
-   # Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
+4. Point the Haiku/Sonnet tiers at the Caddy TLS front on the Windows PC, which
+   reverse-proxies to that host's loopback-only llama-swap (`127.0.0.1:18080`):
+   ```sh
+   # .env: LITELLM_LLAMASWAP_URL=https://<windows-lan-ip>:8443/v1
    ```
 
-4. Start the LiteLLM container:
-   ```powershell
-   .\scripts\litellm-start.ps1 up
-   ```
+The gateway refuses to start when `LITELLM_MASTER_KEY` or `LITELLM_DS4_PROXY_URL` is unset, or
+when `LITELLM_TLS=on` without both cert and key — no process is launched in that case.
 
-5. Wait a few seconds for the SQLite database tables to be created, then generate a
-   scoped virtual key for client auth:
-   ```powershell
-   .\scripts\setup-litellm.ps1
-   # Copy the returned key into .env as LITELLM_VIRTUAL_KEY
-   ```
+### Start / stop / verify
 
-6. Restart the container so it picks up the new env vars:
-   ```powershell
-   .\scripts\litellm-start.ps1 restart
-   ```
-
-### Start LiteLLM
-
-```powershell
-.\scripts\litellm-start.ps1 up
+```sh
+~/git/cc-local-llm/scripts/serverctl.sh start litellm
+~/git/cc-local-llm/scripts/serverctl.sh stop litellm
+~/git/cc-local-llm/scripts/serverctl.sh status litellm
+~/git/cc-local-llm/scripts/serverctl.sh logs litellm
 ```
 
-This starts the container via `docker compose up -d`. The container listens on
-`LITELLM_PORT` (default 8445) with TLS.
-
-### Stop LiteLLM
-
-```powershell
-.\scripts\litellm-start.ps1 down
+Foreground (debugging):
+```sh
+~/git/cc-local-llm/scripts/litellm.sh
 ```
 
-### Verify LiteLLM is running
-
-```powershell
-.\scripts\litellm-start.ps1 status
-```
-
-Or check the health endpoint directly:
-```powershell
-curl.exe -k https://localhost:8445/health/
+Health endpoint:
+```sh
+curl -sk https://127.0.0.1:8445/health/
 ```
 
 ### Verify routing
 
-Send a test request to confirm each tier routes correctly. Use the **Anthropic
-/v1/messages** endpoint (the format Claude Code sends) to verify LiteLLM's
-Anthropic-to-OpenAI conversion works end-to-end:
+Send a test request per tier through the **Anthropic /v1/messages** endpoint (the format Claude
+Code sends), which also exercises the Anthropic-to-OpenAI conversion:
 
-```powershell
-# Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"devstral-small-2-24b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
-
-# Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3-coder-30b-a3b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
-
-# Opus tier (Anthropic format -- passthrough to DS4 Proxy)
-curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"deepseek-v4-flash","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+```sh
+curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"devstral-small-2-24b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3-coder-30b-a3b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"deepseek-v4-flash","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"laguna-s-2.1","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
-Note: Use the virtual key, NOT the master key. The `/v1/messages` endpoint confirms
-LiteLLM receives Anthropic-format requests and converts Haiku/Sonnet to OpenAI for
-llama-swap running on this PC. No fallback exists for these two tiers — a request
-fails outright if llama-swap is offline.
-
-### Client (Windows) with LiteLLM
-
-First time only, ensure the repo-root `.env` has the LiteLLM vars filled in. The
-`code-ccgw.ps1` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
-
-Set in `.env`:
-```ini
-LITELLM_ANTHROPIC_BASE_URL=https://<windows-host>:8445
-LITELLM_VIRTUAL_KEY=sk-<generated-token>
-```
-
-Then launch as before:
-```powershell
-.\scripts\code-ccgw.ps1 .
-```
+The Haiku and Sonnet tiers have no fallback — a request fails outright if the Windows PC's
+llama-swap or the Caddy front in front of it is offline. The Fable and Opus tiers are mutually exclusive on the Mac, so the last
+two commands force a model swap between them; expect a cold start on each switch.
 
 ### Recovery
 
 | Symptom | Action |
 |---------|--------|
-| LiteLLM container not running | `litellm-start.ps1 up`; check Docker Desktop is running |
-| `Connection refused` on :8445 | Verify container status; check port mapping |
-| Haiku/Sonnet tier returns `Cannot connect to host host.docker.internal:18080` | llama-swap service is down on this PC (`nssm status llama-swap`); no fallback exists — start it and retry |
-| DS4 Proxy unreachable | Verify <mac-host> Mac is reachable (<mac-lan-ip>); check DS4 Proxy status |
-| TLS errors | Verify cert/key files exist in `LITELLM_TLS_DIR` and are mkcert-signed |
-| TLS errors on Opus route | Verify `LITELLM_CA_CERT_FILE` points to the mkcert root CA and the file is mounted correctly |
-| `401 Unauthorized` from LiteLLM | Verify `LITELLM_VIRTUAL_KEY` is set in `.env` and matches the generated key |
-| `/key/generate` fails | Verify `DATABASE_URL` is set (SQLite configured in compose); wait for database initialisation |
-| Keys lost after restart | Verify `litellm-postgres` volume persists; check `docker volume ls` for the named volume |
+| Gateway not running | `serverctl.sh start litellm`; `serverctl.sh logs litellm` for the reason |
+| Gateway refuses to start, naming a variable | Fill that variable in `.env` — the guard runs before launch |
+| `Connection refused` on :8445 | Verify `LITELLM_HOST` / `LITELLM_PORT` and that the process is up |
+| Haiku/Sonnet tier cannot connect to :8443 | The Windows PC's Caddy front or the llama-swap behind it is down; no fallback exists — start both and retry |
+| TLS errors on the Haiku/Sonnet hop | Verify `SSL_CERT_FILE` points at the mkcert root CA and that Caddy's cert on the Windows PC is signed by it |
+| DS4 Proxy unreachable | Verify `LITELLM_DS4_PROXY_URL` and that `serverctl.sh status proxy` reports running |
+| TLS errors from clients | Verify `LITELLM_TLS_CERT` / `LITELLM_TLS_KEY` exist and are mkcert-signed |
+| TLS errors on the Fable/Opus hop | Verify `SSL_CERT_FILE` is an absolute path (no `~`) to the mkcert root CA |
+| `401 Unauthorized` from the gateway | `LITELLM_CLIENT_KEY` on the client must equal `LITELLM_MASTER_KEY` on the Mac |
+| `401` from the DS4 Proxy | `LITELLM_DS4_PROXY_API_KEY` must equal `DS4_PROXY_AUTH_TOKEN` |
 
 ## Install llama-swap and Laguna S 2.1 (Mac, one-time)
 
@@ -252,21 +197,22 @@ this alongside llama-swap — both would try to manage the same process.
 ## Unified control (Mac)
 
 ```sh
-~/git/cc-local-llm/scripts/serverctl.sh start all         # start proxy + llama-swap
-~/git/cc-local-llm/scripts/serverctl.sh stop all          # stop both
-~/git/cc-local-llm/scripts/serverctl.sh restart all       # restart both
+~/git/cc-local-llm/scripts/serverctl.sh start all         # start proxy + llama-swap + litellm
+~/git/cc-local-llm/scripts/serverctl.sh stop all          # stop all three
+~/git/cc-local-llm/scripts/serverctl.sh restart all       # restart all three
 ~/git/cc-local-llm/scripts/serverctl.sh status all        # show status
 ~/git/cc-local-llm/scripts/serverctl.sh logs llama-swap   # tail llama-swap log (color in TTY)
 ~/git/cc-local-llm/scripts/serverctl.sh logs proxy        # tail ds4-proxy log
-~/git/cc-local-llm/scripts/serverctl.sh logs all          # tail both logs
+~/git/cc-local-llm/scripts/serverctl.sh logs litellm      # tail LiteLLM gateway log
+~/git/cc-local-llm/scripts/serverctl.sh logs all          # tail all three logs
 ```
 
-Targets: `proxy`, `llama-swap`, `all` (default when omitted). `server` (bare ds4-server) is a
-separate manual-debug-only target, excluded from `all` — see above.
+Targets: `proxy`, `llama-swap`, `litellm`, `all` (default when omitted). `server` (bare
+ds4-server) is a separate manual-debug-only target, excluded from `all` — see above.
 
 ## Automatic startup (launchd)
 
-Install both services as LaunchAgents (start at login, restart on crash):
+Install the services as LaunchAgents (start at login, restart on crash):
 ```sh
 ~/git/cc-local-llm/scripts/serverctl.sh install all
 ```
@@ -279,6 +225,9 @@ Uninstall (stops the service and removes auto-start):
 Plist locations and labels:
 - `~/Library/LaunchAgents/com.nire.ds4-proxy.plist` (`com.nire.ds4-proxy`)
 - `~/Library/LaunchAgents/com.nire.ds4-llama-swap.plist` (`com.nire.ds4-llama-swap`)
+
+The gateway follows the same `com.nire.ds4-<service>` naming as the other two; the label and
+path are derived from the `serverctl` target name (`_ds4_plist_path` in `scripts/lib/launchd.sh`).
 
 `server` (bare ds4-server) has no plist — it is not launchd-installable; llama-swap starts and
 stops it on demand instead.
@@ -299,7 +248,8 @@ only opens a window in which no LaunchAgent exists, and buys nothing.
 
 **Run `install` from the checkout the plist should point at.** `_ds4_write_plist` bakes the
 absolute path `$DS4_OPS_ROOT/scripts/<wrapper>.sh` into `ProgramArguments` (`ds4-proxy.sh`,
-`ds4-server.sh`, or `llama-swap.sh` — see `_ds4_wrapper_script` in `scripts/lib/paths.sh`), and
+`ds4-server.sh`, `llama-swap.sh`, or `litellm.sh` — see `_ds4_wrapper_script` in
+`scripts/lib/paths.sh`), and
 `DS4_OPS_ROOT` is derived by `scripts/lib/root.sh` from the parent directory of the script
 that was actually executed. Installing from a throwaway checkout (a git worktree, say) leaves
 the LaunchAgent pointing at a path that disappears when that checkout is removed, and the
@@ -335,28 +285,34 @@ For color-highlighted live log viewing:
 
 ## Client (Windows)
 
-First time only, create the repo-root `.env` from the template and put the Mac's LAN IP in it
-(the IP is never committed — `.env` is gitignored):
+Run `install.ps1` first (once) to install mkcert and scaffold `.env` — see
+[README.md](../README.md#quick-start). Windows is a client only now; the gateway lives on the
+Mac.
+
+Then edit the repo-root `.env` (gitignored, so the LAN IP and the key are never committed):
 ```powershell
 Copy-Item .env.example .env
-# then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
-# and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
+# then edit .env: LITELLM_ANTHROPIC_BASE_URL=https://<mac-lan-ip>:8445
+#                 LITELLM_CLIENT_KEY=<same value as LITELLM_MASTER_KEY on the Mac>
+#                 CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem  (the Mac's root CA, imported here)
 ```
-Then launch VS Code with the ds4 backend via the bundled wrapper:
+Then launch VS Code with the ccgw backend via the bundled wrapper:
 ```powershell
 .\scripts\code-ccgw.ps1 .
 ```
-The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
+The wrapper loads `.env`, then sets the ccgw env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 the per-tier model aliases (the tier table under "Client (macOS / Linux)" applies here too),
-`NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`,
-and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
-`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. The base URL now points at the
-proxy (`https://<mac-ip>:8443`), not ds4 directly. If `CCGW_ANTHROPIC_BASE_URL` is set
-in neither `.env` nor the shell, the wrapper warns and falls back to `https://localhost:8443`
-(a placeholder that will not reach the Mac). A value set in the shell takes precedence over
-`.env`. `CCGW_API_KEY` overrides the auth token; the proxy verifies it, so it must match
-`DS4_PROXY_AUTH_TOKEN` on the Mac. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>/rootCA.pem`
-so Node trusts the proxy certificate (if unset the wrapper warns and TLS will not be trusted).
+`NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. There is exactly one route: the
+direct DS4 Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
+`LITELLM_CLIENT_KEY` is an error and the wrapper exits rather than falling back to a placeholder
+that would surface later as a confusing 401. A value set in the shell takes precedence over
+`.env`. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
+with a warning. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>\rootCA.pem` so Node trusts the
+gateway certificate (if unset the wrapper warns and TLS will not be trusted).
+
+Subagent routing is opt-in: set `CCGW_SUBAGENT_MODEL` to a LiteLLM routing key to pin every
+subagent to one tier. Left empty — the default — each agent's own frontmatter decides.
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
 `--user-data-dir "$env:LOCALAPPDATA\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
@@ -369,7 +325,7 @@ Do not add ds4 env vars to native sessions: a bare `ANTHROPIC_BASE_URL` plus a c
 replaces the subscription (see
 [architecture.md](architecture.md#two-strategies-chosen-by-whether-real-opus-is-wanted)).
 Caveat: if the ds4 profile is already running, close *all* its windows before changing
-`CCGW_ANTHROPIC_BASE_URL` — closing one window is not enough; the process (and its captured
+`LITELLM_ANTHROPIC_BASE_URL` — closing one window is not enough; the process (and its captured
 environment) persists until the last window of the profile closes, and new windows inherit the
 old value. The same folder may be open in the native and ds4 profiles at the same time: the
 "reuse the existing window for this folder" dedup is per-profile, so `codes .` followed by
@@ -390,8 +346,8 @@ confirm auto-compaction fires *before* the backend returns `400 context_length_e
 
 The Windows box is the primary client, but the backend Mac — and any Linux host on the LAN —
 can drive the same backend through [scripts/code-ccgw.sh](../scripts/code-ccgw.sh), the POSIX
-counterpart of `code-ccgw.ps1`. On the backend Mac this is the cheapest path of all: the proxy
-is already on loopback, so no LiteLLM container and no LAN IP are involved.
+counterpart of `code-ccgw.ps1`. On the backend Mac this is the cheapest path of all: the gateway
+is already on loopback, so no LAN IP is involved.
 
 One-time setup:
 ```bash
@@ -399,34 +355,35 @@ One-time setup:
 cp .env.example .env      # if not already present
 ```
 Then fill in `.env`:
-- **On the backend Mac:** `CCGW_ANTHROPIC_BASE_URL=https://127.0.0.1:8443` and
-  `CCGW_API_KEY=<same value as DS4_PROXY_AUTH_TOKEN>`. `CCGW_CA_CERT` may be omitted — the
+- **On the backend Mac:** `LITELLM_ANTHROPIC_BASE_URL=https://127.0.0.1:8445` and
+  `LITELLM_CLIENT_KEY=<same value as LITELLM_MASTER_KEY>`. `CCGW_CA_CERT` may be omitted — the
   wrapper falls back to `$(mkcert -CAROOT)/rootCA.pem`, which is already correct on the host
   that issued the certificate.
-- **On another Linux host:** `CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443`, `CCGW_API_KEY`,
-  and `CCGW_CA_CERT` pointing at a copy of the Mac's `rootCA.pem`.
+- **On another Linux host:** `LITELLM_ANTHROPIC_BASE_URL=https://<mac-lan-ip>:8445`,
+  `LITELLM_CLIENT_KEY`, and `CCGW_CA_CERT` pointing at a copy of the Mac's `rootCA.pem`.
 
 Launch:
 ```bash
 ./scripts/code-ccgw.sh .
 ```
 
-**Choosing the backend model.** On the direct path the model name is what the Mac swap layer
-routes on, so it must be a name that layer knows (see
-[llama-swap/config.yaml](../llama-swap/config.yaml)). The two backends sit on separate Claude
-Code tiers, so `/model` is what switches between them:
+**Choosing the backend model.** Model names are LiteLLM routing keys — the `LITELLM_*_MODEL`
+values in `.env`, matched against `model_name` entries in
+[litellm-server/config.yaml](../litellm-server/config.yaml). Each tier is a separate route, so
+`/model` is what switches between them:
 
 | Tier | Backend |
 |---|---|
-| Fable | ds4 (`deepseek-v4-flash`) |
-| Opus | Laguna S 2.1 (`laguna-s-2.1`) |
-| Sonnet / Haiku | ds4 — the Mac hosts nothing smaller |
+| Fable | ds4 (`deepseek-v4-flash`), Mac |
+| Opus | Laguna S 2.1 (`laguna-s-2.1`), Mac |
+| Sonnet | Qwen3-Coder-30B-A3B (`qwen3-coder-30b-a3b`), Windows llama-swap |
+| Haiku | Devstral-Small-2-24B (`devstral-small-2-24b`), Windows llama-swap |
 
-`CCGW_DEFAULT_MODEL` in `.env` only picks which backend is resident at launch. The two are
-mutually exclusive: selecting the other tier unloads the resident model and cold-starts the
-new one, so expect a long first response after each switch. Subagents follow the resident model
-(`CLAUDE_CODE_SUBAGENT_MODEL` tracks `CCGW_DEFAULT_MODEL`) rather than the Opus tier for that
-reason — a subagent on the other backend would evict the model the main session is using.
+The two Mac backends are mutually exclusive: switching between Fable and Opus unloads the
+resident model and cold-starts the other, so expect a long first response after each switch.
+Haiku and Sonnet live on a different machine and are unaffected. Subagents are no longer pinned
+to one tier — the gateway multiplexes, so each agent's frontmatter decides unless
+`CCGW_SUBAGENT_MODEL` is set.
 
 **Isolation from native (subscription) VS Code** works the same way as on Windows: the wrapper
 passes its own `--user-data-dir` (`~/Library/Application Support/vscode-ccgw` on macOS,

@@ -24,11 +24,19 @@ class TeeLogger:
     def enabled(self) -> bool:
         return self._enabled
 
-    def log(self, timestamp: str, pre: dict, post: dict) -> None:
+    def log(
+        self, timestamp: str, pre: dict, post: dict, shape: str | None = None
+    ) -> None:
         """Write pre/post request bodies as a numbered pair of JSON files.
 
         No-op when logging is disabled. The per-instance sequence counter is
         incremented under a lock so concurrent connections never collide.
+
+        ``shape`` ("anthropic" | "openai") is folded into the filename stem, so
+        a dump says which rule set produced it. It stays out of the JSON: the
+        shape is a property of the route, not data the client sent, and a dump
+        has to remain replayable against the upstream. Omitted or None keeps
+        the original naming.
         """
         if not self._enabled:
             return
@@ -36,6 +44,8 @@ class TeeLogger:
             seq = self._seq
             self._seq += 1
         stem = f"{timestamp}-{seq:05d}"
+        if shape:
+            stem = f"{stem}-{shape}"
         self._write(f"{stem}-pre.json", pre)
         self._write(f"{stem}-post.json", post)
 

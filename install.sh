@@ -2,10 +2,10 @@
 # cc-local-llm installer for macOS and Linux.
 #
 # Two roles, independently installable:
-#   server  Mac backend stack (ds4-server + Laguna S 2.1 + the model-swap layer).
-#           macOS only -- the backends need Metal / MLX.
-#   client  Claude Code client prerequisites (mkcert for TLS trust; Docker only if
-#           this host also runs the LiteLLM gateway container).
+#   server  Mac backend stack (LiteLLM gateway + ds4-server + Laguna S 2.1 +
+#           the model-swap layer). macOS only -- the backends need Metal / MLX.
+#   client  Claude Code client prerequisites (mkcert, for TLS trust in the
+#           gateway certificate).
 #
 # Usage: ./install.sh [--server | --client | --all]
 #   macOS default: --all      (the Mac is both backend host and a usable client)
@@ -66,16 +66,8 @@ printf "${C_CYAN}=== cc-local-llm installer (${PLATFORM}, role: ${ROLE}) ===${C_
 # --- Client role ------------------------------------------------------------
 if [ "$ROLE" = "client" ] || [ "$ROLE" = "all" ]; then
     echo ""
-    printf -- "${C_BOLD}--- Installing mkcert (TLS trust for the proxy certificate) ---${C_RESET}\n"
+    printf -- "${C_BOLD}--- Installing mkcert (TLS trust for the gateway certificate) ---${C_RESET}\n"
     "$REPO_ROOT/install/$PLATFORM/mkcert.sh"
-
-    # Docker is only needed when this host also runs the LiteLLM gateway container.
-    # A client talking straight to the DS4 Proxy needs nothing further.
-    if [ "$PLATFORM" = "linux" ] && [ -n "${CC_LOCAL_LLM_WITH_LITELLM:-}" ]; then
-        echo ""
-        printf -- "${C_BOLD}--- Installing Docker (LiteLLM gateway container) ---${C_RESET}\n"
-        "$REPO_ROOT/install/linux/docker.sh"
-    fi
 fi
 
 # --- Server role ------------------------------------------------------------
@@ -97,6 +89,10 @@ if [ "$ROLE" = "server" ] || [ "$ROLE" = "all" ]; then
     echo ""
     printf -- "${C_BOLD}--- Installing the model-swap layer ---${C_RESET}\n"
     "$REPO_ROOT/install/mac/llama-swap.sh"
+
+    echo ""
+    printf -- "${C_BOLD}--- Installing the LiteLLM gateway ---${C_RESET}\n"
+    "$REPO_ROOT/install/mac/litellm.sh"
 
     echo ""
     printf -- "${C_BOLD}--- Installing mlx-lm (git main, for Laguna S 2.1) ---${C_RESET}\n"
@@ -121,9 +117,9 @@ if [ -f "$REPO_ROOT/.env" ]; then
 else
     cp "$REPO_ROOT/.env.example" "$REPO_ROOT/.env"
     if [ "$ROLE" = "client" ]; then
-        printf "${C_GREEN}Created .env from .env.example -- fill in CCGW_ANTHROPIC_BASE_URL / CCGW_API_KEY / CCGW_CA_CERT.${C_RESET}\n"
+        printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_ANTHROPIC_BASE_URL / LITELLM_CLIENT_KEY / CCGW_CA_CERT.${C_RESET}\n"
     else
-        printf "${C_GREEN}Created .env from .env.example -- fill in DS4_PROXY_AUTH_TOKEN and TLS cert paths.${C_RESET}\n"
+        printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_MASTER_KEY, DS4_PROXY_AUTH_TOKEN and the TLS cert paths.${C_RESET}\n"
     fi
 fi
 

@@ -167,7 +167,7 @@ MOVE_DYNAMIC_CASES = [
     ids=[c[0] for c in MOVE_DYNAMIC_CASES],
 )
 def test_01_move_dynamic_sections_table(name, body, removed_from_system, in_user):
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     system = out["system"]
     for needle in removed_from_system:
         assert needle not in system, f"[{name}] {needle!r} should be removed from system"
@@ -196,7 +196,7 @@ def test_02_move_dynamic_sections_content_block_list():
         ],
         "messages": [{"role": "user", "content": "hi there"}],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     assert "Working directory:" not in out["system"][0]["text"]
     assert "Working directory: C:\\git\\ds4-ops" in out["messages"][0]["content"]
 
@@ -206,7 +206,7 @@ def test_03_move_dynamic_sections_no_dynamic():
         "system": "You are a helpful assistant.\nBe concise.\n",
         "messages": [{"role": "user", "content": "hello"}],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     assert out["system"] == body["system"]
     assert out["messages"][0]["content"] == "hello"
 
@@ -223,7 +223,7 @@ def test_04_move_dynamic_sections_no_messages_key():
     # the proxy opts for cache stability over dynamic-content preservation when
     # there is no target message slot.
     body = {"system": SYSTEM_WITH_CWD}
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # System is cleaned even though there was nowhere to move the content to.
     assert "Working directory:" not in out["system"]
     assert "You are a helpful assistant." in out["system"]
@@ -246,7 +246,7 @@ def test_04b_gitstatus_does_not_eat_text_after_blank_line():
         f"{stable}\n"
     )
     body = {"system": system, "messages": [{"role": "user", "content": "go"}]}
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # Stable trailing text is preserved in the system prompt.
     assert stable in out["system"]
     # But the gitStatus block itself was lifted out.
@@ -275,7 +275,7 @@ def test_04c_user_content_already_a_list():
             }
         ],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # System should be cleaned.
     assert "Working directory:" not in out["system"]
     # First user message content remains a list.
@@ -295,7 +295,7 @@ def test_04d_none_content_in_user_message_does_not_crash():
         "messages": [{"role": "user", "content": None}],
     }
     # Must not raise.
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # System is cleaned.
     assert "Working directory:" not in out["system"]
     # The user message content received the appendix (None branch -> appendix).
@@ -308,7 +308,7 @@ def test_04e_empty_string_content_in_user_message():
         "system": "You are helpful.\nPlatform: win32\n",
         "messages": [{"role": "user", "content": ""}],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     assert "Platform:" not in out["system"]
     assert "Platform: win32" in out["messages"][0]["content"]
 
@@ -326,7 +326,7 @@ def test_04f_only_assistant_messages_does_not_crash():
         "system": "You are helpful.\nOS Version: Windows 11\n",
         "messages": [{"role": "assistant", "content": "Sure."}],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     # System is cleaned.
     assert "OS Version:" not in out["system"]
     # by design: dynamic content is discarded when there is no user message target
@@ -345,7 +345,7 @@ def test_04f2_assistant_then_user_dynamic_goes_to_user():
             {"role": "user", "content": "Hello."},
         ],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     assert "Shell:" not in out["system"]
     assert out["messages"][0]["content"] == "Welcome!"  # assistant unchanged
     assert "Shell: bash" in out["messages"][1]["content"]  # user received it
@@ -359,7 +359,7 @@ def test_04f3_empty_messages_list_system_still_cleaned():
         "system": "You are helpful.\nPlatform: win32\n",
         "messages": [],
     }
-    out = normalize.move_dynamic_sections(body)
+    out = normalize.move_dynamic_sections(body, shape="anthropic")
     assert "Platform:" not in out["system"]
     assert out["messages"] == []
 
@@ -373,7 +373,7 @@ def test_04g_non_dict_message_entry_raises():
         "messages": ["not-a-dict"],
     }
     with pytest.raises(AttributeError):
-        normalize.move_dynamic_sections(body)
+        normalize.move_dynamic_sections(body, shape="anthropic")
 
 
 # ===========================================================================
@@ -443,7 +443,7 @@ _NORMALIZE_DATE_CASES = [
 def test_06_normalize_date_table(name, body, present, absent):
     import copy as _copy
     original = _copy.deepcopy(body)
-    out = normalize.normalize_date(body)
+    out = normalize.normalize_date(body, shape="anthropic")
     if present is not None:
         assert present in out["system"], f"[{name}] expected {present!r} in system"
     if absent is not None:
@@ -461,7 +461,7 @@ def test_06b_normalize_date_list_shaped_system():
             {"type": "text", "text": "Today's date is 2026-07-11T09:36:00Z\nBe helpful."},
         ]
     }
-    out = normalize.normalize_date(body)
+    out = normalize.normalize_date(body, shape="anthropic")
     block_text = out["system"][0]["text"]
     assert "Today's date is 2026-07-11" in block_text
     assert "T09:36:00Z" not in block_text
@@ -476,6 +476,6 @@ def test_06c_normalize_date_skips_non_text_block():
             {"type": "cache_control", "ttl": 3600},
         ]
     }
-    out = normalize.normalize_date(body)
+    out = normalize.normalize_date(body, shape="anthropic")
     assert out["system"][0]["text"] == "Today's date is 2026-07-11"
     assert out["system"][1] == {"type": "cache_control", "ttl": 3600}

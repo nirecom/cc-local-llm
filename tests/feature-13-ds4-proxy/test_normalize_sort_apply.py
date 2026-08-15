@@ -29,13 +29,13 @@ def test_13_sort_tools_mixed_order():
             {"name": "Read"},
         ]
     }
-    out = normalize.sort_tools(body)
+    out = normalize.sort_tools(body, shape="anthropic")
     assert [t["name"] for t in out["tools"]] == ["Bash", "Read", "Write"]
 
 
 def test_14_sort_tools_no_tools_key():
     body = {"system": "hi"}
-    out = normalize.sort_tools(body)
+    out = normalize.sort_tools(body, shape="anthropic")
     assert out == body
 
 
@@ -47,8 +47,8 @@ def test_15_sort_tools_idempotent():
             {"name": "Read"},
         ]
     }
-    once = normalize.sort_tools(body)
-    twice = normalize.sort_tools(once)
+    once = normalize.sort_tools(body, shape="anthropic")
+    twice = normalize.sort_tools(once, shape="anthropic")
     assert once == twice
 
 
@@ -56,7 +56,7 @@ def test_15_sort_tools_idempotent():
 
 def test_15a_sort_tools_empty_list():
     body = {"tools": []}
-    out = normalize.sort_tools(body)
+    out = normalize.sort_tools(body, shape="anthropic")
     assert out["tools"] == []
 
 
@@ -70,7 +70,7 @@ def test_15b_sort_tools_duplicate_names_stable():
             {"name": "B", "id": 3},
         ]
     }
-    out = normalize.sort_tools(body)
+    out = normalize.sort_tools(body, shape="anthropic")
     assert [(t["name"], t["id"]) for t in out["tools"]] == [
         ("A", 1),
         ("A", 2),
@@ -88,7 +88,7 @@ def test_15c_sort_tools_missing_name_key():
             {"name": "Bash"},
         ]
     }
-    out = normalize.sort_tools(body)
+    out = normalize.sort_tools(body, shape="anthropic")
     names = [t.get("name") for t in out["tools"]]
     assert names == [None, "Bash", "Write"]
     # The nameless tool is preserved intact, not dropped.
@@ -108,14 +108,14 @@ def test_15d_sort_tools_explicit_none_name():
         ]
     }
     with pytest.raises(TypeError):
-        normalize.sort_tools(body)
+        normalize.sort_tools(body, shape="anthropic")
 
 
 def test_15e_non_dict_tool_entry_raises():
     # Same: a non-dict tool entry causes AttributeError in the sort lambda.
     body = {"tools": ["not-a-dict", {"name": "Bash"}]}
     with pytest.raises(AttributeError):
-        normalize.sort_tools(body)
+        normalize.sort_tools(body, shape="anthropic")
 
 
 # ===========================================================================
@@ -138,28 +138,28 @@ def _dynamic_body():
 def test_immutable_move_dynamic_sections():
     body = _dynamic_body()
     snapshot = copy.deepcopy(body)
-    normalize.move_dynamic_sections(body)
+    normalize.move_dynamic_sections(body, shape="anthropic")
     assert body == snapshot
 
 
 def test_immutable_normalize_date():
     body = _dynamic_body()
     snapshot = copy.deepcopy(body)
-    normalize.normalize_date(body)
+    normalize.normalize_date(body, shape="anthropic")
     assert body == snapshot
 
 
 def test_immutable_strip_system_reminders():
     body = _dynamic_body()
     snapshot = copy.deepcopy(body)
-    normalize.strip_system_reminders(body)
+    normalize.strip_system_reminders(body, shape="anthropic")
     assert body == snapshot
 
 
 def test_immutable_sort_tools():
     body = _dynamic_body()
     snapshot = copy.deepcopy(body)
-    normalize.sort_tools(body)
+    normalize.sort_tools(body, shape="anthropic")
     assert body == snapshot
 
 
@@ -182,8 +182,8 @@ def _idempotency_body():
 
 def test_idempotent_move_dynamic_sections():
     body = _idempotency_body()
-    first = normalize.move_dynamic_sections(body)
-    second = normalize.move_dynamic_sections(first)
+    first = normalize.move_dynamic_sections(body, shape="anthropic")
+    second = normalize.move_dynamic_sections(first, shape="anthropic")
     # Second call must not re-append dynamic sections into user content.
     assert second["system"] == first["system"]
     assert second["messages"][0]["content"] == first["messages"][0]["content"]
@@ -191,22 +191,22 @@ def test_idempotent_move_dynamic_sections():
 
 def test_idempotent_normalize_date():
     body = _idempotency_body()
-    first = normalize.normalize_date(body)
-    second = normalize.normalize_date(first)
+    first = normalize.normalize_date(body, shape="anthropic")
+    second = normalize.normalize_date(first, shape="anthropic")
     assert second == first
 
 
 def test_idempotent_strip_system_reminders():
     body = _idempotency_body()
-    first = normalize.strip_system_reminders(body)
-    second = normalize.strip_system_reminders(first)
+    first = normalize.strip_system_reminders(body, shape="anthropic")
+    second = normalize.strip_system_reminders(first, shape="anthropic")
     assert second == first
 
 
 def test_idempotent_apply_all():
     body = _idempotency_body()
-    first = normalize.apply_all(body)
-    second = normalize.apply_all(first)
+    first = normalize.apply_all(body, shape="anthropic")
+    second = normalize.apply_all(first, shape="anthropic")
     assert second == first
 
 
@@ -228,7 +228,7 @@ def test_16_apply_all_order_and_all_rules():
             {"name": "Bash"},
         ],
     }
-    out = normalize.apply_all(body)
+    out = normalize.apply_all(body, shape="anthropic")
     # A: dynamic section lifted out of system, into user message.
     assert "Working directory:" not in out["system"]
     assert "Working directory: C:\\git\\ds4-ops" in out["messages"][0]["content"]
@@ -242,5 +242,5 @@ def test_16_apply_all_order_and_all_rules():
 
 
 def test_17_apply_all_empty_body():
-    out = normalize.apply_all({})
+    out = normalize.apply_all({}, shape="anthropic")
     assert out == {}

@@ -1,5 +1,7 @@
-# LiteLLM proxy configuration for ccgw (Claude Code GateWay, client side).
-# Routes Claude Code model tiers to different backends by model name.
+# LiteLLM proxy configuration for ccgw (Claude Code GateWay).
+# A single native instance on the Mac serves every client; it is the only place
+# the Anthropic wire format is converted, and the only TLS terminator clients
+# talk to. Routes Claude Code model tiers to different backends by model name.
 # Env vars are resolved at startup via os.environ/ pattern (NOT ${VAR:default}).
 # All defaults are documented in .env.example, not embedded here.
 #
@@ -10,7 +12,7 @@
 # hardcoded backend model name after the provider prefix.
 
 model_list:
-  # --- Haiku tier: Devstral-Small-2-24B via llama-swap @ this PC (primary) ---
+  # --- Haiku tier: Devstral-Small-2-24B via llama-swap @ the Windows PC ---
   - model_name: os.environ/LITELLM_HAIKU_MODEL
     litellm_params:
       model: openai/Devstral-Small-2-24B-Instruct-2512-IQ4_XS
@@ -21,7 +23,7 @@ model_list:
       context_window: 65536
       timeout: 60
 
-  # --- Sonnet tier: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ this PC (primary) ---
+  # --- Sonnet tier: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ the Windows PC ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
       model: openai/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL
@@ -36,21 +38,29 @@ model_list:
   # The two Mac backends are mutually exclusive (see llama-swap/config.yaml in this
   # repo) -- both cannot be resident at once. They sit on separate Claude Code tiers
   # so /model switches between them: fable -> ds4, opus -> Laguna S 2.1.
+  #
+  # ds4-server accepts the Anthropic shape directly, so this route keeps the
+  # anthropic/ provider and reaches the proxy at POST <origin>/v1/messages.
   - model_name: os.environ/LITELLM_FABLE_MODEL
     litellm_params:
       model: anthropic/deepseek-v4-flash
-      api_base: os.environ/LITELLM_OPUS_URL
-      api_key: os.environ/LITELLM_OPUS_API_KEY
+      api_base: os.environ/LITELLM_DS4_PROXY_URL
+      api_key: os.environ/LITELLM_DS4_PROXY_API_KEY
       stream: true
       max_tokens: 8192
       context_window: 393216
 
   # --- Opus tier: Laguna S 2.1 via DS4 Proxy -> Mac swap layer ---
+  # Laguna is served by mlx_lm.server, which speaks only the OpenAI shape, so
+  # this route uses the same openai/ provider pattern as haiku/sonnet: LiteLLM
+  # performs the Anthropic->OpenAI conversion and reaches the proxy at
+  # POST <origin>/chat/completions. The routing key stays laguna-s-2.1; the body
+  # model rewrite that mlx_lm.server needs is llama-swap's useModelName.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
-      model: anthropic/laguna-s-2.1
-      api_base: os.environ/LITELLM_OPUS_URL
-      api_key: os.environ/LITELLM_OPUS_API_KEY
+      model: openai/laguna-s-2.1
+      api_base: os.environ/LITELLM_DS4_PROXY_URL
+      api_key: os.environ/LITELLM_DS4_PROXY_API_KEY
       stream: true
       max_tokens: 8192
       context_window: 262144
@@ -65,8 +75,8 @@ general_settings:
 
 router_settings:
   routing_strategy: simple-shuffle
-  # No fallback for Haiku/Sonnet tiers: this PC (llama-swap) is the sole backend.
-  # M4 Pro fallback was removed (2026-08) — its failure modes were not worth the
-  # diagnostic overhead. A request fails outright if this PC is offline.
+  # No fallback for Haiku/Sonnet tiers: the Windows PC (llama-swap) is the sole
+  # backend. M4 Pro fallback was removed (2026-08) — its failure modes were not
+  # worth the diagnostic overhead. A request fails outright if that PC is offline.
   num_retries: 0
   enable_pre_call_routing: false

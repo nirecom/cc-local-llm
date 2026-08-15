@@ -53,7 +53,7 @@ def test_proxy_integration_auth_and_normalize():
         "messages": [{"role": "user", "content": "run tests"}],
         "tools": [{"name": "Write"}, {"name": "Bash"}],
     }
-    out = normalize.apply_all(body)
+    out = normalize.apply_all(body, shape="anthropic")
 
     # Dynamic section removed from system, placed in first user message.
     assert "Working directory:" not in out["system"]
@@ -322,6 +322,131 @@ async def test_handle_upstream_request_error_returns_502(tmp_path):
     assert "502 Bad Gateway" in writer.buffer.decode("latin-1")
     assert _tee_file_count(tmp_path) == 2
     assert writer.closed is True
+
+
+# ===========================================================================
+# Case 7+: forwarding contract (issue #41 / detail plan D3, D8)
+#
+# DS4_PROXY_UPSTREAM is now contractually a PATH-LESS ORIGIN, and the proxy is a
+# generic hop that passes the received path through verbatim on every route —
+# not just /v1/messages. LiteLLM points a single api_base at that origin and
+# reaches both `POST /v1/messages` (anthropic route) and `POST /chat/completions`
+# (openai route) through it, so the URL-assembly expression must stay
+# `origin.rstrip("/") + path` for every path.
+# ===========================================================================
+
+# OpenAI-shaped counterpart of _MARKER_BODY: the reminder lives in a
+# role="system" message, which is where the OpenAI adapter scans.
+_OPENAI_MARKER_BODY = {
+    "model": "laguna-s-2.1",
+    "messages": [
+        {"role": "system", "content": "You are helpful.\n" + _MARKER + "\n"},
+        {"role": "user", "content": "run tests"},
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    "path", ["/chat/completions", "/v1/chat/completions"]
+)
+async def test_handle_openai_paths_are_normalized_and_teed(tmp_path, path):
+    # Fail-before-fix: the current server matches only /v1/messages, so the
+    # OpenAI routes forward the marker verbatim and write no tee files.
+    config = _make_config()
+    client = _FakeClient()
+    tee = TeeLogger(enabled=True, log_dir=tmp_path)
+    request = _build_request("POST", path, body_dict=_OPENAI_MARKER_BODY)
+
+    writer = await _run_handle(request, config, client, tee)
+
+    sent = client.captured["content"].decode("utf-8")
+    assert "system-reminder" not in sent
+    assert "hidden context" not in sent
+    assert _tee_file_count(tmp_path) == 2
+    assert "200 OK" in writer.buffer.decode("latin-1")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/messages",
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/v1/messages/count_tokens",
+        "/v1/models",
+        "/health",
+    ],
+)
+async def test_handle_forwards_received_path_verbatim(tmp_path, path):
+    """upstream_url == origin + path, for normalized and pass-through routes.
+
+    Covers both classifier verdicts: a path the proxy normalizes and a path it
+    does not must be assembled identically. A route table that special-cased
+    the URL for one shape would break LiteLLM's single-api_base setup (D8).
+    """
+    origin = "http://127.0.0.1:18080"
+    config = _make_config(upstream=origin)
+    client = _FakeClient()
+    tee = TeeLogger(enabled=False, log_dir=tmp_path)
+    request = _build_request("POST", path, body_dict={"messages": []})
+
+    await _run_handle(request, config, client, tee)
+
+    assert client.captured["url"] == origin + path
+
+
+async def test_handle_strips_only_one_trailing_slash_from_origin(tmp_path):
+    """A trailing slash in DS4_PROXY_UPSTREAM must not double up in the URL."""
+    config = _make_config(upstream="http://127.0.0.1:18080/")
+    client = _FakeClient()
+    tee = TeeLogger(enabled=False, log_dir=tmp_path)
+    request = _build_request(
+        "POST", "/chat/completions", body_dict={"messages": []}
+    )
+
+    await _run_handle(request, config, client, tee)
+
+    assert client.captured["url"] == "http://127.0.0.1:18080/chat/completions"
+
+
+async def test_handle_openai_path_preserves_query_string_upstream(tmp_path):
+    config = _make_config(upstream="http://127.0.0.1:18080")
+    client = _FakeClient()
+    tee = TeeLogger(enabled=True, log_dir=tmp_path)
+    request = _build_request(
+        "POST", "/chat/completions?stream=true", body_dict=_OPENAI_MARKER_BODY
+    )
+
+    await _run_handle(request, config, client, tee)
+
+    assert client.captured["url"] == (
+        "http://127.0.0.1:18080/chat/completions?stream=true"
+    )
+    # Query stripping is for the route match only — the body is still normalized.
+    assert "hidden context" not in client.captured["content"].decode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "path", ["/v1/models", "/health", "/v1/messages/count_tokens"]
+)
+async def test_handle_non_normalized_paths_forward_body_byte_identical(
+    tmp_path, path
+):
+    """The None verdict of the classifier: body must pass through untouched.
+
+    Sanctioned-input counterpart of the normalize cases above — omitting it
+    would let an over-eager "normalize everything" implementation pass.
+    """
+    config = _make_config()
+    client = _FakeClient()
+    tee = TeeLogger(enabled=True, log_dir=tmp_path)
+    raw = json.dumps(_OPENAI_MARKER_BODY).encode("utf-8")
+    request = _build_request("POST", path, raw_body=raw)
+
+    await _run_handle(request, config, client, tee)
+
+    assert client.captured["content"] == raw
+    assert _tee_file_count(tmp_path) == 0
 
 
 # (L3 gaps documented in file header)

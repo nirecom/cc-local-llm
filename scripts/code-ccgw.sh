@@ -1,10 +1,11 @@
 #!/bin/bash
 # ccgw client launcher (macOS / Linux). POSIX counterpart of scripts/code-ccgw.ps1.
 #
-# Prefers the LiteLLM gateway (ccgw) for Claude Code model routing; falls back to the
-# DS4 Proxy direct connection when LiteLLM is unavailable. On the Mac that also hosts
-# the backend, the direct path is the normal one -- the proxy is already on loopback,
-# so no LiteLLM container is needed. Rationale: docs/architecture.md;
+# Every client reaches the backends through the Mac LiteLLM gateway; the direct
+# DS4 Proxy route is retired, so there is exactly one path and nothing to fall
+# back to. An unconfigured base URL or credential is therefore an error rather
+# than a dummy default -- a dummy default only defers the failure to a confusing
+# 401 at request time. Rationale: docs/architecture.md;
 # procedure: docs/ops.md#client-macos--linux.
 #
 # Usage: ./scripts/code-ccgw.sh [args passed through to `code`]
@@ -25,42 +26,37 @@ DS4_SCRIPT_DIR="$SCRIPT_DIR"
 export ANTHROPIC_API_KEY=""
 
 # --- Base URL --------------------------------------------------------------
-# LiteLLM's TLS endpoint when configured, else the DS4 Proxy path.
-if [ -n "${LITELLM_ANTHROPIC_BASE_URL:-}" ]; then
-    export ANTHROPIC_BASE_URL="$LITELLM_ANTHROPIC_BASE_URL"
-elif [ -n "${CCGW_ANTHROPIC_BASE_URL:-}" ]; then
-    export ANTHROPIC_BASE_URL="$CCGW_ANTHROPIC_BASE_URL"
-elif [ -n "${DS4_ANTHROPIC_BASE_URL:-}" ]; then
-    export ANTHROPIC_BASE_URL="$DS4_ANTHROPIC_BASE_URL"
-else
-    echo "[code-ccgw] WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor CCGW_ANTHROPIC_BASE_URL set." >&2
-    # 8443, not the .ps1's 8445: a POSIX client is most often the backend Mac
-    # itself, whose nearest endpoint is its own proxy, not a LiteLLM gateway.
-    export ANTHROPIC_BASE_URL="https://localhost:8443"
+# The LiteLLM gateway is the only endpoint. Defined-but-empty counts as unset:
+# every consumer below reads it that way, so honouring an empty value would
+# only produce a request to "".
+if [ -z "${LITELLM_ANTHROPIC_BASE_URL:-}" ]; then
+    echo "[code-ccgw] ERROR: LITELLM_ANTHROPIC_BASE_URL is not set." >&2
+    echo "[code-ccgw] Set it to the LiteLLM gateway endpoint; see docs/ops.md." >&2
+    exit 1
 fi
+export ANTHROPIC_BASE_URL="$LITELLM_ANTHROPIC_BASE_URL"
 
 # --- Authentication --------------------------------------------------------
-# Use a scoped LiteLLM virtual key, NOT the master key. Falls back to the DS4
-# Proxy's own shared token for the direct path.
-if [ -n "${LITELLM_VIRTUAL_KEY:-}" ]; then
+# LiteLLM runs without a database, so no virtual keys exist: the client
+# credential is the gateway key itself. LITELLM_VIRTUAL_KEY is accepted for one
+# deprecation cycle so an unmigrated .env fails loudly rather than with a 401.
+if [ -n "${LITELLM_CLIENT_KEY:-}" ]; then
+    export ANTHROPIC_AUTH_TOKEN="$LITELLM_CLIENT_KEY"
+elif [ -n "${LITELLM_VIRTUAL_KEY:-}" ]; then
+    echo "[code-ccgw] WARNING: LITELLM_VIRTUAL_KEY is deprecated; rename it to LITELLM_CLIENT_KEY." >&2
     export ANTHROPIC_AUTH_TOKEN="$LITELLM_VIRTUAL_KEY"
-elif [ -n "${CCGW_API_KEY:-}" ]; then
-    export ANTHROPIC_AUTH_TOKEN="$CCGW_API_KEY"
-elif [ -n "${DS4_API_KEY:-}" ]; then
-    export ANTHROPIC_AUTH_TOKEN="$DS4_API_KEY"
 else
-    echo "[code-ccgw] WARNING: Neither LITELLM_VIRTUAL_KEY nor CCGW_API_KEY set." >&2
-    export ANTHROPIC_AUTH_TOKEN="dsv4-local"
+    echo "[code-ccgw] ERROR: LITELLM_CLIENT_KEY is not set." >&2
+    echo "[code-ccgw] Set it to the LiteLLM gateway key; see docs/ops.md." >&2
+    exit 1
 fi
 
 # --- TLS trust -------------------------------------------------------------
-# mkcert local CA root so Node trusts the proxy certificate.
+# mkcert local CA root so Node trusts the gateway certificate.
 # NODE_TLS_REJECT_UNAUTHORIZED=0 is NOT used.
 if [ -n "${CCGW_CA_CERT:-}" ]; then
     export NODE_EXTRA_CA_CERTS="$CCGW_CA_CERT"
-elif [ -n "${DS4_CA_CERT:-}" ]; then
-    export NODE_EXTRA_CA_CERTS="$DS4_CA_CERT"
-elif command -v mkcert &>/dev/null; then
+elif command -v mkcert >/dev/null 2>&1; then
     # On the backend Mac the CA is already local -- derive it rather than making
     # the user restate a path the tool can answer for itself.
     _caroot="$(mkcert -CAROOT 2>/dev/null || true)"
@@ -74,40 +70,37 @@ else
 fi
 
 # --- Model aliases ---------------------------------------------------------
-# LITELLM_*_MODEL are LiteLLM-specific routing keys that DS4 Proxy does not
-# recognise -- never send them down the direct path. On the direct path the model
-# name is what the Mac swap layer routes on, so it must be a name that layer knows
-# (see llama-swap/config.yaml): deepseek-v4-flash or laguna-s-2.1.
-#
-# The two Mac backends sit on separate tiers so /model can switch between them:
-# fable -> ds4, opus -> Laguna S 2.1. Subagents follow whichever backend is resident
-# rather than the Opus tier -- a subagent on the other backend would evict it.
-if [ -n "${LITELLM_ANTHROPIC_BASE_URL:-}" ]; then
-    [ -n "${LITELLM_FABLE_MODEL:-}" ] && export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
-    [ -n "${LITELLM_OPUS_MODEL:-}" ] && export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
-    [ -n "${LITELLM_SONNET_MODEL:-}" ] && export ANTHROPIC_DEFAULT_SONNET_MODEL="$LITELLM_SONNET_MODEL"
-    [ -n "${LITELLM_HAIKU_MODEL:-}" ] && export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LITELLM_HAIKU_MODEL"
-    if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
-        export ANTHROPIC_MODEL="$LITELLM_FABLE_MODEL"
-        export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
-        export CLAUDE_CODE_SUBAGENT_MODEL="$LITELLM_FABLE_MODEL"
-    fi
-else
-    # Direct path: the swap layer routes on the model name itself, so the tiers can
-    # name the two backends outright. CCGW_DEFAULT_MODEL only picks which one is
-    # resident at startup.
-    export ANTHROPIC_DEFAULT_FABLE_MODEL="deepseek-v4-flash"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="laguna-s-2.1"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-v4-flash"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flash"
-
-    _model="${CCGW_DEFAULT_MODEL:-deepseek-v4-flash}"
-    export ANTHROPIC_MODEL="$_model"
-    export ANTHROPIC_CUSTOM_MODEL_OPTION="$_model"
-    export CLAUDE_CODE_SUBAGENT_MODEL="$_model"
+# Each LITELLM_*_MODEL is a LiteLLM routing key and goes onto its own /model
+# tier verbatim. The launcher owns no backend names: inventing one would address
+# a model the gateway has no entry for, and the error would surface as a 400
+# from LiteLLM rather than as a message from here.
+if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
+    export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
 fi
+if [ -n "${LITELLM_OPUS_MODEL:-}" ]; then
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
+fi
+if [ -n "${LITELLM_SONNET_MODEL:-}" ]; then
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$LITELLM_SONNET_MODEL"
+fi
+if [ -n "${LITELLM_HAIKU_MODEL:-}" ]; then
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LITELLM_HAIKU_MODEL"
+fi
+if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
+    export ANTHROPIC_MODEL="$LITELLM_FABLE_MODEL"
+    export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
+fi
+
+# Subagent routing is opt-in. LiteLLM multiplexes, so pinning every subagent to
+# one tier is no longer needed -- and an unconditional value silently overrides
+# the model an agent definition's frontmatter declares. The value is a routing
+# key, passed through untranslated.
+if [ -n "${CCGW_SUBAGENT_MODEL:-}" ]; then
+    export CLAUDE_CODE_SUBAGENT_MODEL="$CCGW_SUBAGENT_MODEL"
+fi
+
 export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Local model via ccgw"
-export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Mac backend (ds4 / Laguna S 2.1), selected per request"
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Mac backend via the LiteLLM gateway, selected per request"
 
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
@@ -127,7 +120,7 @@ else
     _user_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/vscode-ccgw"
 fi
 
-if ! command -v code &>/dev/null; then
+if ! command -v code >/dev/null 2>&1; then
     echo "[code-ccgw] ERROR: 'code' command not found on PATH." >&2
     echo "[code-ccgw] In VS Code run: Shell Command: Install 'code' command in PATH" >&2
     exit 1

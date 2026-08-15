@@ -28,14 +28,28 @@ _ds4_write_plist() {
         _err_path="/dev/null"
     fi
 
-    # Resolve uv path for launchd's minimal PATH
-    _uv_bin=""
-    if command -v uv >/dev/null 2>&1; then
-        _uv_bin="$(dirname "$(command -v uv)")"
-    fi
+    # launchd hands the agent a minimal PATH, so every service binary's
+    # directory has to be named here — uv, llama-swap and litellm alike, since
+    # an unresolvable binary shows up only as a KeepAlive respawn loop after
+    # `serverctl install`. Missing binaries are skipped and repeated
+    # directories (the usual single-prefix install) are emitted once.
     _path_val="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    if [ -n "$_uv_bin" ]; then
-        _path_val="${_uv_bin}:${_path_val}"
+    _resolved=""
+    for _bin in uv llama-swap litellm; do
+        command -v "$_bin" >/dev/null 2>&1 || continue
+        _dir="$(dirname "$(command -v "$_bin")")"
+        [ -n "$_dir" ] || continue
+        case ":${_resolved}:${_path_val}:" in
+            *":${_dir}:"*) continue ;;
+        esac
+        if [ -z "$_resolved" ]; then
+            _resolved="$_dir"
+        else
+            _resolved="${_resolved}:${_dir}"
+        fi
+    done
+    if [ -n "$_resolved" ]; then
+        _path_val="${_resolved}:${_path_val}"
     fi
 
     mkdir -p "$(_ds4_log_dir "$_svc")"
