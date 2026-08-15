@@ -119,7 +119,7 @@ startup.
 | `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for Sonnet tier. Claude Code sends this value as the model name; LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
 | `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
 | `LITELLM_OPUS_MODEL` | `laguna-s-2.1` | Model routing key for the Opus tier — Laguna S 2.1 on the Mac. The two Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches between them. |
-| `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.cmd. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
+| `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.ps1. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
 | `LITELLM_VIRTUAL_KEY` | (required for client) | Scoped virtual key for client authentication with LiteLLM. Generated from a random key (not the master key). |
 
 ### Client env vars update
@@ -138,6 +138,8 @@ Tier assignment on both paths:
 | Opus | Laguna S 2.1 (`laguna-s-2.1`) |
 | Sonnet / Haiku | LiteLLM path: the Windows PC's own smaller models. Direct path: ds4 — the Mac hosts nothing smaller. |
 
-Subagents stay pinned to the ds4 tier (`CLAUDE_CODE_SUBAGENT_MODEL`) rather than following
-Opus. The two Mac backends cannot be resident at once, so a subagent on the other backend
-would evict the model the main session is using.
+`CLAUDE_CODE_SUBAGENT_MODEL` is set by the launchers, not by `.env`, and points subagents at
+whichever backend is resident: the Fable routing key on the LiteLLM path, `CCGW_DEFAULT_MODEL`
+on the direct path. It deliberately does not follow Opus — the two Mac backends cannot be
+resident at once, so a subagent on the other backend would evict the model the main session
+is using.

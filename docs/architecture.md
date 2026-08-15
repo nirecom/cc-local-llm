@@ -204,7 +204,7 @@ is reused -- no separate CA setup.
 
 LiteLLM uses virtual_key authentication. The `LITELLM_MASTER_KEY` is used for the admin
 API and virtual key generation -- it is NEVER exposed to the client. A one-time setup
-step (`scripts/setup-litellm.cmd`) creates a scoped virtual key from a randomly-generated
+step (`scripts/setup-litellm.ps1`) creates a scoped virtual key from a randomly-generated
 key (NOT the master key). Claude Code presents the virtual key as `ANTHROPIC_AUTH_TOKEN`
 to authenticate with LiteLLM. The DS4 Proxy's own token auth is preserved for the Opus
 route: LiteLLM forwards `LITELLM_OPUS_API_KEY` as the `x-api-key` header to the DS4 Proxy.

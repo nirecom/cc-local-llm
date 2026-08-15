@@ -32,8 +32,8 @@ Standard layout (mirrors the agents-repo convention):
 | [scripts/serverctl.sh](scripts/serverctl.sh) | Unified Mac control command — `start\|stop\|restart\|status\|logs\|install\|uninstall [proxy\|llama-swap\|server\|all]` |
 | [scripts/llama-swap.sh](scripts/llama-swap.sh) | Foreground launcher for llama-swap (thin wrapper; used by launchd) — owns ds4-server's and Laguna's lifecycle |
 | [scripts/ds4-server.sh](scripts/ds4-server.sh) | Foreground launcher for ds4-server, manual debug only (llama-swap owns normal start/stop) |
-| [scripts/code-ccgw.cmd](scripts/code-ccgw.cmd) | Windows client launcher — loads `.env`, sets ccgw env, isolates the VS Code process, launches VS Code |
-| [scripts/code-ccgw.sh](scripts/code-ccgw.sh) | macOS/Linux client launcher — POSIX counterpart of `code-ccgw.cmd`; lets the backend Mac drive its own backend |
+| [scripts/code-ccgw.ps1](scripts/code-ccgw.ps1) | Windows client launcher (pwsh) — loads `.env`, sets ccgw env, isolates the VS Code process, launches VS Code |
+| [scripts/code-ccgw.sh](scripts/code-ccgw.sh) | macOS/Linux client launcher — POSIX counterpart of `code-ccgw.ps1`; lets the backend Mac drive its own backend |
 | [litellm-client/](litellm-client/) | Windows-side LiteLLM proxy config — model-tier routing |
 | [install.sh](install.sh) / [install.ps1](install.ps1) | One-time prereq installers — `install.sh [--server\|--client\|--all]` (macOS/Linux), `install.ps1` (Windows) |
 | [.env.example](.env.example) | Template for the gitignored `.env` |
@@ -58,8 +58,8 @@ git -C ~/git/ds4 pull                            # update the antirez/ds4 build 
 Then edit `.env` (Mac's IP and auth token: `CCGW_ANTHROPIC_BASE_URL`, `CCGW_CA_CERT`,
 `CCGW_API_KEY`) and run the bundled launcher (loads `.env`, sets the ds4 env, isolates the
 VS Code process, opens VS Code):
-```bat
-scripts\code-ccgw.cmd .
+```powershell
+.\scripts\code-ccgw.ps1 .
 ```
 See [docs/ops.md](docs/ops.md#client-windows) for details and the terminal alternative, or
 [docs/ops.md](docs/ops.md#litellm-windows-docker-desktop-wsl2) to route through LiteLLM instead

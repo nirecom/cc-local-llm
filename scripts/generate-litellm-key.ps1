@@ -1,6 +1,7 @@
 # Generate a cryptographically random 32-byte key and output as lowercase hex.
-# Called by setup-litellm.cmd via: powershell -NoProfile -File generate-litellm-key.ps1 -OutFile <path>
-# -OutFile writes ASCII directly to avoid cmd.exe stdout redirect producing UTF-16 BOM (breaks set /p).
+# Called by setup-litellm.ps1, which reads the hex straight off stdout.
+# -OutFile writes ASCII to a file instead, for callers outside PowerShell whose stdout
+# redirect would otherwise produce a UTF-16 BOM.
 # Works on PowerShell 5.1 and PowerShell 7+.
 param([string]$OutFile = "")
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()

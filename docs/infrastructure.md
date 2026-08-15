@@ -50,7 +50,7 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | llama-swap start script | `~/git/cc-local-llm/scripts/llama-swap.sh` |
 | Mac llama-swap config | `~/git/cc-local-llm/llama-swap/config.yaml` |
 | Proxy TLS cert/key | `~/.config/ds4-proxy/cert.pem` / `key.pem` (mkcert-generated) |
-| Client launcher (POSIX) | `~/git/cc-local-llm/scripts/code-ccgw.sh` (macOS/Linux counterpart of `code-ccgw.cmd`) |
+| Client launcher (POSIX) | `~/git/cc-local-llm/scripts/code-ccgw.sh` (macOS/Linux counterpart of `code-ccgw.ps1`) |
 | Client VS Code profile | `~/Library/Application Support/vscode-ccgw` (macOS), `${XDG_DATA_HOME:-~/.local/share}/vscode-ccgw` (Linux) |
 | KV disk cache | `~/Library/Caches/ds4-server/kv` (persistent, Time Machine-excluded by macOS default) |
 | Laguna model directory | `~/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx` |
@@ -61,8 +61,8 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 |---|---|
 | LiteLLM config | `C:\git\cc-local-llm\litellm-client\config.yaml` |
 | LiteLLM compose | `C:\git\cc-local-llm\litellm-client\docker-compose.yml` |
-| LiteLLM start script | `C:\git\cc-local-llm\scripts\litellm-start.cmd` |
-| LiteLLM setup script | `C:\git\cc-local-llm\scripts\setup-litellm.cmd` |
+| LiteLLM start script | `C:\git\cc-local-llm\scripts\litellm-start.ps1` |
+| LiteLLM setup script | `C:\git\cc-local-llm\scripts\setup-litellm.ps1` |
 | LiteLLM TLS cert/key | `C:\Users\<user>\.config\litellm\cert.pem` / `key.pem` (mkcert-generated) |
 | LiteLLM CA cert (Opus trust) | `<mkcert -CAROOT>\rootCA.pem` (same as CCGW_CA_CERT) |
 | LiteLLM database volume | `litellm-postgres` (Docker named volume, PostgreSQL data at /var/lib/postgresql/data) |

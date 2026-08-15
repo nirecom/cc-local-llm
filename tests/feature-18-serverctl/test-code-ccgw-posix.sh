@@ -3,7 +3,7 @@
 # Tags: lifecycle, client-launcher, scope:issue-specific
 #
 # Scenario: the POSIX client launcher (macOS/Linux counterpart of
-# scripts/code-ccgw.cmd) — base-URL / auth-token / TLS-CA precedence chains, the
+# scripts/code-ccgw.ps1) — base-URL / auth-token / TLS-CA precedence chains, the
 # mutually-exclusive model-selection branch (LiteLLM routing keys vs the direct
 # DS4-Proxy path), the per-tier map that puts the two Mac backends on separate
 # /model tiers with subagents pinned to the ds4/fable tier, CCGW_DEFAULT_MODEL
@@ -139,7 +139,8 @@ assert_env ANTHROPIC_BASE_URL https://localhost:8443 "base-url: unset falls back
 assert_stderr 'WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor CCGW_ANTHROPIC_BASE_URL set' "base-url: unset must warn"
 
 # An empty (but defined) value must not be treated as configured — `-n` semantics,
-# unlike the .cmd's `if defined`, which would accept an empty string.
+# unlike the retired .cmd's `if defined`, which would accept an empty string.
+# The .ps1 port matches this `-n` behaviour via its Get-EnvOrNull helper.
 run_launcher LITELLM_ANTHROPIC_BASE_URL= CCGW_ANTHROPIC_BASE_URL=https://ccgw:2
 assert_env ANTHROPIC_BASE_URL https://ccgw:2 "base-url: empty LITELLM value must fall through to CCGW"
 
@@ -172,7 +173,8 @@ assert_env NODE_EXTRA_CA_CERTS /ca/ds4.pem "ca: DS4_CA_CERT is the second source
 # NODE_TLS_REJECT_UNAUTHORIZED=0 must never be the launcher's answer to TLS.
 assert_unset NODE_TLS_REJECT_UNAUTHORIZED "ca: TLS verification must never be disabled"
 
-# 3a. mkcert derivation — the behavior the Windows .cmd does not have.
+# 3a. mkcert derivation — mirrored by the Windows .ps1 (see
+# code-ccgw-windows.Tests.ps1); the retired .cmd had no equivalent.
 CAROOT_OK="$WORK/caroot-ok"
 mkdir -p "$CAROOT_OK"
 : > "$CAROOT_OK/rootCA.pem"

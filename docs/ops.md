@@ -50,10 +50,10 @@ interactive and follow on from it.
 The LiteLLM proxy needs an mkcert leaf cert/key. Use the same root CA as the DS4 Proxy
 so the client trusts both endpoints with one `CCGW_CA_CERT`:
 
-```bat
+```powershell
 mkcert localhost 127.0.0.1 ::1 <windows-host>
-rem Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
-rem (e.g., C:\Users\<user>\.config\litellm\)
+# Copy the generated cert.pem + key.pem to the directory specified by LITELLM_TLS_DIR
+# (e.g., C:\Users\<user>\.config\litellm\)
 ```
 
 ### CA cert setup (one-time)
@@ -61,9 +61,9 @@ rem (e.g., C:\Users\<user>\.config\litellm\)
 The LiteLLM container needs to trust the DS4 Proxy's TLS certificate for the Opus route.
 Set `LITELLM_CA_CERT_FILE` in `.env` to the path of the mkcert root CA `.pem` file:
 
-```bat
-rem Get the path from mkcert -CAROOT, then append /rootCA.pem
-rem e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
+```powershell
+# Get the path from mkcert -CAROOT, then append /rootCA.pem
+# e.g. LITELLM_CA_CERT_FILE=C:\Users\<user>\AppData\Local\mkcert\rootCA.pem
 ```
 
 This is the same root CA file used for `CCGW_CA_CERT`. The compose file mounts it into
@@ -72,43 +72,43 @@ the container and the entrypoint installs it into the system trust store.
 ### Initial setup (one-time)
 
 1. Generate a master key and set it in `.env`:
-   ```bat
-   openssl rand -hex 32
-   rem Set LITELLM_MASTER_KEY=sk-<output> in .env
+   ```powershell
+   .\scripts\generate-litellm-key.ps1
+   # Set LITELLM_MASTER_KEY=sk-<output> in .env
    ```
 
 2. Generate a TLS cert and set LITELLM_TLS_DIR in `.env` to point at the cert directory:
-   ```bat
+   ```powershell
    mkcert localhost 127.0.0.1 ::1 <windows-host>
-   rem Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
+   # Set LITELLM_TLS_DIR=<path-to-cert-dir> in .env
    ```
 
 3. Set the CA cert path in `.env`:
-   ```bat
-   rem Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
+   ```powershell
+   # Set LITELLM_CA_CERT_FILE=<mkcert -CAROOT>\rootCA.pem in .env
    ```
 
 4. Start the LiteLLM container:
-   ```bat
-   scripts\litellm-start.cmd up
+   ```powershell
+   .\scripts\litellm-start.ps1 up
    ```
 
 5. Wait a few seconds for the SQLite database tables to be created, then generate a
    scoped virtual key for client auth:
-   ```bat
-   scripts\setup-litellm.cmd
-   rem Copy the returned key into .env as LITELLM_VIRTUAL_KEY
+   ```powershell
+   .\scripts\setup-litellm.ps1
+   # Copy the returned key into .env as LITELLM_VIRTUAL_KEY
    ```
 
 6. Restart the container so it picks up the new env vars:
-   ```bat
-   scripts\litellm-start.cmd restart
+   ```powershell
+   .\scripts\litellm-start.ps1 restart
    ```
 
 ### Start LiteLLM
 
-```bat
-scripts\litellm-start.cmd up
+```powershell
+.\scripts\litellm-start.ps1 up
 ```
 
 This starts the container via `docker compose up -d`. The container listens on
@@ -116,19 +116,19 @@ This starts the container via `docker compose up -d`. The container listens on
 
 ### Stop LiteLLM
 
-```bat
-scripts\litellm-start.cmd down
+```powershell
+.\scripts\litellm-start.ps1 down
 ```
 
 ### Verify LiteLLM is running
 
-```bat
-scripts\litellm-start.cmd status
+```powershell
+.\scripts\litellm-start.ps1 status
 ```
 
 Or check the health endpoint directly:
-```bat
-curl -k https://localhost:8445/health/
+```powershell
+curl.exe -k https://localhost:8445/health/
 ```
 
 ### Verify routing
@@ -137,27 +137,15 @@ Send a test request to confirm each tier routes correctly. Use the **Anthropic
 /v1/messages** endpoint (the format Claude Code sends) to verify LiteLLM's
 Anthropic-to-OpenAI conversion works end-to-end:
 
-```bat
-rem Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"devstral-small-2-24b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+```powershell
+# Haiku tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"devstral-small-2-24b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 
-rem Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"qwen3-coder-30b-a3b\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+# Sonnet tier (Anthropic format -- LiteLLM converts to OpenAI for llama-swap on this PC)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3-coder-30b-a3b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 
-rem Opus tier (Anthropic format -- passthrough to DS4 Proxy)
-curl -k -X POST https://localhost:8445/v1/messages ^
-  -H "Content-Type: application/json" ^
-  -H "x-api-key: <LITELLM_VIRTUAL_KEY>" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -d "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+# Opus tier (Anthropic format -- passthrough to DS4 Proxy)
+curl.exe -k -X POST https://localhost:8445/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: <LITELLM_VIRTUAL_KEY>' -H 'anthropic-version: 2023-06-01' -d '{"model":"deepseek-v4-flash","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 Note: Use the virtual key, NOT the master key. The `/v1/messages` endpoint confirms
@@ -168,24 +156,24 @@ fails outright if llama-swap is offline.
 ### Client (Windows) with LiteLLM
 
 First time only, ensure the repo-root `.env` has the LiteLLM vars filled in. The
-`code-ccgw.cmd` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
+`code-ccgw.ps1` launcher now prefers `LITELLM_ANTHROPIC_BASE_URL` over `CCGW_ANTHROPIC_BASE_URL`.
 
 Set in `.env`:
-```bat
+```ini
 LITELLM_ANTHROPIC_BASE_URL=https://<windows-host>:8445
 LITELLM_VIRTUAL_KEY=sk-<generated-token>
 ```
 
 Then launch as before:
-```bat
-scripts\code-ccgw.cmd .
+```powershell
+.\scripts\code-ccgw.ps1 .
 ```
 
 ### Recovery
 
 | Symptom | Action |
 |---------|--------|
-| LiteLLM container not running | `litellm-start.cmd up`; check Docker Desktop is running |
+| LiteLLM container not running | `litellm-start.ps1 up`; check Docker Desktop is running |
 | `Connection refused` on :8445 | Verify container status; check port mapping |
 | Haiku/Sonnet tier returns `Cannot connect to host host.docker.internal:18080` | llama-swap service is down on this PC (`nssm status llama-swap`); no fallback exists — start it and retry |
 | DS4 Proxy unreachable | Verify <mac-host> Mac is reachable (<mac-lan-ip>); check DS4 Proxy status |
@@ -349,19 +337,19 @@ For color-highlighted live log viewing:
 
 First time only, create the repo-root `.env` from the template and put the Mac's LAN IP in it
 (the IP is never committed — `.env` is gitignored):
-```bat
-copy .env.example .env
-rem then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
-rem and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
+```powershell
+Copy-Item .env.example .env
+# then edit .env: CCGW_ANTHROPIC_BASE_URL=https://<mac-ip>:8443
+# and CCGW_CA_CERT=<mkcert -CAROOT>\rootCA.pem (so Node trusts the proxy cert)
 ```
 Then launch VS Code with the ds4 backend via the bundled wrapper:
-```bat
-scripts\code-ccgw.cmd .
+```powershell
+.\scripts\code-ccgw.ps1 .
 ```
 The wrapper loads `.env`, then sets the ds4 env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
-the `deepseek-v4-flash` model aliases (the haiku tier uses the non-thinking `deepseek-chat`),
+the per-tier model aliases (the tier table under "Client (macOS / Linux)" applies here too),
 `NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`,
-and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=393216` /
+and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. The base URL now points at the
 proxy (`https://<mac-ip>:8443`), not ds4 directly. If `CCGW_ANTHROPIC_BASE_URL` is set
 in neither `.env` nor the shell, the wrapper warns and falls back to `https://localhost:8443`
@@ -371,7 +359,7 @@ in neither `.env` nor the shell, the wrapper warns and falls back to `https://lo
 so Node trusts the proxy certificate (if unset the wrapper warns and TLS will not be trusted).
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
-`--user-data-dir "%LOCALAPPDATA%\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
+`--user-data-dir "$env:LOCALAPPDATA\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
 shares one process — and thus one environment — across every window under the same
 user-data-dir, so without this flag the ds4 env bleeds into native subscription windows. The
 separate profile keeps the ds4 session and native `code` / `codes` sessions independent on the
@@ -385,24 +373,24 @@ Caveat: if the ds4 profile is already running, close *all* its windows before ch
 environment) persists until the last window of the profile closes, and new windows inherit the
 old value. The same folder may be open in the native and ds4 profiles at the same time: the
 "reuse the existing window for this folder" dedup is per-profile, so `codes .` followed by
-`code-ccgw.cmd .` on one repo yields two independent windows (native backend + ds4 backend),
+`code-ccgw.ps1 .` on one repo yields two independent windows (native backend + ds4 backend),
 not one activated window.
 
 Terminal alternative (no VS Code): set the same env vars the wrapper does
-(see [scripts/code-ccgw.cmd](../scripts/code-ccgw.cmd) for the full list) and run `claude`.
+(see [scripts/code-ccgw.ps1](../scripts/code-ccgw.ps1) for the full list) and run `claude`.
 
 Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars from
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).
 
-**Verify connectivity:** after launch, run `/context` and confirm CC reports a window near
-393216 (not 200K / 1M). Grow the conversation and confirm auto-compaction fires *before* ds4
-returns `400 context_length_exceeded`.
+**Verify connectivity:** after launch, run `/context` and confirm CC reports the local window
+(65536, the floor the launcher sets) rather than a cloud 200K / 1M. Grow the conversation and
+confirm auto-compaction fires *before* the backend returns `400 context_length_exceeded`.
 
 ## Client (macOS / Linux)
 
 The Windows box is the primary client, but the backend Mac — and any Linux host on the LAN —
 can drive the same backend through [scripts/code-ccgw.sh](../scripts/code-ccgw.sh), the POSIX
-counterpart of `code-ccgw.cmd`. On the backend Mac this is the cheapest path of all: the proxy
+counterpart of `code-ccgw.ps1`. On the backend Mac this is the cheapest path of all: the proxy
 is already on loopback, so no LiteLLM container and no LAN IP are involved.
 
 One-time setup:
@@ -436,9 +424,9 @@ Code tiers, so `/model` is what switches between them:
 
 `CCGW_DEFAULT_MODEL` in `.env` only picks which backend is resident at launch. The two are
 mutually exclusive: selecting the other tier unloads the resident model and cold-starts the
-new one, so expect a long first response after each switch. Subagents stay pinned to the ds4
-tier for that reason — a subagent on the other backend would evict the model the main session
-is using.
+new one, so expect a long first response after each switch. Subagents follow the resident model
+(`CLAUDE_CODE_SUBAGENT_MODEL` tracks `CCGW_DEFAULT_MODEL`) rather than the Opus tier for that
+reason — a subagent on the other backend would evict the model the main session is using.
 
 **Isolation from native (subscription) VS Code** works the same way as on Windows: the wrapper
 passes its own `--user-data-dir` (`~/Library/Application Support/vscode-ccgw` on macOS,

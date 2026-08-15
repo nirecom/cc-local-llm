@@ -1,5 +1,5 @@
 #!/bin/bash
-# ccgw client launcher (macOS / Linux). POSIX counterpart of scripts/code-ccgw.cmd.
+# ccgw client launcher (macOS / Linux). POSIX counterpart of scripts/code-ccgw.ps1.
 #
 # Prefers the LiteLLM gateway (ccgw) for Claude Code model routing; falls back to the
 # DS4 Proxy direct connection when LiteLLM is unavailable. On the Mac that also hosts
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 # Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 # lib/load-dotenv.sh keeps the "shell value wins over .env" semantics that
-# code-ccgw.cmd implements with `if not defined`.
+# code-ccgw.ps1 implements with its own "shell value wins" check.
 DS4_SCRIPT_DIR="$SCRIPT_DIR"
 # shellcheck source=scripts/lib/root.sh
 . "$SCRIPT_DIR/lib/root.sh"
@@ -34,7 +34,7 @@ elif [ -n "${DS4_ANTHROPIC_BASE_URL:-}" ]; then
     export ANTHROPIC_BASE_URL="$DS4_ANTHROPIC_BASE_URL"
 else
     echo "[code-ccgw] WARNING: Neither LITELLM_ANTHROPIC_BASE_URL nor CCGW_ANTHROPIC_BASE_URL set." >&2
-    # 8443, not the .cmd's 8445: a POSIX client is most often the backend Mac
+    # 8443, not the .ps1's 8445: a POSIX client is most often the backend Mac
     # itself, whose nearest endpoint is its own proxy, not a LiteLLM gateway.
     export ANTHROPIC_BASE_URL="https://localhost:8443"
 fi
@@ -80,8 +80,8 @@ fi
 # (see llama-swap/config.yaml): deepseek-v4-flash or laguna-s-2.1.
 #
 # The two Mac backends sit on separate tiers so /model can switch between them:
-# fable -> ds4, opus -> Laguna S 2.1. Subagents stay pinned to the ds4 tier -- a
-# subagent on the other backend would evict the resident one mid-session.
+# fable -> ds4, opus -> Laguna S 2.1. Subagents follow whichever backend is resident
+# rather than the Opus tier -- a subagent on the other backend would evict it.
 if [ -n "${LITELLM_ANTHROPIC_BASE_URL:-}" ]; then
     [ -n "${LITELLM_FABLE_MODEL:-}" ] && export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
     [ -n "${LITELLM_OPUS_MODEL:-}" ] && export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
@@ -114,7 +114,7 @@ export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
 export CLAUDE_STREAM_IDLE_TIMEOUT_MS=600000
 
 # Align auto-compaction with the tightest backend ceiling. A single env var cannot
-# differentiate per-tier -- 64K is the safe floor (see code-ccgw.cmd for the same note).
+# differentiate per-tier -- 64K is the safe floor (see code-ccgw.ps1 for the same note).
 export CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 
