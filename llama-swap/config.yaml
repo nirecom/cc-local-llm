@@ -41,6 +41,8 @@ models:
     cmd: >-
       mlx_lm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx
+      --prompt-cache-bytes 24GB
+      --prompt-cache-size 6
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
     # mlx_lm.server resolves any body `model` other than `default_model` as a
@@ -49,3 +51,31 @@ models:
     # forwarded upstream is rewritten. Not set on deepseek-v4-flash: ds4-server
     # accepts any model name, so the rewrite would be pure side effect.
     useModelName: default_model
+    # No official sizing formula exists upstream (mlx-lm PR #906 discussion);
+    # this is a memory-budget-derived limit. Metal's own
+    # max_recommended_working_set_size on this Mac (128 GB unified memory) is
+    # ~116 GB -- that ceiling is what mlx_lm.server wires via set_wired_limit(),
+    # and it is what Activity Monitor showed fully consumed. Laguna's weights
+    # are ~67 GB resident, so unbounded KV prompt-cache growth (mlx-lm's
+    # LRUPromptCache defaults to max_bytes=1<<63, i.e. no cap, unless
+    # --prompt-cache-bytes is passed -- see mlx_lm/models/cache.py) was free to
+    # climb the remaining ~49 GB up to the wired ceiling. 24 GB keeps
+    # weights+cache at ~91 GB, leaving ~25 GB of headroom below the wired limit
+    # for prefill/decode workspace and the deepcopy-on-fetch that
+    # LRUPromptCache.fetch_nearest_cache does (it duplicates a cache entry in
+    # memory while serving it). The 24 GB figure also lines up with the range
+    # (23-26 GB) that independently triggered a Metal OOM crash on a smaller
+    # 48 GB Mac in mlx-lm issue #1390, treated here as an empirical ceiling.
+    # --prompt-cache-size caps the LRU to 6 entries (down from mlx-lm's default
+    # of 10) so eviction-by-count also kicks in earlier, before the byte cap
+    # forces it under heavier concurrency.
+    concurrencyLimit: 4
+    # llama-swap has no documented recommendation either; default (unset) is an
+    # internal 10 parallel requests, which is what let 116 GB accumulate before
+    # the 11th request got a 429 -- the limit was reached only after the memory
+    # damage was already done. Capping at 4 bounds worst-case simultaneous
+    # active-generation memory (which sits outside the LRU cache the setting
+    # above bounds -- mlx-lm has no --prompt-cache-total-bytes equivalent in
+    # this installed version, 0.31.3) well below the previous default, while
+    # still allowing normal multi-agent Claude Code fan-out. Requests beyond
+    # this get a fast, cheap 429 instead of silently growing memory further.
