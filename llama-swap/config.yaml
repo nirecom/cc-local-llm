@@ -46,47 +46,11 @@ models:
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
     # mlx_lm.server resolves any body `model` other than `default_model` as a
-    # Hugging Face repo path and answers 401. The routing key llama-swap matches
-    # on stays laguna-s-2.1 (so LiteLLM can address it by name); only the body
-    # forwarded upstream is rewritten. Not set on deepseek-v4-flash: ds4-server
-    # accepts any model name, so the rewrite would be pure side effect.
+    # HF repo path and 401s. Routing key stays laguna-s-2.1 for LiteLLM; only
+    # the upstream body is rewritten. Not needed on ds4 (accepts any name).
     useModelName: default_model
-    # No official sizing formula exists upstream (mlx-lm PR #906 discussion);
-    # this is a memory-budget-derived limit, revised after reading
-    # mlx_lm/server.py's actual trim logic: on each batched request it runs
-    # `prompt_cache.trim_to(n_bytes=prompt_cache_bytes - batch_generator.prompt_cache_nbytes)`,
-    # and LRUPromptCache.trim_to() clamps its target at 0 -- so this flag only
-    # ever shrinks the *idle* LRU cache to make room for whatever the active
-    # batch is using; it never blocks or caps active-generation memory itself.
-    # Raising it therefore cannot make the worst case worse (idle cache still
-    # collapses to 0 under active pressure) -- it only improves how many idle
-    # conversations survive eviction when the Mac isn't under heavy load. That
-    # makes it safe to size against the idle-only ceiling: weights (~67 GB) +
-    # this cap should stay comfortably under Metal's own
-    # max_recommended_working_set_size on this Mac (128 GB unified memory,
-    # ~116 GB recommended wired ceiling -- what mlx_lm.server wires via
-    # set_wired_limit(), and what Activity Monitor showed fully consumed
-    # during the original incident). 40 GB keeps weights+idle-cache at ~107 GB,
-    # ~9 GB below the wired ceiling for prefill/decode workspace even with the
-    # cache fully packed and nothing active. --prompt-cache-size raised to 10
-    # (mlx-lm's own default) so short/typical-length conversations aren't
-    # evicted by entry count before they'd hit the byte cap.
+    # --prompt-cache-bytes/-size and concurrencyLimit: sizing rationale, KV-cost
+    # derivation from Laguna's architecture, and memory-budget math are in
+    # docs/tuning.md ("Server flags (Laguna S 2.1)") and docs/history.md
+    # (CONFIG, 2026-08-16). Keep this file to values only -- don't re-derive here.
     concurrencyLimit: 5
-    # Laguna's own architecture (config.json) bounds a single request's KV
-    # cost well below what was originally assumed: only 12 of 48 layers are
-    # full_attention (the other 36 use sliding_window: 512, i.e. capped
-    # regardless of context length), and num_key_value_heads is 8 (GQA). That
-    # works out to ~48 KB/token of full-attention KV (12 layers x 8 heads x
-    # 128 head_dim x 2 bytes x 2 for K+V), so even a maxed-out 262144-token
-    # request costs only ~12.9 GB of *active* KV memory -- active memory is
-    # NOT covered by --prompt-cache-bytes above (see that comment); this
-    # limit is the only real cap on it. 5 concurrent requests at that
-    # worst-case size (~64.5 GB) plus weights (~67 GB) can still theoretically
-    # approach the wired ceiling if every slot happens to be near-max-context
-    # at once -- that edge case existed at concurrencyLimit: 4 too (it is not
-    # fully closed by any flag mlx-lm exposes) and is accepted as a residual,
-    # low-probability risk rather than one this config can eliminate; typical
-    # multi-agent Claude Code fan-out runs well under max context per session.
-    # Raised from 4 -> 5 as a single conservative step rather than jumping
-    # further, given that residual worst case. Requests beyond this get a
-    # fast, cheap 429 instead of silently growing memory further.

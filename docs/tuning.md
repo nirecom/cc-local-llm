@@ -36,6 +36,20 @@ second resident session's KV can add on top, so the real headroom is smaller tha
 says. The numbers are left unchanged until the actual RSS under N=2 is measured — update this
 section once that measurement exists rather than substituting an estimate.
 
+## Server flags (Laguna S 2.1 / mlx_lm.server)
+
+| Flag / key | Value | Why |
+|---|---|---|
+| `--prompt-cache-bytes` | `40GB` | Caps the *idle* LRU prompt cache only — `mlx_lm/server.py`'s trim only shrinks idle entries toward 0 to make room for active generation, never blocks active memory. Raising it can't worsen the worst case. weights(~67GB)+40GB ≈ 107GB, ~9GB under the ~116GB Metal wired ceiling. |
+| `--prompt-cache-size` | `10` | mlx-lm's own default entry-count cap, so shorter conversations aren't evicted by count before the byte cap binds. |
+| `concurrencyLimit` (llama-swap) | `5` | The only real cap on *active* generation memory (not covered by the flag above). Raised from the emergency value of 4 — full KV-cost derivation and accepted worst-case risk in [history.md](history.md) (CONFIG, 2026-08-16). |
+
+## Memory budget (Laguna S 2.1)
+
+Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_heads: 8` (GQA)
+keeps a single request's KV cost to ~48 KB/token — even a maxed-out 262144-token request costs
+only ~12.9 GB of active KV memory. Full derivation and incident history: [history.md](history.md).
+
 ## Thinking control
 
 - ds4 defaults **every** chat request to HIGH thinking.
