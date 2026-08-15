@@ -13,16 +13,29 @@ healthCheckTimeout: 600
 logLevel: info
 models:
   deepseek-v4-flash:
+    # ds4-server resolves several of its inputs relative to the process cwd --
+    # the default model file `ds4flash.gguf` and the Metal kernel sources under
+    # `metal/` are both looked up that way. llama-swap spawns it with llama-swap's
+    # own cwd (this directory), so those lookups miss and the process aborts
+    # before binding its port; llama-swap then reports the failure only as
+    # "upstream command exited prematurely". Pinning the cwd via `sh -c` fixes
+    # the whole class at once, rather than absolutizing each path one at a time.
     cmd: >-
-      caffeinate -ism ${env.HOME}/git/ds4/ds4-server
+      sh -c 'cd "$HOME/git/ds4" && exec
+      caffeinate -ism ./ds4-server
       --port ${PORT} --host 127.0.0.1
       --metal --quality --ctx 393216
       --kv-disk-dir ${env.HOME}/Library/Caches/ds4-server/kv
       --kv-disk-space-mb 32768
       --kv-cache-cold-max-tokens 90000
       --kv-cache-continued-interval-tokens 50000
-      --warm-weights --batched-session 2
+      --warm-weights --batched-session 2'
     proxy: http://127.0.0.1:${PORT}
+    # ds4-server serves no /health route (404), so llama-swap's default health
+    # check never passes and the load fails at healthCheckTimeout even though the
+    # process is up and listening. /v1/models is the cheapest route it does
+    # answer. Not needed on laguna-s-2.1: mlx_lm.server implements /health.
+    checkEndpoint: /v1/models
     ttl: 0
   laguna-s-2.1:
     cmd: >-
