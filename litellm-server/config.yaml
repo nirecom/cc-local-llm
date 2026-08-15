@@ -22,6 +22,13 @@ model_list:
       max_tokens: 8192
       context_window: 65536
       timeout: 60
+      # Claude Code sends reasoning_effort. chat/completions rejects it for a
+      # non-reasoning openai/ model with a 400, which reaches the client as an
+      # opaque "model may not exist". Local weights ignore the field anyway, so
+      # dropping it is lossless here. Set per route rather than globally: the
+      # anthropic/ fable tier maps its params on a different code path, and
+      # leaving its strict behaviour alone keeps a real 400 there visible.
+      drop_params: true
 
   # --- Sonnet tier: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ the Windows PC ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
@@ -33,6 +40,8 @@ model_list:
       max_tokens: 8192
       context_window: 65536
       timeout: 60
+      # Same reason as the haiku tier above.
+      drop_params: true
 
   # --- Fable tier: DeepSeek V4 Flash via DS4 Proxy -> Mac swap layer ---
   # The two Mac backends are mutually exclusive (see llama-swap/config.yaml in this
@@ -53,22 +62,39 @@ model_list:
   # --- Opus tier: Laguna S 2.1 via DS4 Proxy -> Mac swap layer ---
   # Laguna is served by mlx_lm.server, which speaks only the OpenAI shape, so
   # this route uses the same openai/ provider pattern as haiku/sonnet: LiteLLM
-  # performs the Anthropic->OpenAI conversion and reaches the proxy at
-  # POST <origin>/chat/completions. The routing key stays laguna-s-2.1; the body
-  # model rewrite that mlx_lm.server needs is llama-swap's useModelName.
+  # performs the Anthropic->OpenAI conversion and reaches the backend at
+  # POST <api_base>/chat/completions. That is why api_base here is the /v1 form
+  # (as LITELLM_LLAMASWAP_URL is) and not the bare origin the fable tier uses:
+  # llama-swap serves /v1/chat/completions, so a bare origin yields the backend's
+  # own "404 page not found" rather than any LiteLLM-level error. The routing key
+  # stays laguna-s-2.1; the body model rewrite that mlx_lm.server needs is
+  # llama-swap's useModelName.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: openai/laguna-s-2.1
-      api_base: os.environ/LITELLM_DS4_PROXY_URL
+      api_base: os.environ/LITELLM_DS4_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_DS4_PROXY_API_KEY
       stream: true
       max_tokens: 8192
       context_window: 262144
+      # Same reason as the haiku tier above.
+      drop_params: true
 
 litellm_settings:
+  # Stays false so an unsupported param is a visible 400 by default; the routes
+  # that need it opt in with their own drop_params above.
   drop_params: false
   enable_caching_on_failures: false
   store_model_options_in_db: false
+  # Clients reach this gateway on /v1/messages, and for an openai/ route LiteLLM
+  # translates that to the Responses API (POST <api_base>/responses) by default.
+  # That is the newer endpoint and not every OpenAI-compatible server implements
+  # it: llama.cpp does, but mlx_lm.server (Laguna) answers a bare 404, which
+  # surfaces to the client as "the model may not exist". chat/completions is the
+  # endpoint all three backends implement, so route every openai/ tier there.
+  # The anthropic/ fable tier is unaffected -- it takes LiteLLM's native
+  # /v1/messages passthrough and never consults this flag.
+  use_chat_completions_url_for_anthropic_messages: true
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
