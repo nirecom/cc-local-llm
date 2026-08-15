@@ -10,7 +10,7 @@ backends**, plus smaller local models (Devstral, Qwen3-Coder) for lighter tiers.
   prompt normalization; see [docs/architecture.md](docs/architecture.md).
 - **Windows client**: Claude Code routes through **LiteLLM** (`litellm-client/`), which
   selects the tier by model name — Haiku/Sonnet to a local llama-swap on the same PC,
-  Opus/Laguna to the Mac's DS4 Proxy.
+  Fable/Opus to the Mac's DS4 Proxy (Fable is ds4, Opus is Laguna S 2.1).
 
 > This repo holds only the **ops / config / decisions** for using these engines as Claude
 > Code backends. Both the GitHub repo and the local clone are named `cc-local-llm`
@@ -63,7 +63,7 @@ scripts\code-ccgw.cmd .
 ```
 See [docs/ops.md](docs/ops.md#client-windows) for details and the terminal alternative, or
 [docs/ops.md](docs/ops.md#litellm-windows-docker-desktop-wsl2) to route through LiteLLM instead
-for multi-tier (Haiku/Sonnet/Opus/Laguna) model selection.
+for multi-tier (Haiku/Sonnet/Fable/Opus) model selection.
 
 **macOS / Linux (client):** the backend Mac can drive its own backend, and so can any Linux
 host on the LAN:
@@ -72,9 +72,10 @@ host on the LAN:
 ./scripts/code-ccgw.sh .
 ```
 On the Mac itself, point `CCGW_ANTHROPIC_BASE_URL` at `https://127.0.0.1:8443` and leave
-`CCGW_CA_CERT` empty — the launcher derives the CA from `mkcert -CAROOT`. Pick the backend with
-`CCGW_DEFAULT_MODEL` (`deepseek-v4-flash` or `laguna-s-2.1`), or switch at runtime with
-`/model`. See [docs/ops.md](docs/ops.md#client-macos--linux).
+`CCGW_CA_CERT` empty — the launcher derives the CA from `mkcert -CAROOT`. The two backends sit
+on separate tiers, so `/model` switches between them: **Fable** is ds4, **Opus** is Laguna S 2.1.
+`CCGW_DEFAULT_MODEL` only picks which one is resident at startup.
+See [docs/ops.md](docs/ops.md#client-macos--linux).
 
 ## Configuration at a glance
 

@@ -64,11 +64,18 @@ rem When falling back to DS4 Proxy, always use deepseek-* originals so that
 rem DS4 Proxy receives model names it understands (deepseek-v4-flash, deepseek-chat).
 rem The LITELLM_*_MODEL vars are LiteLLM-specific routing keys that DS4 Proxy
 rem does not recognise -- never send them to DS4 Proxy.
+rem The two Mac backends sit on separate tiers so /model can switch between them:
+rem fable -> ds4, opus -> Laguna S 2.1. Subagents stay pinned to the ds4 tier --
+rem a subagent on the other backend would evict the resident one mid-session.
 if defined LITELLM_ANTHROPIC_BASE_URL (
+    if defined LITELLM_FABLE_MODEL (
+        set "ANTHROPIC_DEFAULT_FABLE_MODEL=%LITELLM_FABLE_MODEL%"
+        set "ANTHROPIC_MODEL=%LITELLM_FABLE_MODEL%"
+        set "ANTHROPIC_CUSTOM_MODEL_OPTION=%LITELLM_FABLE_MODEL%"
+        set "CLAUDE_CODE_SUBAGENT_MODEL=%LITELLM_FABLE_MODEL%"
+    )
     if defined LITELLM_OPUS_MODEL (
-        set "ANTHROPIC_MODEL=%LITELLM_OPUS_MODEL%"
         set "ANTHROPIC_DEFAULT_OPUS_MODEL=%LITELLM_OPUS_MODEL%"
-        set "ANTHROPIC_CUSTOM_MODEL_OPTION=%LITELLM_OPUS_MODEL%"
     )
     if defined LITELLM_SONNET_MODEL (
         set "ANTHROPIC_DEFAULT_SONNET_MODEL=%LITELLM_SONNET_MODEL%"
@@ -76,16 +83,15 @@ if defined LITELLM_ANTHROPIC_BASE_URL (
     if defined LITELLM_HAIKU_MODEL (
         set "ANTHROPIC_DEFAULT_HAIKU_MODEL=%LITELLM_HAIKU_MODEL%"
     )
-    if defined LITELLM_OPUS_MODEL (
-        set "CLAUDE_CODE_SUBAGENT_MODEL=%LITELLM_OPUS_MODEL%"
-    )
 ) else (
-    rem Fall back to deepseek-* originals (backward compatible with old .env files)
+    rem Direct path: the swap layer routes on the model name itself, so the tiers
+    rem can name the two backends outright.
     set "ANTHROPIC_MODEL=deepseek-v4-flash"
-    set "ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4-flash"
+    set "ANTHROPIC_DEFAULT_FABLE_MODEL=deepseek-v4-flash"
+    set "ANTHROPIC_DEFAULT_OPUS_MODEL=laguna-s-2.1"
     set "ANTHROPIC_CUSTOM_MODEL_OPTION=deepseek-v4-flash"
     set "ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4-flash"
-    set "ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-chat"
+    set "ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4-flash"
     set "CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash"
 )
 set "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME=DeepSeek V4 Flash local ds4"

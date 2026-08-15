@@ -32,8 +32,11 @@ model_list:
       context_window: 65536
       timeout: 60
 
-  # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy -> Mac llama-swap ---
-  - model_name: os.environ/LITELLM_OPUS_MODEL
+  # --- Fable tier: DeepSeek V4 Flash via DS4 Proxy -> Mac swap layer ---
+  # The two Mac backends are mutually exclusive (see llama-swap/config.yaml in this
+  # repo) -- both cannot be resident at once. They sit on separate Claude Code tiers
+  # so /model switches between them: fable -> ds4, opus -> Laguna S 2.1.
+  - model_name: os.environ/LITELLM_FABLE_MODEL
     litellm_params:
       model: anthropic/deepseek-v4-flash
       api_base: os.environ/LITELLM_OPUS_URL
@@ -42,10 +45,8 @@ model_list:
       max_tokens: 8192
       context_window: 393216
 
-  # --- Laguna tier: Laguna S 2.1 via DS4 Proxy -> Mac llama-swap ---
-  # Exclusive with the Opus/ds4 tier on the Mac side (see llama-swap/config.yaml in
-  # this repo) -- both cannot be resident at once, select with /model.
-  - model_name: os.environ/LITELLM_LAGUNA_MODEL
+  # --- Opus tier: Laguna S 2.1 via DS4 Proxy -> Mac swap layer ---
+  - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: anthropic/laguna-s-2.1
       api_base: os.environ/LITELLM_OPUS_URL

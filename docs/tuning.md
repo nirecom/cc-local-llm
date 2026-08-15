@@ -117,13 +117,27 @@ startup.
 | `LITELLM_OPUS_API_KEY` | `dsv4-local` | API key sent to DS4 Proxy for Opus route. Must match `CCGW_API_KEY`. |
 | `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
 | `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for Sonnet tier. Claude Code sends this value as the model name; LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
-| `LITELLM_OPUS_MODEL` | `deepseek-v4-flash` | Model routing key for Opus tier. |
+| `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
+| `LITELLM_OPUS_MODEL` | `laguna-s-2.1` | Model routing key for the Opus tier — Laguna S 2.1 on the Mac. The two Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches between them. |
 | `LITELLM_ANTHROPIC_BASE_URL` | (optional) | Override for `ANTHROPIC_BASE_URL` in code-ccgw.cmd. When unset, falls back to `CCGW_ANTHROPIC_BASE_URL` and ignores LITELLM_*_MODEL vars. |
 | `LITELLM_VIRTUAL_KEY` | (required for client) | Scoped virtual key for client authentication with LiteLLM. Generated from a random key (not the master key). |
 
 ### Client env vars update
 
-The `ANTHROPIC_BASE_URL` now points at LiteLLM (`https://<windows-host>:8445`) rather than directly at DS4 Proxy when `LITELLM_ANTHROPIC_BASE_URL` is set. The model
-alias vars now use conditional logic: when `LITELLM_ANTHROPIC_BASE_URL` is set, they
-use `LITELLM_HAIKU_MODEL` / `LITELLM_SONNET_MODEL` / `LITELLM_OPUS_MODEL`; otherwise
-they fall back to `deepseek-chat` / `deepseek-v4-flash` / `deepseek-v4-flash`.
+The `ANTHROPIC_BASE_URL` now points at LiteLLM (`https://<windows-host>:8445`) rather than
+directly at DS4 Proxy when `LITELLM_ANTHROPIC_BASE_URL` is set. The model alias vars use
+conditional logic: when `LITELLM_ANTHROPIC_BASE_URL` is set they take the `LITELLM_*_MODEL`
+routing keys; otherwise they name the Mac backends directly, since the swap layer routes on
+the model name itself and DS4 Proxy would not recognise a LiteLLM routing key.
+
+Tier assignment on both paths:
+
+| Tier | Backend |
+|---|---|
+| Fable | ds4 (`deepseek-v4-flash`) |
+| Opus | Laguna S 2.1 (`laguna-s-2.1`) |
+| Sonnet / Haiku | LiteLLM path: the Windows PC's own smaller models. Direct path: ds4 — the Mac hosts nothing smaller. |
+
+Subagents stay pinned to the ds4 tier (`CLAUDE_CODE_SUBAGENT_MODEL`) rather than following
+Opus. The two Mac backends cannot be resident at once, so a subagent on the other backend
+would evict the model the main session is using.

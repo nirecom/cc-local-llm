@@ -78,23 +78,32 @@ fi
 # recognise -- never send them down the direct path. On the direct path the model
 # name is what the Mac swap layer routes on, so it must be a name that layer knows
 # (see llama-swap/config.yaml): deepseek-v4-flash or laguna-s-2.1.
+#
+# The two Mac backends sit on separate tiers so /model can switch between them:
+# fable -> ds4, opus -> Laguna S 2.1. Subagents stay pinned to the ds4 tier -- a
+# subagent on the other backend would evict the resident one mid-session.
 if [ -n "${LITELLM_ANTHROPIC_BASE_URL:-}" ]; then
-    if [ -n "${LITELLM_OPUS_MODEL:-}" ]; then
-        export ANTHROPIC_MODEL="$LITELLM_OPUS_MODEL"
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
-        export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_OPUS_MODEL"
-        export CLAUDE_CODE_SUBAGENT_MODEL="$LITELLM_OPUS_MODEL"
-    fi
+    [ -n "${LITELLM_FABLE_MODEL:-}" ] && export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
+    [ -n "${LITELLM_OPUS_MODEL:-}" ] && export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
     [ -n "${LITELLM_SONNET_MODEL:-}" ] && export ANTHROPIC_DEFAULT_SONNET_MODEL="$LITELLM_SONNET_MODEL"
     [ -n "${LITELLM_HAIKU_MODEL:-}" ] && export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LITELLM_HAIKU_MODEL"
+    if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
+        export ANTHROPIC_MODEL="$LITELLM_FABLE_MODEL"
+        export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
+        export CLAUDE_CODE_SUBAGENT_MODEL="$LITELLM_FABLE_MODEL"
+    fi
 else
-    # Direct path: CCGW_DEFAULT_MODEL selects which backend the swap layer loads.
+    # Direct path: the swap layer routes on the model name itself, so the tiers can
+    # name the two backends outright. CCGW_DEFAULT_MODEL only picks which one is
+    # resident at startup.
+    export ANTHROPIC_DEFAULT_FABLE_MODEL="deepseek-v4-flash"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="laguna-s-2.1"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-v4-flash"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-v4-flash"
+
     _model="${CCGW_DEFAULT_MODEL:-deepseek-v4-flash}"
     export ANTHROPIC_MODEL="$_model"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="$_model"
     export ANTHROPIC_CUSTOM_MODEL_OPTION="$_model"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="$_model"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$_model"
     export CLAUDE_CODE_SUBAGENT_MODEL="$_model"
 fi
 export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Local model via ccgw"

@@ -425,10 +425,20 @@ Launch:
 
 **Choosing the backend model.** On the direct path the model name is what the Mac swap layer
 routes on, so it must be a name that layer knows (see
-[llama-swap/config.yaml](../llama-swap/config.yaml)). Set `CCGW_DEFAULT_MODEL` in `.env` to
-pick which backend loads at launch — `deepseek-v4-flash` (the default) or `laguna-s-2.1` —
-or switch at any time from inside Claude Code with `/model <name>`. The two are mutually
-exclusive: naming the other model unloads the resident one and cold-starts the new one.
+[llama-swap/config.yaml](../llama-swap/config.yaml)). The two backends sit on separate Claude
+Code tiers, so `/model` is what switches between them:
+
+| Tier | Backend |
+|---|---|
+| Fable | ds4 (`deepseek-v4-flash`) |
+| Opus | Laguna S 2.1 (`laguna-s-2.1`) |
+| Sonnet / Haiku | ds4 — the Mac hosts nothing smaller |
+
+`CCGW_DEFAULT_MODEL` in `.env` only picks which backend is resident at launch. The two are
+mutually exclusive: selecting the other tier unloads the resident model and cold-starts the
+new one, so expect a long first response after each switch. Subagents stay pinned to the ds4
+tier for that reason — a subagent on the other backend would evict the model the main session
+is using.
 
 **Isolation from native (subscription) VS Code** works the same way as on Windows: the wrapper
 passes its own `--user-data-dir` (`~/Library/Application Support/vscode-ccgw` on macOS,

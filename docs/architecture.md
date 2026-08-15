@@ -159,13 +159,19 @@ config surface without changing behavior.
 ## LiteLLM routing layer (Windows)
 
 A LiteLLM proxy on <windows-host> (Windows, Docker Desktop WSL2) routes Claude Code requests
-by model name to three backends:
+by model name to four backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
 | Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
 | Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, `host.docker.internal:18080/v1`) | Anthropic to OpenAI |
-| Opus | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Fable | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Opus | `laguna-s-2.1` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+
+Fable and Opus deliberately land on the same DS4 Proxy but on different tiers. The Mac's two
+backends cannot be resident together, so putting them on separate tiers makes `/model` the
+switch — no extra routing key, no second base URL. The cost is a cold start on every switch,
+which is inherent to the memory constraint rather than to this arrangement.
 
 Haiku and Sonnet have no fallback: llama-swap on <windows-host> is the sole backend for
 both tiers. A Mac (M4 Pro) fallback existed briefly during the 2026-08 migration but was

@@ -5,8 +5,10 @@
 # Scenario: the POSIX client launcher (macOS/Linux counterpart of
 # scripts/code-ccgw.cmd) — base-URL / auth-token / TLS-CA precedence chains, the
 # mutually-exclusive model-selection branch (LiteLLM routing keys vs the direct
-# DS4-Proxy path where CCGW_DEFAULT_MODEL picks which Mac backend the swap layer
-# loads), per-OS VS Code --user-data-dir isolation, and the missing-`code` error.
+# DS4-Proxy path), the per-tier map that puts the two Mac backends on separate
+# /model tiers with subagents pinned to the ds4/fable tier, CCGW_DEFAULT_MODEL
+# picking which backend is resident at startup, per-OS VS Code --user-data-dir
+# isolation, and the missing-`code` error.
 #
 # Method: `code` is stubbed on PATH with a script that dumps its inherited env
 # and argv to files, so every assertion is made against the environment the
@@ -101,6 +103,12 @@ assert_unset() { # assert_unset <var> <context>
     ! grep -q "^$1=" "$DUMP" || fail "$2: $1 was exported as '$(dump_get "$1")' but must not be set at all"
 }
 
+assert_env_differs() { # assert_env_differs <var-a> <var-b> <context>
+    local a b
+    a="$(dump_get "$1")"; b="$(dump_get "$2")"
+    [ "$a" != "$b" ] || fail "$3: $1 and $2 both resolved to '$a'; the two backends must stay on separate tiers"
+}
+
 assert_stderr() { # assert_stderr <pattern> <context>
     grep -q "$1" "$WORK/err" || fail "$2: expected stderr to match '$1', got: $(cat "$WORK/err")"
 }
@@ -109,7 +117,11 @@ assert_no_ca_warning() { # assert_no_ca_warning <context>
     ! grep -q 'CCGW_CA_CERT not set' "$WORK/err" || fail "$1: unexpected CA warning: $(cat "$WORK/err")"
 }
 
-MODEL_VARS="ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
+# The four /model tiers Claude Code switches between.
+TIER_VARS="ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL"
+# The vars that name the model in play at startup (main session + subagents).
+ACTIVE_VARS="ANTHROPIC_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION CLAUDE_CODE_SUBAGENT_MODEL"
+MODEL_VARS="$TIER_VARS $ACTIVE_VARS"
 
 # --- 1. Base URL precedence --------------------------------------------------
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 CCGW_ANTHROPIC_BASE_URL=https://ccgw:2 DS4_ANTHROPIC_BASE_URL=https://ds4:3
@@ -197,18 +209,62 @@ run_launcher
 assert_unset NODE_EXTRA_CA_CERTS "ca/no-mkcert: nothing to derive from"
 assert_stderr 'CCGW_CA_CERT not set' "ca/no-mkcert: must warn"
 
-# --- 4. Model selection (the mutually-exclusive backend choice) --------------
-# 4a. LiteLLM path: routing keys are used verbatim, and no backend name of the
-# launcher's own invention is emitted.
+# --- 4. Model selection (the two backends on separate /model tiers) ----------
+# The two mutually-exclusive Mac backends are placed on different Claude Code
+# tiers so `/model` switches between them: fable -> ds4, opus -> Laguna S 2.1.
+# Subagents stay pinned to the ds4/fable tier — a subagent landing on the other
+# backend would evict the resident one mid-session.
+
+# 4a. Direct path defaults: each tier lands on its own backend.
+run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
+assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct: fable tier is ds4"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct: opus tier is the other backend"
+assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct: sonnet tier is ds4"
+assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct: haiku tier is ds4"
+for v in $ACTIVE_VARS; do
+    assert_env "$v" deepseek-v4-flash "direct: startup model defaults to ds4"
+done
+# Stated as an inequality too: a regression that collapses both tiers onto one
+# backend would still satisfy each literal individually if both literals moved.
+assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
+    "direct: fable and opus must address different backends or /model cannot switch"
+
+# 4b. CCGW_DEFAULT_MODEL only picks which backend is resident at startup — it
+# must not disturb the tier map, or /model would lose one of the two backends.
+run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=laguna-s-2.1
+for v in $ACTIVE_VARS; do
+    assert_env "$v" laguna-s-2.1 "direct: CCGW_DEFAULT_MODEL selects the startup-resident backend"
+done
+assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct/ccgw-default: fable tier must stay on ds4"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct/ccgw-default: opus tier must stay on Laguna"
+assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct/ccgw-default: sonnet tier must stay on ds4"
+assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct/ccgw-default: haiku tier must stay on ds4"
+assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
+    "direct/ccgw-default: the tier map must survive a startup-model override"
+
+# A defined-but-empty CCGW_DEFAULT_MODEL must fall back to the default, not send
+# an empty model name the swap layer cannot route (`:-`, not `-`).
+run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=
+for v in $ACTIVE_VARS; do
+    assert_env "$v" deepseek-v4-flash "direct: empty CCGW_DEFAULT_MODEL must fall back to the default"
+done
+
+# 4c. LiteLLM path: routing keys are used verbatim on their own tiers.
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 \
-    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
     CCGW_DEFAULT_MODEL=laguna-s-2.1
-assert_env ANTHROPIC_MODEL lite-opus "litellm: opus routing key"
+assert_env ANTHROPIC_DEFAULT_FABLE_MODEL lite-fable "litellm: fable routing key"
 assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "litellm: opus routing key"
-assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-opus "litellm: opus routing key"
-assert_env CLAUDE_CODE_SUBAGENT_MODEL lite-opus "litellm: subagent follows opus"
 assert_env ANTHROPIC_DEFAULT_SONNET_MODEL lite-sonnet "litellm: sonnet routing key"
 assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL lite-haiku "litellm: haiku routing key"
+assert_env ANTHROPIC_MODEL lite-fable "litellm: startup model follows the fable tier"
+assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "litellm: custom model option follows the fable tier"
+# Load-bearing: subagents must track the fable/ds4 tier, never opus. A subagent
+# on the opus backend would evict the resident ds4 model mid-session.
+assert_env CLAUDE_CODE_SUBAGENT_MODEL lite-fable "litellm: subagent must follow fable, not opus"
+assert_env_differs CLAUDE_CODE_SUBAGENT_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
+    "litellm: subagent must not be pinned to the opus tier"
 # CCGW_DEFAULT_MODEL was also set above: on the LiteLLM path it must be ignored,
 # and no deepseek-*/laguna-* name may appear in any model var.
 for v in $MODEL_VARS; do
@@ -218,37 +274,34 @@ for v in $MODEL_VARS; do
     esac
 done
 
-# 4b. LiteLLM base URL set but no routing keys: nothing may be invented.
+# 4d. LiteLLM base URL set but no routing keys: nothing may be invented — in
+# particular the launcher must not fall back to a direct-path backend name.
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1
 for v in $MODEL_VARS; do
     assert_unset "$v" "litellm/no-keys: launcher must not substitute a direct-path model"
 done
 
-# 4c. Direct path default.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3
-for v in $MODEL_VARS; do
-    assert_env "$v" deepseek-v4-flash "direct: default model"
+# 4e. LiteLLM base URL with the non-fable keys only: the fable tier drives the
+# startup/subagent vars, so with LITELLM_FABLE_MODEL absent they must stay unset
+# rather than borrowing the opus key or a direct-path name.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 \
+    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "litellm/no-fable: opus routing key still applies"
+assert_unset ANTHROPIC_DEFAULT_FABLE_MODEL "litellm/no-fable: no fable key means no fable tier"
+for v in $ACTIVE_VARS; do
+    assert_unset "$v" "litellm/no-fable: launcher must invent no backend name of its own"
 done
 
-# 4d. Direct path with the swap layer's other backend selected — the core of the
-# feature: the client picks which of the two mutually-exclusive Mac backends loads.
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=laguna-s-2.1
-for v in $MODEL_VARS; do
-    assert_env "$v" laguna-s-2.1 "direct: CCGW_DEFAULT_MODEL must propagate to every model var"
-done
-
-# A defined-but-empty CCGW_DEFAULT_MODEL must fall back to the default, not send
-# an empty model name the swap layer cannot route (`:-`, not `-`).
-run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 CCGW_DEFAULT_MODEL=
-for v in $MODEL_VARS; do
-    assert_env "$v" deepseek-v4-flash "direct: empty CCGW_DEFAULT_MODEL must fall back to the default"
-done
-
-# 4e. Stale LITELLM_*_MODEL keys in .env/shell must never reach the direct path —
+# 4f. Stale LITELLM_*_MODEL keys in .env/shell must never reach the direct path —
 # DS4 Proxy / the swap layer do not recognise them.
 run_launcher DS4_ANTHROPIC_BASE_URL=https://ds4:3 \
-    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-for v in $MODEL_VARS; do
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
+assert_env ANTHROPIC_DEFAULT_FABLE_MODEL deepseek-v4-flash "direct/stale-litellm-keys: fable tier stays on ds4"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL laguna-s-2.1 "direct/stale-litellm-keys: opus tier stays on Laguna"
+assert_env ANTHROPIC_DEFAULT_SONNET_MODEL deepseek-v4-flash "direct/stale-litellm-keys: sonnet tier stays on ds4"
+assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL deepseek-v4-flash "direct/stale-litellm-keys: haiku tier stays on ds4"
+for v in $ACTIVE_VARS; do
     assert_env "$v" deepseek-v4-flash "direct/stale-litellm-keys: LiteLLM routing keys must not leak onto the direct path"
 done
 
