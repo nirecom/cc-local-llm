@@ -199,6 +199,25 @@ pattern already used for Haiku/Sonnet, so protocol conversion stays in exactly o
 generic hop underneath: it appends the incoming path to its upstream verbatim and never
 rewrites the model name.
 
+Which OpenAI endpoint that conversion targets is a deliberate choice. Given an `openai/`
+route, LiteLLM converts an incoming `/v1/messages` request to the Responses API by default,
+and that endpoint is new enough that OpenAI-compatible servers do not all implement it:
+llama.cpp answers it, `mlx_lm.server` returns a bare 404 that surfaces to the client as
+"the model may not exist". `chat/completions` is the one endpoint every backend here
+implements, so `use_chat_completions_url_for_anthropic_messages` pins all three `openai/`
+tiers to it rather than leaving Haiku/Sonnet on a second, differently-shaped path. The
+Fable tier is untouched by the setting — it stays on LiteLLM's native Anthropic
+passthrough. This is also why the Opus tier needs its own `/v1`-suffixed base URL: the
+`openai/` provider appends only `/chat/completions`, whereas the `anthropic/` Fable tier
+appends `/v1/messages` to a bare origin.
+
+Pinning those tiers to `chat/completions` also means they inherit its stricter parameter
+set: Claude Code sends `reasoning_effort`, which the Responses API accepts but
+`chat/completions` rejects for a non-reasoning model. Local weights ignore the field, so
+the three `openai/` tiers set `drop_params` per route to discard it. The global default
+stays strict, so an unsupported parameter anywhere else still surfaces as an error rather
+than being silently discarded.
+
 Fable and Opus deliberately land on the same DS4 Proxy but on different tiers. The Mac's two
 backends cannot be resident together, so putting them on separate tiers makes `/model` the
 switch — no extra routing key, no second base URL. The cost is a cold start on every switch,
@@ -226,9 +245,9 @@ Mac itself the issuing CA is already trusted, so `CCGW_CA_CERT` may be left empt
 The hop from the gateway to the DS4 Proxy is configurable in the same way: while the proxy
 still terminates TLS (`DS4_PROXY_TLS=on`), the gateway trusts its certificate through
 `SSL_CERT_FILE`. Once both processes sit on the same Mac, the pair can be switched to plain
-loopback HTTP — but only as a set, together with `DS4_PROXY_HOST` and
-`LITELLM_DS4_PROXY_URL`; changing some and not the others leaves the gateway unable to
-connect.
+loopback HTTP — but only as a set, together with `DS4_PROXY_HOST`,
+`LITELLM_DS4_PROXY_URL` and `LITELLM_DS4_PROXY_OPENAI_URL`; changing some and not the
+others leaves the gateway unable to connect.
 
 ### Master-key authentication
 

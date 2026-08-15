@@ -65,9 +65,14 @@ format is converted. It runs as a native process on this Mac, installed by `inst
    The same CA also signs the Windows PC's TLS front, so one value covers both hops:
    ```sh
    # .env: LITELLM_DS4_PROXY_URL=https://<mac-lan-ip>:8443
+   #       LITELLM_DS4_PROXY_OPENAI_URL=https://<mac-lan-ip>:8443/v1
    #       LITELLM_DS4_PROXY_API_KEY=<same value as DS4_PROXY_AUTH_TOKEN>
    #       SSL_CERT_FILE=<mkcert -CAROOT>/rootCA.pem      (absolute path, no ~)
    ```
+
+   The first two are the same host and port; only the `/v1` suffix differs. The Fable
+   tier uses the bare origin and the Opus tier the suffixed form, so setting only one
+   leaves the other tier returning `404 page not found`.
 
 4. Point the Haiku/Sonnet tiers at the Caddy TLS front on the Windows PC, which
    reverse-proxies to that host's loopback-only llama-swap (`127.0.0.1:18080`):
@@ -123,6 +128,7 @@ two commands force a model swap between them; expect a cold start on each switch
 | Haiku/Sonnet tier cannot connect to :8443 | The Windows PC's Caddy front or the llama-swap behind it is down; no fallback exists — start both and retry |
 | TLS errors on the Haiku/Sonnet hop | Verify `SSL_CERT_FILE` points at the mkcert root CA and that Caddy's cert on the Windows PC is signed by it |
 | DS4 Proxy unreachable | Verify `LITELLM_DS4_PROXY_URL` and that `serverctl.sh status proxy` reports running |
+| Client reports "the selected model may not exist" for one tier only | A 404 or 400 the client renders opaquely. Check `LITELLM_DS4_PROXY_OPENAI_URL` is set with its `/v1` suffix; that `use_chat_completions_url_for_anthropic_messages: true` is still in `litellm-server/config.yaml` (without it the `openai/` tiers go to the Responses API, which `mlx_lm.server` does not implement); and that the tier still carries `drop_params: true` (without it the client's `reasoning_effort` is a 400). The gateway log holds the real status and message |
 | TLS errors from clients | Verify `LITELLM_TLS_CERT` / `LITELLM_TLS_KEY` exist and are mkcert-signed |
 | TLS errors on the Fable/Opus hop | Verify `SSL_CERT_FILE` is an absolute path (no `~`) to the mkcert root CA |
 | `401 Unauthorized` from the gateway | `LITELLM_CLIENT_KEY` on the client must equal `LITELLM_MASTER_KEY` on the Mac |
