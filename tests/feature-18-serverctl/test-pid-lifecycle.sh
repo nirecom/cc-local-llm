@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl PID lifecycle — start writes PID; stop kills parent+child and removes PID; stale PID is swept.
+# Scenario: serverctl PID lifecycle — start writes PID; stop kills parent+child and removes PID; stale PID is swept.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # A fake service (parent that forks a child) stands in for the real backend via
 # the DS4CTL_EXEC_OVERRIDE seam so no real ds4 process is launched.
 # L3 gap: real launchctl load/unload persistence across reboots; actual
@@ -13,9 +13,9 @@ set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -63,7 +63,7 @@ wait_for() { # wait_for <file> <timeout-sec>
 }
 
 # --- start -> PID file created, parent+child alive --------------------------
-PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "start proxy failed: $(cat "$WORK/out")"
+PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start proxy failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "start: proxy.pid not created"
 wait_for "$WORK/child.pid" 5 || fail "start: fake child never spawned"
 PARENT="$(cat "$PID_DIR/proxy.pid")"
@@ -72,7 +72,7 @@ kill -0 "$PARENT" 2>/dev/null || fail "start: parent $PARENT not alive"
 kill -0 "$CHILD" 2>/dev/null || fail "start: child $CHILD not alive"
 
 # --- stop -> parent+child gone, PID file removed ----------------------------
-PATH="$STUB:$PATH" bash "$DS4CTL" stop proxy >"$WORK/out" 2>&1 || fail "stop proxy failed: $(cat "$WORK/out")"
+PATH="$STUB:$PATH" bash "$SERVERCTL" stop proxy >"$WORK/out" 2>&1 || fail "stop proxy failed: $(cat "$WORK/out")"
 perl -e 'select undef,undef,undef,0.5'
 kill -0 "$PARENT" 2>/dev/null && fail "stop: parent $PARENT still alive"
 kill -0 "$CHILD" 2>/dev/null && fail "stop: child $CHILD still alive (not reaped)"
@@ -81,7 +81,7 @@ kill -0 "$CHILD" 2>/dev/null && fail "stop: child $CHILD still alive (not reaped
 # --- stale PID -> swept on next start ---------------------------------------
 echo "999999" > "$PID_DIR/proxy.pid"   # a PID that is not running
 rm -f "$WORK/child.pid"
-PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "start after stale PID failed: $(cat "$WORK/out")"
+PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start after stale PID failed: $(cat "$WORK/out")"
 wait_for "$WORK/child.pid" 5 || fail "stale PID: service did not (re)start"
 NEWPID="$(cat "$PID_DIR/proxy.pid")"
 [ "$NEWPID" != "999999" ] || fail "stale PID: proxy.pid still holds the dead 999999"

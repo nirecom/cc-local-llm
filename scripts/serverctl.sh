@@ -1,10 +1,10 @@
 #!/bin/sh
-# ds4ctl — unified control command for ds4-proxy and ds4-server.
-# Usage: ds4ctl <start|stop|restart|status|logs|install|uninstall> [proxy|server|all]
+# serverctl — unified control command for the Mac backend stack (DS4 Proxy, llama-swap).
+# Usage: serverctl <start|stop|restart|status|logs|install|uninstall> [proxy|llama-swap|server|all]
 set -eu
 
 DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-DS4CTL="$DS4_SCRIPT_DIR/ds4ctl.sh"
+SERVERCTL="$DS4_SCRIPT_DIR/serverctl.sh"
 
 # shellcheck source=scripts/lib/root.sh
 . "$DS4_SCRIPT_DIR/lib/root.sh"
@@ -21,7 +21,7 @@ DS4CTL="$DS4_SCRIPT_DIR/ds4ctl.sh"
 
 _usage() {
     cat >&2 <<'EOF'
-Usage: ds4ctl <command> [proxy|server|all]
+Usage: serverctl <command> [proxy|llama-swap|server|all]
 
 Commands:
   start     Start service(s) in the background (nohup + PID)
@@ -32,7 +32,10 @@ Commands:
   install   Install launchd LaunchAgent for auto-start
   uninstall Remove launchd LaunchAgent
 
-Targets: proxy, server, all (default)
+Targets: proxy, llama-swap, all (default). 'server' (bare ds4-server) is a
+separate manual-debug-only target, excluded from 'all' -- llama-swap owns
+ds4-server's start/stop lifecycle, so running it outside llama-swap would
+double-manage the same process.
 EOF
 }
 
@@ -46,17 +49,18 @@ target="${2:-all}"
 
 # Validate target
 case "$target" in
-    proxy|server|all) ;;
+    proxy|llama-swap|server|all) ;;
     *)
-        echo "[ds4ctl] unknown target: $target" >&2
+        echo "[serverctl] unknown target: $target" >&2
         _usage
         exit 2
         ;;
 esac
 
-# Expand 'all' to list of services
+# Expand 'all' to list of services. 'server' is intentionally excluded --
+# see _usage.
 if [ "$target" = "all" ]; then
-    _services="proxy server"
+    _services="proxy llama-swap"
 else
     _services="$target"
 fi
@@ -106,13 +110,13 @@ case "$cmd" in
     __run)
         # Internal: called by nohup/launchd to exec the real service process
         if [ $# -lt 2 ]; then
-            echo "[ds4ctl] __run requires a service name" >&2
+            echo "[serverctl] __run requires a service name" >&2
             exit 2
         fi
         ds4_exec "$2"
         ;;
     *)
-        echo "[ds4ctl] unknown command: $cmd" >&2
+        echo "[serverctl] unknown command: $cmd" >&2
         _usage
         exit 2
         ;;

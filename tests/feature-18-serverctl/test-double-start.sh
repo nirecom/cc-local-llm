@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl double-start prevention — PID-file route and pgrep-fallback route both report `already running`.
+# Scenario: serverctl double-start prevention — PID-file route and pgrep-fallback route both report `already running`.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # L3 gap: real launchctl load/unload persistence across reboots; actual
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -40,7 +40,7 @@ sleep 300 &
 LIVE=$!
 printf '%s\n' "$LIVE" > "$PID_DIR/proxy.pid"
 
-out="$(PATH="$STUB:$PATH" bash "$DS4CTL" start proxy 2>&1)"; rc=$?
+out="$(PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy 2>&1)"; rc=$?
 [ "$rc" != "0" ] || fail "PID-file route: expected non-zero exit, got 0"
 echo "$out" | grep -qi "already running" || fail "PID-file route: missing 'already running' (got: $out)"
 # Existing process must not be killed by a rejected start.
@@ -58,7 +58,7 @@ exit 0
 EOF
 chmod +x "$STUB/pgrep"
 
-out="$(PATH="$STUB:$PATH" bash "$DS4CTL" start proxy 2>&1)"; rc=$?
+out="$(PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy 2>&1)"; rc=$?
 [ "$rc" != "0" ] || fail "pgrep fallback: expected non-zero exit, got 0"
 echo "$out" | grep -qi "already running" || fail "pgrep fallback: missing 'already running' (got: $out)"
 

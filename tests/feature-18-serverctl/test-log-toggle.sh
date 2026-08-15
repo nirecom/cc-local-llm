@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl DS4_LOG toggle — on creates/appends a log file; off writes no file.
+# Scenario: serverctl DS4_LOG toggle — on creates/appends a log file; off writes no file.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # L3 gap: real launchctl load/unload persistence across reboots; actual
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -50,11 +50,11 @@ chmod +x "$FAKE"
 export DS4CTL_EXEC_OVERRIDE="$FAKE"
 
 wait_for() { _i=0; while [ ! -s "$1" ] && [ "$_i" -lt "${2}0" ]; do perl -e 'select undef,undef,undef,0.1'; _i=$((_i+1)); done; [ -s "$1" ]; }
-stop_proxy() { PATH="$STUB:$PATH" bash "$DS4CTL" stop proxy >/dev/null 2>&1 || true; perl -e 'select undef,undef,undef,0.3'; }
+stop_proxy() { PATH="$STUB:$PATH" bash "$SERVERCTL" stop proxy >/dev/null 2>&1 || true; perl -e 'select undef,undef,undef,0.3'; }
 
 # --- DS4_LOG=on -> log file created and receives service output -------------
 rm -rf "$LOG_DIR"
-DS4_LOG=on PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "start (log on) failed: $(cat "$WORK/out")"
+DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log on) failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log on: proxy did not start"
 LOGFILE=""
 _i=0
@@ -69,7 +69,7 @@ grep -q "FAKE-MARKER-LINE" "$LOGFILE" || fail "log on: service output not captur
 # Append semantics: restart appends rather than truncating.
 BEFORE_BYTES=$(wc -c < "$LOGFILE")
 stop_proxy
-DS4_LOG=on PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "restart (log on) failed"
+DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "restart (log on) failed"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log on restart: proxy did not start"
 perl -e 'select undef,undef,undef,0.5'
 AFTER_BYTES=$(wc -c < "$LOGFILE")
@@ -78,7 +78,7 @@ stop_proxy
 
 # --- DS4_LOG=off -> no log file written -------------------------------------
 rm -rf "$LOG_DIR"
-DS4_LOG=off PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "start (log off) failed: $(cat "$WORK/out")"
+DS4_LOG=off PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log off) failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log off: proxy did not start"
 perl -e 'select undef,undef,undef,0.5'
 if ls "$LOG_DIR"/*.log >/dev/null 2>&1; then

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests: scripts/lib/colorize.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl colorize — adds ANSI to ds4-server log lines; non-server lines pass through uncolored; tee'd log file stays ANSI-free (colorize is downstream of tee).
+# Scenario: serverctl colorize — adds ANSI to ds4-server log lines; non-server lines pass through uncolored; tee'd log file stays ANSI-free (colorize is downstream of tee).
 #
 # Skips (exit 77) until scripts/lib/colorize.sh exists (implementation pending).
 #

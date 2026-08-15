@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests: scripts/lib/lifecycle.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
 # Scenario: _ds4_cmd server emits the exact ds4-server launch flag string
 # (issue #34: --batched-session 2 added, --kv-cache-continued-interval-tokens

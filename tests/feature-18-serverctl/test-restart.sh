@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl restart — stops the running process, starts a fresh one, PID changes.
+# Scenario: serverctl restart — stops the running process, starts a fresh one, PID changes.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # A fake service stands in for the real backend via the DS4CTL_EXEC_OVERRIDE
 # seam so no real ds4 process is launched.
 #
@@ -14,9 +14,9 @@ set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -54,13 +54,13 @@ export DS4CTL_EXEC_OVERRIDE="$FAKE"
 wait_for() { _i=0; while [ ! -s "$1" ] && [ "$_i" -lt "${2}0" ]; do perl -e 'select undef,undef,undef,0.1'; _i=$((_i+1)); done; [ -s "$1" ]; }
 
 # --- start -> record the original PID ---------------------------------------
-PATH="$STUB:$PATH" bash "$DS4CTL" start proxy >"$WORK/out" 2>&1 || fail "start proxy failed: $(cat "$WORK/out")"
+PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start proxy failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "start: proxy.pid not created"
 OLDPID="$(cat "$PID_DIR/proxy.pid")"
 kill -0 "$OLDPID" 2>/dev/null || fail "start: parent $OLDPID not alive"
 
 # --- restart -> old process stopped, new process started, PID changed -------
-PATH="$STUB:$PATH" bash "$DS4CTL" restart proxy >"$WORK/out" 2>&1 || fail "restart proxy failed: $(cat "$WORK/out")"
+PATH="$STUB:$PATH" bash "$SERVERCTL" restart proxy >"$WORK/out" 2>&1 || fail "restart proxy failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "restart: proxy.pid not created"
 NEWPID="$(cat "$PID_DIR/proxy.pid")"
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Tests: proxy/server.py
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
 # Scenario: proxy SIGINT (Phase 1) — Ctrl-C stops proxy cleanly, no Python Traceback, normal exit.
 #
-# Runs against the EXISTING proxy/server.py (not ds4ctl). Before Phase 1 lands
+# Runs against the EXISTING proxy/server.py (not serverctl). Before Phase 1 lands
 # this is expected to FAIL (raw KeyboardInterrupt traceback); it is intentionally
 # NOT skipped on missing implementation so the regression is recorded.
 # Skips (exit 77) only when prerequisites (DS4_API_KEY / uv / openssl) are absent.

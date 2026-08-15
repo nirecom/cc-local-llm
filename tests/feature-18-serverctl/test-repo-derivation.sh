@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests: scripts/lib/root.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: the REPO derivation shared by every tests/feature-18-ds4ctl/*.sh —
+# Scenario: the REPO derivation shared by every tests/feature-18-serverctl/*.sh —
 # auto-discovery when REPO is unset (from an unrelated CWD), env override
 # precedence, and the documented symlink limitation.
 #
@@ -14,7 +14,7 @@
 #
 # TDD note: scripts/lib/root.sh does not exist yet at write-tests time (it is
 # created by the write-code step of this session). This file therefore checks
-# the derivation snippet embedded in each tests/feature-18-ds4ctl/*.sh file,
+# the derivation snippet embedded in each tests/feature-18-serverctl/*.sh file,
 # not root.sh directly — intentional, TDD-red-before-green ordering, not a gap.
 #
 # L3 gap: real launchctl load/unload persistence across reboots; actual

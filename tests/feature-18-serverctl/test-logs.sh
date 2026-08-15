@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl logs — DS4_LOG=off errors; DS4_LOG=on tails an existing log; `logs all` launches cleanly.
+# Scenario: serverctl logs — DS4_LOG=off errors; DS4_LOG=on tails an existing log; `logs all` launches cleanly.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # `tail` is stubbed to return immediately so the follow mode does not block.
 #
 # L3 gap: real launchctl load/unload persistence across reboots; actual
@@ -13,9 +13,9 @@ set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -45,7 +45,7 @@ EOF
 chmod +x "$STUB/launchctl" "$STUB/pgrep" "$STUB/tail"
 
 # --- DS4_LOG=off -> logs reports an error ------------------------------------
-out="$(DS4_LOG=off PATH="$STUB:$PATH" bash "$DS4CTL" logs proxy 2>&1)"; rc=$?
+out="$(DS4_LOG=off PATH="$STUB:$PATH" bash "$SERVERCTL" logs proxy 2>&1)"; rc=$?
 [ "$rc" != "0" ] || fail "logs (log off): expected non-zero exit, got 0 (out: $out)"
 echo "$out" | grep -qi "error\|off\|disabled\|no log" || fail "logs (log off): no error message (got: $out)"
 
@@ -54,14 +54,14 @@ mkdir -p "$LOG_DIR"
 LOGFILE="$LOG_DIR/proxy.log"
 printf 'existing log line\n' > "$LOGFILE"
 
-out="$(DS4_LOG=on PATH="$STUB:$PATH" bash "$DS4CTL" logs proxy 2>&1)"; rc=$?
+out="$(DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" logs proxy 2>&1)"; rc=$?
 [ "$rc" = "0" ] || fail "logs (log on): expected exit 0, got $rc (out: $out)"
 echo "$out" | grep -q "TAIL-INVOKED" || fail "logs (log on): tail was not invoked on the log file (got: $out)"
 
 # --- logs all -> launches cleanly (no error) --------------------------------
 # Ensure a server log exists too so `all` has something to tail.
 printf 'server log line\n' > "$LOG_DIR/server.log"
-out="$(DS4_LOG=on PATH="$STUB:$PATH" bash "$DS4CTL" logs all 2>&1)"; rc=$?
+out="$(DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" logs all 2>&1)"; rc=$?
 [ "$rc" = "0" ] || fail "logs all: expected exit 0, got $rc (out: $out)"
 
 echo "PASS: test-logs"

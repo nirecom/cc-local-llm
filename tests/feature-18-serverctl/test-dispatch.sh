@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests: scripts/ds4ctl.sh
-# Tags: lifecycle, ds4ctl, scope:issue-specific
+# Tests: scripts/serverctl.sh
+# Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: ds4ctl dispatch — unknown subcommand/target exit 2 + usage; `all` expands to proxy+server.
+# Scenario: serverctl dispatch — unknown subcommand/target exit 2 + usage; `all` expands to proxy+server.
 #
-# Skips (exit 77) until scripts/ds4ctl.sh exists (implementation pending).
+# Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # Uses a trace hook + PATH stubs so no real service is launched.
 # L3 gap: real launchctl load/unload persistence across reboots; actual
 #   caffeinate process supervision on macOS; real DS4_API_KEY auth check.
@@ -12,9 +12,9 @@ set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
-DS4CTL="$REPO/scripts/ds4ctl.sh"
+SERVERCTL="$REPO/scripts/serverctl.sh"
 
-[ -f "$DS4CTL" ] || { echo "SKIP: $DS4CTL not found (implementation pending)"; exit 77; }
+[ -f "$SERVERCTL" ] || { echo "SKIP: $SERVERCTL not found (implementation pending)"; exit 77; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -34,7 +34,7 @@ for cmd in launchctl pgrep pkill caffeinate; do
     chmod +x "$STUB/$cmd"
 done
 
-# ds4ctl exposes an exec-capture hook: when DS4CTL_TRACE points at a file, each
+# serverctl exposes an exec-capture hook: when DS4CTL_TRACE points at a file, each
 # resolved target is appended instead of acting, letting the dispatch layer be
 # tested without launching services.
 TRACE="$WORK/trace"
@@ -43,7 +43,7 @@ export HOME="$WORK/home"
 mkdir -p "$HOME"
 
 run() {
-    PATH="$STUB:$PATH" bash "$DS4CTL" "$@" >"$WORK/out" 2>"$WORK/err"
+    PATH="$STUB:$PATH" bash "$SERVERCTL" "$@" >"$WORK/out" 2>"$WORK/err"
     echo $?
 }
 

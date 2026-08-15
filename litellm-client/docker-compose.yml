@@ -12,7 +12,7 @@ services:
     volumes:
       # Mount the config file directory from the Windows filesystem into the container.
       - type: bind
-        source: ${LITELLM_CONFIG_DIR:-C:\git\cc-local-llm\litellm}
+        source: ${LITELLM_CONFIG_DIR:-C:\git\cc-local-llm\litellm-client}
         target: /app/litellm
         read_only: true
       # Mount the TLS cert/key directory. LITELLM_TLS_DIR is REQUIRED -- no default.
@@ -34,6 +34,7 @@ services:
       LITELLM_HAIKU_MODEL: ${LITELLM_HAIKU_MODEL:-devstral-small-2-24b}
       LITELLM_SONNET_MODEL: ${LITELLM_SONNET_MODEL:-qwen3-coder-30b-a3b}
       LITELLM_OPUS_MODEL: ${LITELLM_OPUS_MODEL:-deepseek-v4-flash}
+      LITELLM_LAGUNA_MODEL: ${LITELLM_LAGUNA_MODEL:-laguna-s-2.1}
       LITELLM_LLAMASWAP_URL: ${LITELLM_LLAMASWAP_URL:-http://host.docker.internal:18080/v1}
       LITELLM_OPUS_URL: ${LITELLM_OPUS_URL:-https://<mac-lan-ip>:8443}
       LITELLM_OPUS_API_KEY: ${LITELLM_OPUS_API_KEY:-dsv4-local}

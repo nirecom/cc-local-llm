@@ -32,7 +32,7 @@ model_list:
       context_window: 65536
       timeout: 60
 
-  # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy (Anthropic passthrough) ---
+  # --- Opus tier: DeepSeek V4 Flash via DS4 Proxy -> Mac llama-swap ---
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: anthropic/deepseek-v4-flash
@@ -41,6 +41,18 @@ model_list:
       stream: true
       max_tokens: 8192
       context_window: 393216
+
+  # --- Laguna tier: Laguna S 2.1 via DS4 Proxy -> Mac llama-swap ---
+  # Exclusive with the Opus/ds4 tier on the Mac side (see llama-swap/config.yaml in
+  # this repo) -- both cannot be resident at once, select with /model.
+  - model_name: os.environ/LITELLM_LAGUNA_MODEL
+    litellm_params:
+      model: anthropic/laguna-s-2.1
+      api_base: os.environ/LITELLM_OPUS_URL
+      api_key: os.environ/LITELLM_OPUS_API_KEY
+      stream: true
+      max_tokens: 8192
+      context_window: 262144
 
 litellm_settings:
   drop_params: false
