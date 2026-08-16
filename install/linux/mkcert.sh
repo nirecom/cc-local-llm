@@ -1,6 +1,6 @@
 #!/bin/bash
 # mkcert.sh - Install mkcert (local TLS CA) on Linux.
-# Counterpart of install/win/mkcert.ps1. The client trusts the DS4 Proxy / LiteLLM
+# Counterpart of install/win/mkcert.ps1. The client trusts the CCGW Proxy / LiteLLM
 # certificate through this CA -- NODE_TLS_REJECT_UNAUTHORIZED=0 is never used.
 
 # Color fallback (standalone-safe: this script also runs directly, not only via install.sh)

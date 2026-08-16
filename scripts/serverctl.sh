@@ -1,24 +1,24 @@
 #!/bin/sh
 # serverctl — unified control command for the Mac backend stack
-# (LiteLLM gateway, DS4 Proxy, llama-swap).
+# (LiteLLM gateway, CCGW Proxy, llama-swap).
 # Usage: serverctl <start|stop|restart|status|logs|install|uninstall> [proxy|llama-swap|litellm|server|all]
 set -eu
 
-DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-SERVERCTL="$DS4_SCRIPT_DIR/serverctl.sh"
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SERVERCTL="$CCGW_SCRIPT_DIR/serverctl.sh"
 
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
-. "$DS4_SCRIPT_DIR/lib/load-dotenv.sh"
+. "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
 # shellcheck source=scripts/lib/paths.sh
-. "$DS4_SCRIPT_DIR/lib/paths.sh"
+. "$CCGW_SCRIPT_DIR/lib/paths.sh"
 # shellcheck source=scripts/lib/colorize.sh
-. "$DS4_SCRIPT_DIR/lib/colorize.sh"
+. "$CCGW_SCRIPT_DIR/lib/colorize.sh"
 # shellcheck source=scripts/lib/launchd.sh
-. "$DS4_SCRIPT_DIR/lib/launchd.sh"
+. "$CCGW_SCRIPT_DIR/lib/launchd.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
-. "$DS4_SCRIPT_DIR/lib/lifecycle.sh"
+. "$CCGW_SCRIPT_DIR/lib/lifecycle.sh"
 
 _usage() {
     cat >&2 <<'EOF'
@@ -29,7 +29,7 @@ Commands:
   stop      Stop service(s)
   restart   Stop then start service(s)
   status    Show running status
-  logs      Tail log file(s) (requires DS4_LOG=on)
+  logs      Tail log file(s) (requires CCGW_LOG=on)
   install   Install launchd LaunchAgent for auto-start
   uninstall Remove launchd LaunchAgent
 

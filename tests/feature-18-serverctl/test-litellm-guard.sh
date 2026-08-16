@@ -4,7 +4,7 @@
 #
 # Scenario (issue #41 / detail plan D6): `start litellm` must refuse before
 # launching anything when its required configuration is missing, symmetrically
-# with the existing DS4_PROXY_AUTH_TOKEN guard on proxy.
+# with the existing CCGW_PROXY_AUTH_TOKEN guard on proxy.
 #
 # Why refusal beats "start and fail": a LaunchAgent has KeepAlive set, so a
 # LiteLLM that starts and then dies on a missing master key respawns forever
@@ -56,13 +56,13 @@ chmod +x "$STUB/launchctl" "$STUB/pgrep" "$STUB/pkill" "$STUB/nohup"
 # with the guarded variables scrubbed from the inherited environment.
 start_litellm() {
     : > "$DOTENV_FILE"
-    printf 'DS4_PROXY_AUTH_TOKEN=test-token\n' >> "$DOTENV_FILE"
+    printf 'CCGW_PROXY_AUTH_TOKEN=test-token\n' >> "$DOTENV_FILE"
     for kv in "$@"; do
         printf '%s\n' "$kv" >> "$DOTENV_FILE"
     done
     : > "$WORK/nohup.log"
     rm -f "$HOME/Library/Application Support/cc-local-llm/run/litellm.pid"
-    env -u LITELLM_MASTER_KEY -u LITELLM_DS4_PROXY_URL \
+    env -u LITELLM_MASTER_KEY -u LITELLM_CCGW_PROXY_URL \
         -u LITELLM_TLS -u LITELLM_TLS_CERT -u LITELLM_TLS_KEY \
         PATH="$STUB:$PATH" HOME="$HOME" DOTENV_FILE="$DOTENV_FILE" \
         bash "$SERVERCTL" start litellm >"$WORK/out" 2>"$WORK/err"
@@ -82,12 +82,12 @@ $(cat "$WORK/err")"
 }
 
 # --- 1. LITELLM_MASTER_KEY missing -----------------------------------------
-rc="$(start_litellm 'LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=off')"
+rc="$(start_litellm 'LITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=off')"
 assert_refused "start litellm (no LITELLM_MASTER_KEY)" "$rc" "LITELLM_MASTER_KEY"
 
-# --- 2. LITELLM_DS4_PROXY_URL missing --------------------------------------
+# --- 2. LITELLM_CCGW_PROXY_URL missing --------------------------------------
 rc="$(start_litellm 'LITELLM_MASTER_KEY=test-master-key' 'LITELLM_TLS=off')"
-assert_refused "start litellm (no LITELLM_DS4_PROXY_URL)" "$rc" "LITELLM_DS4_PROXY_URL"
+assert_refused "start litellm (no LITELLM_CCGW_PROXY_URL)" "$rc" "LITELLM_CCGW_PROXY_URL"
 
 # --- 3. Both missing --------------------------------------------------------
 rc="$(start_litellm 'LITELLM_TLS=off')"
@@ -95,13 +95,13 @@ rc="$(start_litellm 'LITELLM_TLS=off')"
 [ -s "$WORK/nohup.log" ] && fail "start litellm (nothing configured): a process was launched despite the guard"
 
 # --- 4. TLS enabled but certificate paths unset ----------------------------
-rc="$(start_litellm 'LITELLM_MASTER_KEY=test-master-key' 'LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=on')"
+rc="$(start_litellm 'LITELLM_MASTER_KEY=test-master-key' 'LITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=on')"
 assert_refused "start litellm (TLS on, no cert/key)" "$rc" "LITELLM_TLS"
 
 # --- 5. Fully configured -> the guard lets it through ----------------------
 # Negative control for cases 1-4: without this, an implementation that refuses
 # unconditionally would pass every assertion above.
-rc="$(start_litellm 'LITELLM_MASTER_KEY=test-master-key' 'LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=off')"
+rc="$(start_litellm 'LITELLM_MASTER_KEY=test-master-key' 'LITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443' 'LITELLM_TLS=off')"
 [ "$rc" = "0" ] || fail "start litellm (fully configured): expected exit 0, got $rc
   stdout: $(cat "$WORK/out")
   stderr: $(cat "$WORK/err")"
@@ -113,10 +113,10 @@ $(cat "$WORK/out")"
 # proxy must still start with no LiteLLM variables set at all, or the guard has
 # been placed on the shared path instead of the litellm branch.
 : > "$DOTENV_FILE"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
 : > "$WORK/nohup.log"
 rc=0
-env -u LITELLM_MASTER_KEY -u LITELLM_DS4_PROXY_URL \
+env -u LITELLM_MASTER_KEY -u LITELLM_CCGW_PROXY_URL \
     PATH="$STUB:$PATH" HOME="$HOME" DOTENV_FILE="$DOTENV_FILE" \
     bash "$SERVERCTL" start proxy >"$WORK/out" 2>"$WORK/err" || rc=$?
 [ "$rc" = "0" ] || fail "start proxy: the litellm guard leaked onto the proxy path (exit $rc)

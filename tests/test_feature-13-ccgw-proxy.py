@@ -7,7 +7,7 @@
 # - End-to-end chunked transfer between real client and upstream ds4 server
 # - Proxy handler integration (server.py not yet written; auth→normalize→
 #     forward→sanitize pipeline tested post-/write-code as L2 integration tests)
-# - Launcher scripts (ds4-server.sh, code-ccgw.cmd, ds4-proxy.sh not yet
+# - Launcher scripts (ds4-server.sh, code-ccgw.cmd, ccgw-proxy.sh not yet
 #     written; bind address, HTTPS URL, NODE_EXTRA_CA_CERTS, KV-cache flags
 #     deferred to post-/write-code)
 # - .env.example / docs consistency (files not yet written; env var, host/port
@@ -21,7 +21,7 @@
 #     to post-/write-code environment-level tests)
 # Closest-to-action mitigation: this gap is checked at WORKFLOW_USER_VERIFIED
 # preflight via bin/check-verification-gate.sh category: pwsh-required
-"""Dispatcher: all tests live in tests/feature-13-ds4-proxy/.
+"""Dispatcher: all tests live in tests/feature-13-ccgw-proxy/.
 
 pytest discovers the subdirectory automatically — no test functions here.
 """

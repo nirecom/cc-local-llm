@@ -2,7 +2,7 @@
 # Tags: scope:issue-specific, layer:TL1, normalize, openai-shape
 #
 # Scenario (issue #41 / detail plan D2): LiteLLM now performs the
-# Anthropic->OpenAI conversion upstream of ds4-proxy, so the proxy receives
+# Anthropic->OpenAI conversion upstream of ccgw-proxy, so the proxy receives
 # OpenAI-shaped bodies on the opus route. Every normalization rule therefore
 # takes an explicit `shape` argument ("anthropic" | "openai") with NO default —
 # a forgotten argument must raise TypeError rather than silently normalizing

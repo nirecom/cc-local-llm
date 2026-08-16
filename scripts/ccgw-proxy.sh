@@ -1,0 +1,13 @@
+#!/bin/sh
+# Foreground launcher for ccgw-proxy. Used by launchd ProgramArguments and for
+# direct foreground runs. For daily use, prefer: serverctl start proxy
+# See scripts/serverctl.sh for the unified control command.
+set -eu
+
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=scripts/lib/root.sh
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
+# shellcheck source=scripts/lib/load-dotenv.sh
+. "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
+
+exec "$CCGW_SCRIPT_DIR/serverctl.sh" __run proxy

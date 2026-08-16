@@ -92,7 +92,7 @@ Two body shapes reach the proxy, because the gateway in front of it converts the
 
 ### Why token auth
 
-ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only a caller with the correct `DS4_PROXY_AUTH_TOKEN` (sent by the gateway as `LITELLM_DS4_PROXY_API_KEY`) can reach ds4. This matters whenever the proxy is reachable beyond loopback; auth prevents use by other devices on the network.
+ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-time comparison via `hmac.compare_digest`) so that only a caller with the correct `CCGW_PROXY_AUTH_TOKEN` (sent by the gateway as `LITELLM_CCGW_PROXY_API_KEY`) can reach ds4. This matters whenever the proxy is reachable beyond loopback; auth prevents use by other devices on the network.
 
 ### Design choices
 
@@ -103,7 +103,7 @@ ds4 has no authentication. The proxy adds an HMAC-based token gate (constant-tim
 
 ### Repository placement — may split out later
 
-`proxy/` currently lives inside cc-local-llm rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the gateway's `LITELLM_DS4_PROXY_API_KEY`, its listen port must match `LITELLM_DS4_PROXY_URL`), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
+`proxy/` currently lives inside cc-local-llm rather than in its own repository. The coupling justifies co-location today: it shares the repo-root `.env` (its auth token must match the gateway's `LITELLM_CCGW_PROXY_API_KEY`, its listen port must match `LITELLM_CCGW_PROXY_URL`), the ops/tuning/infrastructure docs describe proxy, server, and client as one system, and it has no second consumer. The normalization rules are ds4-specific — they stabilise *this* model's KV-cache prefix — so the package is not yet a general-purpose library.
 
 `proxy/` is nonetheless a self-contained Python package (its own `pyproject.toml` / `uv.lock`), so extraction stays cheap and can preserve history via `git filter-repo`. Split it into its own repository when any of these triggers fires:
 
@@ -119,7 +119,7 @@ The Mac hosts two mutually-exclusive local models — ds4-server (DeepSeek V4 Fl
 Laguna S 2.1 (`mlx_lm.server`, 4-bit NVFP4 MLX). Together their resident weights (~90.9 GB +
 ~72-90 GB) exceed the Mac's 128 GB unified memory, so at most one may be loaded at a time.
 
-**Mac llama-swap** (`llama-swap/config.yaml`, listen `127.0.0.1:18080`) is the DS4 Proxy's
+**Mac llama-swap** (`llama-swap/config.yaml`, listen `127.0.0.1:18080`) is the CCGW Proxy's
 sole upstream and the only service needed to manage this — it spawns and kills ds4-server /
 `mlx_lm.server` on demand, keyed by the requested model name. Its **default** behavior (no
 `groups:` block) already keeps exactly one model process loaded at a time, which is
@@ -172,8 +172,8 @@ backends:
 |------|--------------------------|---------|---------------------|
 | Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
-| Fable | `deepseek-v4-flash` | DS4 Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `laguna-s-2.1` | DS4 Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+| Fable | `deepseek-v4-flash` | CCGW Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
+| Opus | `laguna-s-2.1` | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
 
 ### Why the gateway moved off Windows/Docker
 
@@ -185,17 +185,17 @@ the backends removes all four moving parts. The Windows PC keeps only its llama-
 the gateway now reaches by LAN IP over HTTPS — through that host's existing Caddy front, which
 terminates TLS on `:8443` and reverse-proxies to llama-swap's loopback-only `:18080`, so the
 LAN hop is encrypted rather than plaintext. Caddy's certificate comes from the same mkcert root
-CA as the DS4 Proxy's, so the gateway verifies it with the `SSL_CERT_FILE` trust it already
-carries — no second CA to distribute. This is transport encryption only: like the DS4 Proxy hop
+CA as the CCGW Proxy's, so the gateway verifies it with the `SSL_CERT_FILE` trust it already
+carries — no second CA to distribute. This is transport encryption only: like the CCGW Proxy hop
 it is not mutual TLS, and unlike that hop it still presents no auth key, matching the
 Haiku/Sonnet tiers' existing no-credential design.
 
 ### Why the Opus tier is converted, not passed through
 
-Both Mac tiers reach the same DS4 Proxy, but Laguna is served by `mlx_lm.server`, which
+Both Mac tiers reach the same CCGW Proxy, but Laguna is served by `mlx_lm.server`, which
 speaks only the OpenAI shape. LiteLLM converts that tier with the same `openai/` provider
 pattern already used for Haiku/Sonnet, so protocol conversion stays in exactly one component
-(see [Mac backend layer](#mac-backend-layer-llama-swap)). The DS4 Proxy is a path-preserving
+(see [Mac backend layer](#mac-backend-layer-llama-swap)). The CCGW Proxy is a path-preserving
 generic hop underneath: it appends the incoming path to its upstream verbatim and never
 rewrites the model name.
 
@@ -218,7 +218,7 @@ the three `openai/` tiers set `drop_params` per route to discard it. The global 
 stays strict, so an unsupported parameter anywhere else still surfaces as an error rather
 than being silently discarded.
 
-Fable and Opus deliberately land on the same DS4 Proxy but on different tiers. The Mac's two
+Fable and Opus deliberately land on the same CCGW Proxy but on different tiers. The Mac's two
 backends cannot be resident together, so putting them on separate tiers makes `/model` the
 switch — no extra routing key, no second base URL. The cost is a cold start on every switch,
 which is inherent to the memory constraint rather than to this arrangement.
@@ -238,15 +238,15 @@ translation -- a net cost with no benefit given LiteLLM's maturity.
 ### TLS termination
 
 LiteLLM listens on HTTPS with an mkcert-signed certificate, sharing the same root CA
-already used by the DS4 Proxy. Clients trust it via `NODE_EXTRA_CA_CERTS` pointing at
+already used by the CCGW Proxy. Clients trust it via `NODE_EXTRA_CA_CERTS` pointing at
 `<mkcert -CAROOT>/rootCA.pem` (the `CCGW_CA_CERT` value). No new CA setup is needed. On the
 Mac itself the issuing CA is already trusted, so `CCGW_CA_CERT` may be left empty there.
 
-The hop from the gateway to the DS4 Proxy is configurable in the same way: while the proxy
-still terminates TLS (`DS4_PROXY_TLS=on`), the gateway trusts its certificate through
+The hop from the gateway to the CCGW Proxy is configurable in the same way: while the proxy
+still terminates TLS (`CCGW_PROXY_TLS=on`), the gateway trusts its certificate through
 `SSL_CERT_FILE`. Once both processes sit on the same Mac, the pair can be switched to plain
-loopback HTTP — but only as a set, together with `DS4_PROXY_HOST`,
-`LITELLM_DS4_PROXY_URL` and `LITELLM_DS4_PROXY_OPENAI_URL`; changing some and not the
+loopback HTTP — but only as a set, together with `CCGW_PROXY_HOST`,
+`LITELLM_CCGW_PROXY_URL` and `LITELLM_CCGW_PROXY_OPENAI_URL`; changing some and not the
 others leaves the gateway unable to connect.
 
 ### Master-key authentication
@@ -258,12 +258,12 @@ persist them. With a single trusted user on a LAN, that database bought nothing 
 operational surface, so it is gone along with the container. Deleting the database is what
 makes virtual keys impossible — not a policy choice layered on top of it.
 
-The DS4 Proxy's own token auth is unchanged and independent: the gateway sends
-`LITELLM_DS4_PROXY_API_KEY`, which must equal the proxy's `DS4_PROXY_AUTH_TOKEN`.
+The CCGW Proxy's own token auth is unchanged and independent: the gateway sends
+`LITELLM_CCGW_PROXY_API_KEY`, which must equal the proxy's `CCGW_PROXY_AUTH_TOKEN`.
 
 ### One client route, no fallback
 
-Clients used to have two ways in: the gateway, and a direct DS4 Proxy connection with its own
+Clients used to have two ways in: the gateway, and a direct CCGW Proxy connection with its own
 base URL and its own credential. Two paths for one request means two auth models to keep in
 sync and two explanations for any failure, and the direct path could not reach the Haiku or
 Sonnet tiers at all. It is retired: `LITELLM_ANTHROPIC_BASE_URL` and `LITELLM_CLIENT_KEY` are

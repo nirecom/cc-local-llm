@@ -31,7 +31,7 @@ WORK="$(mktemp -d)"
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; seed it with the stub values the start guards look for.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token\nLITELLM_MASTER_KEY=test-master-key\nLITELLM_DS4_PROXY_URL=http://127.0.0.1:8443\n' > "$DOTENV_FILE"
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token\nLITELLM_MASTER_KEY=test-master-key\nLITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443\n' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 trap 'rm -rf "$WORK"' EXIT
@@ -53,19 +53,19 @@ echo "$OUT" | grep -q '^litellm:' || fail "status litellm: no 'litellm' line in 
 $OUT"
 
 # --- 3. paths.sh helpers resolve litellm correctly --------------------------
-DS4_SCRIPT_DIR="$REPO/scripts"
-export DS4_SCRIPT_DIR
+CCGW_SCRIPT_DIR="$REPO/scripts"
+export CCGW_SCRIPT_DIR
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/paths.sh
-. "$DS4_SCRIPT_DIR/lib/paths.sh"
+. "$CCGW_SCRIPT_DIR/lib/paths.sh"
 
 _ds4_valid_svc litellm || fail "_ds4_valid_svc litellm: expected success"
 # Negative control: the classifier must still reject a non-service.
 _ds4_valid_svc litellm-server && fail "_ds4_valid_svc litellm-server: expected failure (only the exact service name is a target)"
 
 [ -n "${LITELLM_ROOT:-}" ] || fail "LITELLM_ROOT is not defined by paths.sh"
-EXPECT="$DS4_OPS_ROOT/litellm-server"
+EXPECT="$CCGW_OPS_ROOT/litellm-server"
 [ "$LITELLM_ROOT" = "$EXPECT" ] || fail "LITELLM_ROOT: expected '$EXPECT', got '$LITELLM_ROOT'"
 
 GOT="$(_ds4_log_dir litellm)"
@@ -100,9 +100,9 @@ echo "$THEIRS" | grep -Eq "$PATTERN" && fail "_ds4_pgrep_pattern litellm matches
 
 # --- 5. lifecycle.sh _ds4_cwd / _ds4_cmd -----------------------------------
 # shellcheck source=scripts/lib/launchd.sh
-. "$DS4_SCRIPT_DIR/lib/launchd.sh"
+. "$CCGW_SCRIPT_DIR/lib/launchd.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
-. "$DS4_SCRIPT_DIR/lib/lifecycle.sh"
+. "$CCGW_SCRIPT_DIR/lib/lifecycle.sh"
 
 GOT="$(_ds4_cwd litellm)"
 [ "$GOT" = "$LITELLM_ROOT" ] || fail "_ds4_cwd litellm: expected '$LITELLM_ROOT', got '$GOT'"

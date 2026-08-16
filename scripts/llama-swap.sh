@@ -8,10 +8,10 @@
 # processes, keeping them mutually exclusive on the Mac's 128 GB memory.
 set -eu
 
-DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
-. "$DS4_SCRIPT_DIR/lib/load-dotenv.sh"
+. "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
 
-exec "$DS4_SCRIPT_DIR/serverctl.sh" __run llama-swap
+exec "$CCGW_SCRIPT_DIR/serverctl.sh" __run llama-swap

@@ -43,7 +43,7 @@ model_list:
       # Same reason as the haiku tier above.
       drop_params: true
 
-  # --- Fable tier: DeepSeek V4 Flash via DS4 Proxy -> Mac swap layer ---
+  # --- Fable tier: DeepSeek V4 Flash via CCGW Proxy -> Mac swap layer ---
   # The two Mac backends are mutually exclusive (see llama-swap/config.yaml in this
   # repo) -- both cannot be resident at once. They sit on separate Claude Code tiers
   # so /model switches between them: fable -> ds4, opus -> Laguna S 2.1.
@@ -53,13 +53,13 @@ model_list:
   - model_name: os.environ/LITELLM_FABLE_MODEL
     litellm_params:
       model: anthropic/deepseek-v4-flash
-      api_base: os.environ/LITELLM_DS4_PROXY_URL
-      api_key: os.environ/LITELLM_DS4_PROXY_API_KEY
+      api_base: os.environ/LITELLM_CCGW_PROXY_URL
+      api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
       max_tokens: 8192
       context_window: 393216
 
-  # --- Opus tier: Laguna S 2.1 via DS4 Proxy -> Mac swap layer ---
+  # --- Opus tier: Laguna S 2.1 via CCGW Proxy -> Mac swap layer ---
   # Laguna is served by mlx_lm.server, which speaks only the OpenAI shape, so
   # this route uses the same openai/ provider pattern as haiku/sonnet: LiteLLM
   # performs the Anthropic->OpenAI conversion and reaches the backend at
@@ -72,8 +72,8 @@ model_list:
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: openai/laguna-s-2.1
-      api_base: os.environ/LITELLM_DS4_PROXY_OPENAI_URL
-      api_key: os.environ/LITELLM_DS4_PROXY_API_KEY
+      api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
+      api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
       max_tokens: 8192
       context_window: 262144

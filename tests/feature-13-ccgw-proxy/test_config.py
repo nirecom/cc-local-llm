@@ -2,10 +2,10 @@
 # Tags: scope:issue-specific
 #
 # Scenario: load_config() upstream routing target — Laguna S 2.1 / llama-swap
-# migration changed the default DS4_PROXY_UPSTREAM from the old direct
+# migration changed the default CCGW_PROXY_UPSTREAM from the old direct
 # ds4-server address (http://127.0.0.1:8000) to the Mac llama-swap listener
 # (http://127.0.0.1:18080). This is a real routing-target behavior change
-# with zero prior test coverage (no test file referenced DS4_PROXY_UPSTREAM
+# with zero prior test coverage (no test file referenced CCGW_PROXY_UPSTREAM
 # or load_config() before this file).
 #
 # L3 gap: none (pure function, no I/O beyond os.environ)
@@ -17,10 +17,10 @@ from proxy.config import load_config
 
 def test_load_config_default_upstream_is_llama_swap(monkeypatch):
     # Regression guard for this session's routing change: with
-    # DS4_PROXY_UPSTREAM unset, the proxy must default to the llama-swap
+    # CCGW_PROXY_UPSTREAM unset, the proxy must default to the llama-swap
     # port (18080), NOT the old ds4-server-direct port (8000).
-    monkeypatch.delenv("DS4_PROXY_UPSTREAM", raising=False)
-    monkeypatch.setenv("DS4_PROXY_AUTH_TOKEN", "test-token")
+    monkeypatch.delenv("CCGW_PROXY_UPSTREAM", raising=False)
+    monkeypatch.setenv("CCGW_PROXY_AUTH_TOKEN", "test-token")
 
     config = load_config()
 
@@ -29,10 +29,10 @@ def test_load_config_default_upstream_is_llama_swap(monkeypatch):
 
 
 def test_load_config_upstream_override_is_honored(monkeypatch):
-    # An explicit DS4_PROXY_UPSTREAM must still be honored verbatim (e.g. for
+    # An explicit CCGW_PROXY_UPSTREAM must still be honored verbatim (e.g. for
     # a direct-to-ds4-server debug session bypassing llama-swap).
-    monkeypatch.setenv("DS4_PROXY_UPSTREAM", "http://127.0.0.1:8000")
-    monkeypatch.setenv("DS4_PROXY_AUTH_TOKEN", "test-token")
+    monkeypatch.setenv("CCGW_PROXY_UPSTREAM", "http://127.0.0.1:8000")
+    monkeypatch.setenv("CCGW_PROXY_AUTH_TOKEN", "test-token")
 
     config = load_config()
 
@@ -40,7 +40,7 @@ def test_load_config_upstream_override_is_honored(monkeypatch):
 
 
 # ===========================================================================
-# DS4_PROXY_TLS / DS4_PROXY_HOST (issue #41 / detail plan D4, D4a)
+# CCGW_PROXY_TLS / CCGW_PROXY_HOST (issue #41 / detail plan D4, D4a)
 #
 # The proxy becomes a loopback plaintext hop in the final topology, but the
 # demotion must be a reversible .env toggle, not a code change: during the
@@ -52,13 +52,13 @@ def test_load_config_upstream_override_is_honored(monkeypatch):
 # developer's ambient .env must never decide the verdict.
 # ===========================================================================
 
-_TLS_HOST_VARS = ("DS4_PROXY_TLS", "DS4_PROXY_HOST")
+_TLS_HOST_VARS = ("CCGW_PROXY_TLS", "CCGW_PROXY_HOST")
 
 
 def _clear(monkeypatch):
     for name in _TLS_HOST_VARS:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("DS4_PROXY_AUTH_TOKEN", "test-token")
+    monkeypatch.setenv("CCGW_PROXY_AUTH_TOKEN", "test-token")
 
 
 def test_tls_defaults_to_on_when_unset(monkeypatch):
@@ -70,14 +70,14 @@ def test_tls_defaults_to_on_when_unset(monkeypatch):
 @pytest.mark.parametrize("value", ["on", "ON", "On"])
 def test_tls_explicit_on_is_honored(monkeypatch, value):
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_TLS", value)
+    monkeypatch.setenv("CCGW_PROXY_TLS", value)
 
     assert load_config().tls is True
 
 
 def test_tls_off_is_honored(monkeypatch):
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_TLS", "off")
+    monkeypatch.setenv("CCGW_PROXY_TLS", "off")
 
     assert load_config().tls is False
 
@@ -88,11 +88,11 @@ def test_tls_off_is_honored(monkeypatch):
 def test_tls_non_off_values_fail_safe_to_on(monkeypatch, value):
     """Anything that is not the literal "off" must keep TLS enabled.
 
-    Fail-safe direction: a typo'd DS4_PROXY_TLS must never silently expose a
+    Fail-safe direction: a typo'd CCGW_PROXY_TLS must never silently expose a
     plaintext listener on 0.0.0.0.
     """
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_TLS", value)
+    monkeypatch.setenv("CCGW_PROXY_TLS", value)
 
     assert load_config().tls is True
 
@@ -105,7 +105,7 @@ def test_host_defaults_to_all_interfaces(monkeypatch):
 
 def test_host_override_is_honored(monkeypatch):
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_HOST", "127.0.0.1")
+    monkeypatch.setenv("CCGW_PROXY_HOST", "127.0.0.1")
 
     assert load_config().host == "127.0.0.1"
 
@@ -118,13 +118,13 @@ def test_tls_and_host_are_independent_toggles(monkeypatch):
     documented partial-switch failure impossible to reproduce.
     """
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_TLS", "off")
+    monkeypatch.setenv("CCGW_PROXY_TLS", "off")
     config = load_config()
     assert config.tls is False
     assert config.host == "0.0.0.0"
 
     _clear(monkeypatch)
-    monkeypatch.setenv("DS4_PROXY_HOST", "127.0.0.1")
+    monkeypatch.setenv("CCGW_PROXY_HOST", "127.0.0.1")
     config = load_config()
     assert config.tls is True
     assert config.host == "127.0.0.1"

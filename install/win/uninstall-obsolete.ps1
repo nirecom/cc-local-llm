@@ -1,7 +1,7 @@
 # uninstall-obsolete.ps1 - Retire Windows-side LiteLLM artifacts (Windows)
 # The LiteLLM gateway now runs natively on the Mac (#41); this host previously
-# ran it itself via Docker Desktop (litellm-client/docker-compose.yml, now
-# removed). Usage: called by install.ps1 (always, not only -Full).
+# ran it itself via Docker Desktop, from a Compose stack that has since been
+# removed. Usage: called by install.ps1 (always, not only -Full).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
