@@ -252,17 +252,37 @@ ds4_logs() {
         return 1
     fi
     if [ "$_svc" = "all" ]; then
-        _files=""
+        # A single `tail -f file1 file2 ...` interleaves lines as they arrive,
+        # with no indication of which file a line came from beyond an
+        # occasional "==> file <==" header on switch — so a high-volume
+        # service (litellm) reads as if it were the only thing logging.
+        # Tail each service separately and tag every line with a colored
+        # "[svc]" prefix so the source stays legible regardless of volume.
+        # `tail -f` with no `-n` dumps 10 lines of backlog per file before
+        # following; three services at the default would flood 30 lines on
+        # startup alone, well past one terminal screen. Keep the per-service
+        # backlog small so `all` fits in a normal window.
+        _n="${DS4_LOG_TAIL_LINES:-6}"
+        _found=0
+        _pids=""
         for _s in proxy llama-swap litellm; do
             _f="$(_ds4_log_file "$_s")"
-            [ -f "$_f" ] && _files="$_files $_f"
+            [ -f "$_f" ] || continue
+            _found=1
+            if [ -t 1 ] && [ "${DS4_LOG_COLOR:-on}" = "on" ]; then
+                tail -n "$_n" -f "$_f" | ds4_prefix_colorize "$_s" &
+            else
+                tail -n "$_n" -f "$_f" | ds4_prefix_plain "$_s" &
+            fi
+            _pids="$_pids $!"
         done
-        if [ -z "$_files" ]; then
+        if [ "$_found" = "0" ]; then
             echo "[serverctl] no log files found" >&2
             return 1
         fi
         # shellcheck disable=SC2086
-        tail -f $_files
+        trap 'kill $_pids 2>/dev/null' INT TERM
+        wait
     else
         _logfile="$(_ds4_log_file "$_svc")"
         if [ ! -f "$_logfile" ]; then
