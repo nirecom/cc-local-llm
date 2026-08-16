@@ -268,13 +268,15 @@ to create that confusion). This asymmetry is intentional.
 
 ## Log control
 
-Three independent toggles control different log streams:
+Five independent toggles control different log streams:
 
 | Toggle | Controls | off effect |
 |---|---|---|
 | `DS4_LOG` | Service stdout/stderr → `proxy.log` / `kvcache.log` | No disk write for these logs |
 | `DS4_PROXY_TEE` | Proxy body-dump debug logs (`DS4_PROXY_LOG_DIR`) | No body-dump disk write |
 | `DS4_SERVER_COLOR_LOG` | ANSI color in terminal output for ds4-server | Plain text in terminal |
+| `DS4_LOG_COLOR` | ANSI "[service]" prefix per line in `serverctl logs all` | Plain "[service]" prefix, no color |
+| `DS4_LOG_TAIL_LINES` | Backlog lines shown per service when `serverctl logs all` starts (default 6) | N/A — sets the count, no on/off |
 
 `DS4_LOG=off` stops only the stdout/stderr log files. If `DS4_PROXY_TEE=on`, the proxy
 still writes body-dump logs to `DS4_PROXY_LOG_DIR` — they are independent.
@@ -288,6 +290,13 @@ For color-highlighted live log viewing:
 ```sh
 ~/git/cc-local-llm/scripts/serverctl.sh logs llama-swap   # TTY: color; pipe/file: plain
 ```
+
+`serverctl logs all` tails proxy, llama-swap, and litellm concurrently instead of
+handing multiple files to a single `tail -f` — litellm's line volume otherwise drowns
+out the other two in a plain interleaved stream. Each service's lines get a fixed,
+colored `[service]` prefix (magenta proxy, blue llama-swap, green litellm) so the
+source stays legible regardless of which service is currently the noisiest; piped or
+redirected output gets the same prefix without ANSI.
 
 ## Client (Windows)
 
