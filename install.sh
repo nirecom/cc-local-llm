@@ -119,7 +119,7 @@ else
     if [ "$ROLE" = "client" ]; then
         printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_ANTHROPIC_BASE_URL / LITELLM_CLIENT_KEY / CCGW_CA_CERT.${C_RESET}\n"
     else
-        printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_MASTER_KEY, DS4_PROXY_AUTH_TOKEN and the TLS cert paths.${C_RESET}\n"
+        printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_MASTER_KEY, CCGW_PROXY_AUTH_TOKEN and the TLS cert paths.${C_RESET}\n"
     fi
 fi
 

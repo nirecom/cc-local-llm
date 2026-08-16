@@ -25,7 +25,7 @@ WORK="$(mktemp -d)"
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; seed it with a stub auth token so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token
 ' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 mkdir -p "$HOME"
@@ -46,12 +46,12 @@ echo "$OUT" | grep -q '^server:' || fail "status server: no 'server' line in out
 $OUT"
 
 # --- 3. paths.sh helpers resolve llama-swap correctly ----------------------
-DS4_SCRIPT_DIR="$REPO/scripts"
-export DS4_SCRIPT_DIR
+CCGW_SCRIPT_DIR="$REPO/scripts"
+export CCGW_SCRIPT_DIR
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/paths.sh
-. "$DS4_SCRIPT_DIR/lib/paths.sh"
+. "$CCGW_SCRIPT_DIR/lib/paths.sh"
 
 _ds4_valid_svc llama-swap || fail "_ds4_valid_svc llama-swap: expected success"
 
@@ -73,9 +73,9 @@ EXPECT="llama-swap.sh"
 
 # --- 4. lifecycle.sh _ds4_cmd builds the correct llama-swap invocation -----
 # shellcheck source=scripts/lib/launchd.sh
-. "$DS4_SCRIPT_DIR/lib/launchd.sh"
+. "$CCGW_SCRIPT_DIR/lib/launchd.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
-. "$DS4_SCRIPT_DIR/lib/lifecycle.sh"
+. "$CCGW_SCRIPT_DIR/lib/lifecycle.sh"
 
 unset LLAMA_SWAP_HOST LLAMA_SWAP_PORT
 CMD="$(_ds4_cmd llama-swap)"

@@ -14,13 +14,13 @@ set -eu
 # separator regardless of the ambient locale (CPR-UNV).
 export LC_ALL=C
 
-DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"     # establishes DS4_OPS_ROOT (paths.sh requires it)
+. "$CCGW_SCRIPT_DIR/lib/root.sh"     # establishes CCGW_OPS_ROOT (paths.sh requires it)
 # lib/load-dotenv.sh is deliberately not sourced: a read-only analyzer has no
 # .env-derived input and must not read the developer's real .env.
 # shellcheck source=scripts/lib/paths.sh
-. "$DS4_SCRIPT_DIR/lib/paths.sh"    # _ds4_log_file server is the SSOT for the log path
+. "$CCGW_SCRIPT_DIR/lib/paths.sh"    # _ds4_log_file server is the SSOT for the log path
 
 LOG_DEFAULT="$(_ds4_log_file server)"
 

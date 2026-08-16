@@ -1,15 +1,12 @@
 # Tests: litellm-server/config.yaml, scripts/code-ccgw.*, .env.example, docs/*.md
 # Tags: scope:issue-specific, layer:TL1
 #
-# TL1 gap (what this test suite does NOT catch — explicitly deferred):
-# - Whether the renamed / relocated LiteLLM config actually serves the four
-#     model routes (requires a live LiteLLM + llama-swap + DS4 Proxy stack; TL3)
-# - Whether scripts/code-ccgw.sh still starts Claude Code successfully against
-#     the Mac-side gateway (requires a real shell + running services; TL3)
-# - Whether the retired Windows Docker assets are actually gone from the
-#     developer's machine (host state, not repo state; manual cutover step)
-# Closest-to-action mitigation: this gap is checked at WORKFLOW_USER_VERIFIED
-# preflight via bin/check-verification-gate.sh category: pwsh-required
+# TL1 gap (not covered here — needs live services or host-state checks; TL3):
+# - Whether the renamed LiteLLM config actually serves the four model routes
+# - Whether scripts/code-ccgw.sh still starts Claude Code against the gateway
+# - Whether retired Windows Docker assets are gone from the developer's machine
+# Closest-to-action mitigation: checked at WORKFLOW_USER_VERIFIED preflight via
+# bin/check-verification-gate.sh category: pwsh-required
 
 import re
 import subprocess
@@ -36,14 +33,20 @@ LEGACY_TOKENS = [
     # the Compose container name, and every PowerShell bootstrap script that
     # existed only to run Docker Desktop on Windows must disappear.
     "litellm-client",
-    "ccgw-litellm",
+    # Docker-context-qualified on purpose (issue #51): the bare string
+    # `ccgw-litellm` is now the tail of the legitimate launchd label
+    # `com.nire.ccgw-litellm`, so banning it unqualified would flag the very
+    # name this rename introduces. Only the Compose `container_name:` spelling
+    # is retired.
+    "container_name: ccgw-litellm",
     "litellm-start.ps1",
     "setup-litellm.ps1",
     "generate-litellm-key.ps1",
     "docker-desktop.ps1",
     # --- issue #41: env vars retired with the Windows deployment --------------
-    # The opus route now shares the single DS4 Proxy origin (LITELLM_DS4_PROXY_URL),
-    # and TLS/CA/DB/config-dir variables belonged to the Docker stack only.
+    # The opus route now shares the single gateway proxy origin
+    # (LITELLM_CCGW_PROXY_URL), and TLS/CA/DB/config-dir variables belonged to
+    # the Docker stack only.
     "LITELLM_OPUS_URL",
     "LITELLM_OPUS_API_KEY",
     "LITELLM_TLS_DIR",
@@ -61,6 +64,42 @@ LEGACY_TOKENS = [
     "DS4_ANTHROPIC_BASE_URL",
     "DS4_API_KEY",
     "DS4_CA_CERT",
+    # --- issue #51: the shared DS4_ operator prefix becomes CCGW_ -------------
+    # Why: these configure the *gateway* (logging, run/ops/script roots, the
+    # reverse proxy, LiteLLM's route to it), not the DeepSeek V4 Flash backend —
+    # naming them after one backend model became misleading once llama-swap
+    # started fronting several. Deliberately ABSENT: DS4_SERVER_HOST/ROOT/
+    # COLOR_LOG, DS4_THINK_MAX_MIN_CONTEXT (still accurately name that server;
+    # no bare `DS4_` prefix token appears here for the same reason). DS4_LOG
+    # subsumes DS4_LOG_COLOR/DS4_LOG_TAIL_LINES but not DS4_SERVER_COLOR_LOG.
+    "DS4_LOG",
+    "DS4_RUN_DIR",
+    "DS4_OPS_ROOT",
+    "DS4_SCRIPT_DIR",
+    "DS4_PROXY_AUTH_TOKEN",
+    "DS4_PROXY_UPSTREAM",
+    "DS4_PROXY_HOST",
+    "DS4_PROXY_PORT",
+    "DS4_PROXY_TLS",
+    "DS4_PROXY_CERT",
+    "DS4_PROXY_KEY",
+    "DS4_PROXY_TEE",
+    "DS4_PROXY_LOG_DIR",
+    "LITELLM_DS4_PROXY_URL",
+    "LITELLM_DS4_PROXY_OPENAI_URL",
+    "LITELLM_DS4_PROXY_API_KEY",
+    # --- issue #51: the ds4-proxy component becomes ccgw-proxy ---------------
+    # The component name (launcher script, log directory, package name) and the
+    # three launchd labels that ship with the gateway services.
+    #
+    # The labels are spelled in FULL on purpose. The bare prefix
+    # `com.nire.ds4-` would also match `com.nire.ds4-server`, the label of the
+    # DeepSeek V4 Flash backend, which must survive this rename untouched —
+    # each label's near-miss control pins exactly that boundary.
+    "ds4-proxy",
+    "com.nire.ds4-proxy",
+    "com.nire.ds4-llama-swap",
+    "com.nire.ds4-litellm",
 ]
 
 # NOTE: LITELLM_VIRTUAL_KEY is deliberately absent. It survives one deprecation
@@ -85,8 +124,9 @@ NEW_GATEWAY_ENV_VARS = [
     "LITELLM_SONNET_MODEL",
     "LITELLM_FABLE_MODEL",
     "LITELLM_OPUS_MODEL",
-    "LITELLM_DS4_PROXY_URL",
-    "LITELLM_DS4_PROXY_API_KEY",
+    "LITELLM_CCGW_PROXY_URL",
+    "LITELLM_CCGW_PROXY_OPENAI_URL",
+    "LITELLM_CCGW_PROXY_API_KEY",
     "LITELLM_LLAMASWAP_URL",
 ]
 
@@ -96,15 +136,11 @@ NEW_ENV_SOURCE_FILES = [
 ]
 
 # Every LEGACY_TOKEN is scanned with the same raw substring rule
-# (`if token in line`), so each one needs a positive control proving it *can*
-# match, and a near-miss proving it does not over-match. Without these, a
+# (`if token in line`), so each needs a positive control (proves it *can*
+# match) and a near-miss (proves it does not over-match) — without these a
 # typo'd token would silently pass test_legacy_token_absent_from_tracked_files
-# forever (one-sided classifier).
-#
-# The near-miss line is chosen, wherever possible, to be the *replacement*
-# spelling this rename introduces — so the control also proves the ban cannot
-# flag the new name.
-#
+# forever. The near-miss is, wherever possible, the *replacement* spelling
+# this rename introduces, so the control also proves the ban cannot flag it.
 # (token, line that must match, line that must NOT match)
 PATH_TOKEN_CONTROLS = [
     (
@@ -120,12 +156,12 @@ PATH_TOKEN_CONTROLS = [
     (
         "LITELLM_DS4_URL",
         "LITELLM_DS4_URL=https://127.0.0.1:8443",
-        "LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443",
+        "LITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443",
     ),
     (
         "LITELLM_DS4_API_KEY",
         "LITELLM_DS4_API_KEY=sk-example-value",
-        "LITELLM_DS4_PROXY_API_KEY=sk-example-value",
+        "LITELLM_CCGW_PROXY_API_KEY=sk-example-value",
     ),
     (
         "LITELLM_LLAMA_SWAP_URL",
@@ -169,8 +205,8 @@ PATH_TOKEN_CONTROLS = [
     ),
     (
         "ds4-ops/run",
-        'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops/run"',
-        'DS4_RUN_DIR="$HOME/Library/Application Support/ds4-ops-run"',
+        'CCGW_RUN_DIR="$HOME/Library/Application Support/ds4-ops/run"',
+        'CCGW_RUN_DIR="$HOME/Library/Application Support/ds4-ops-run"',
     ),
     # --- issue #41 additions -------------------------------------------------
     (
@@ -179,9 +215,12 @@ PATH_TOKEN_CONTROLS = [
         "  - litellm-server/config.yaml",
     ),
     (
-        "ccgw-litellm",
-        "docker exec ccgw-litellm sh -c 'litellm --version'",
-        "brew services restart litellm",
+        # Qualified with the Compose key so the ban cannot reach the launchd
+        # label `com.nire.ccgw-litellm` that issue #51 introduces — the
+        # near-miss below is that exact label.
+        "container_name: ccgw-litellm",
+        "  container_name: ccgw-litellm",
+        "  <key>Label</key><string>com.nire.ccgw-litellm</string>",
     ),
     (
         "litellm-start.ps1",
@@ -211,12 +250,12 @@ PATH_TOKEN_CONTROLS = [
     (
         "LITELLM_OPUS_API_KEY",
         "LITELLM_OPUS_API_KEY=sk-example-value",
-        "LITELLM_DS4_PROXY_API_KEY=sk-example-value",
+        "LITELLM_CCGW_PROXY_API_KEY=sk-example-value",
     ),
     (
         "LITELLM_TLS_DIR",
         "LITELLM_TLS_DIR=C:\\git\\cc-local-llm\\tls",
-        "DS4_PROXY_TLS=on",
+        "CCGW_PROXY_TLS=on",
     ),
     (
         "LITELLM_CA_CERT_FILE",
@@ -226,7 +265,7 @@ PATH_TOKEN_CONTROLS = [
     (
         "LITELLM_DB_URL",
         "LITELLM_DB_URL=postgresql://litellm@127.0.0.1:5432/litellm",
-        "LITELLM_DS4_PROXY_URL=http://127.0.0.1:8443",
+        "LITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443",
     ),
     (
         "LITELLM_CONFIG_DIR",
@@ -256,12 +295,122 @@ PATH_TOKEN_CONTROLS = [
     (
         "DS4_API_KEY",
         "set DS4_API_KEY=sk-example-value",
-        "export DS4_PROXY_AUTH_TOKEN=sk-example-value",
+        "export CCGW_PROXY_AUTH_TOKEN=sk-example-value",
     ),
     (
         "DS4_CA_CERT",
         "DS4_CA_CERT=C:\\certs\\rootCA.pem",
+        "CCGW_PROXY_CERT=/opt/homebrew/etc/ccgw-proxy.pem",
+    ),
+    # --- issue #51 additions: shared DS4_ env prefix -> CCGW_ -----------------
+    # Each near-miss is the post-rename spelling, so the row doubles as the
+    # rename map for that variable.
+    (
+        "DS4_LOG",
+        "DS4_LOG=on ./scripts/serverctl.sh start proxy",
+        "CCGW_LOG=on ./scripts/serverctl.sh start proxy",
+    ),
+    (
+        "DS4_RUN_DIR",
+        'DS4_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"',
+        'CCGW_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"',
+    ),
+    (
+        "DS4_OPS_ROOT",
+        'EXPECT="$DS4_OPS_ROOT/litellm-server"',
+        'EXPECT="$CCGW_OPS_ROOT/litellm-server"',
+    ),
+    (
+        # Near-miss doubles as the DS4_SERVER_* boundary: the token must not
+        # reach the backend's own root variable.
+        "DS4_SCRIPT_DIR",
+        '. "$DS4_SCRIPT_DIR/lib/launchd.sh"',
+        '. "$DS4_SERVER_ROOT/lib/launchd.sh"',
+    ),
+    (
+        "DS4_PROXY_AUTH_TOKEN",
+        "DS4_PROXY_AUTH_TOKEN=sk-example-value",
+        "CCGW_PROXY_AUTH_TOKEN=sk-example-value",
+    ),
+    (
+        "DS4_PROXY_UPSTREAM",
+        "DS4_PROXY_UPSTREAM=http://127.0.0.1:18080",
+        "CCGW_PROXY_UPSTREAM=http://127.0.0.1:18080",
+    ),
+    (
+        # Near-miss is DS4_SERVER_HOST, which keeps the DS4_ prefix.
+        "DS4_PROXY_HOST",
+        "DS4_PROXY_HOST=0.0.0.0",
+        "DS4_SERVER_HOST=127.0.0.1",
+    ),
+    (
+        "DS4_PROXY_PORT",
+        "DS4_PROXY_PORT=8443",
+        "CCGW_PROXY_PORT=8443",
+    ),
+    (
+        "DS4_PROXY_TLS",
+        "DS4_PROXY_TLS=on",
+        "CCGW_PROXY_TLS=on",
+    ),
+    (
+        "DS4_PROXY_CERT",
         "DS4_PROXY_CERT=/opt/homebrew/etc/ds4-proxy.pem",
+        "CCGW_PROXY_CERT=/opt/homebrew/etc/ccgw-proxy.pem",
+    ),
+    (
+        "DS4_PROXY_KEY",
+        "DS4_PROXY_KEY=/opt/homebrew/etc/ds4-proxy-key.pem",
+        "CCGW_PROXY_KEY=/opt/homebrew/etc/ccgw-proxy-key.pem",
+    ),
+    (
+        "DS4_PROXY_TEE",
+        "DS4_PROXY_TEE=on",
+        "CCGW_PROXY_TEE=on",
+    ),
+    (
+        "DS4_PROXY_LOG_DIR",
+        'DS4_PROXY_LOG_DIR="$HOME/Library/Logs/ds4-proxy"',
+        'CCGW_PROXY_LOG_DIR="$HOME/Library/Logs/ccgw-proxy"',
+    ),
+    (
+        "LITELLM_DS4_PROXY_URL",
+        "      api_base: os.environ/LITELLM_DS4_PROXY_URL",
+        "      api_base: os.environ/LITELLM_CCGW_PROXY_URL",
+    ),
+    (
+        "LITELLM_DS4_PROXY_OPENAI_URL",
+        "      api_base: os.environ/LITELLM_DS4_PROXY_OPENAI_URL",
+        "      api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL",
+    ),
+    (
+        "LITELLM_DS4_PROXY_API_KEY",
+        "      api_key: os.environ/LITELLM_DS4_PROXY_API_KEY",
+        "      api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY",
+    ),
+    # --- issue #51 additions: ds4-proxy component + launchd labels ------------
+    # Every near-miss here is a ds4-server spelling: the DeepSeek V4 Flash
+    # backend keeps its name, and these rows are what proves the bans cannot
+    # reach it.
+    (
+        "ds4-proxy",
+        'exec "$CCGW_SCRIPT_DIR/ds4-proxy.sh" "$@"',
+        'exec "$CCGW_SCRIPT_DIR/ds4-server.sh" "$@"',
+    ),
+    (
+        "com.nire.ds4-proxy",
+        "  <key>Label</key><string>com.nire.ds4-proxy</string>",
+        "  <key>Label</key><string>com.nire.ds4-server</string>",
+    ),
+    (
+        "com.nire.ds4-llama-swap",
+        "launchctl print gui/$UID/com.nire.ds4-llama-swap",
+        "launchctl print gui/$UID/com.nire.ds4-server",
+    ),
+    (
+        "com.nire.ds4-litellm",
+        'PLIST="$LAUNCH_AGENTS/com.nire.ds4-litellm.plist"',
+        'PLIST="$LAUNCH_AGENTS/com.nire.ds4-server.plist"',
     ),
 ]
 
@@ -269,7 +418,7 @@ PATH_TOKEN_CONTROLS = [
 # `C:\\git\\ds4-ops` (two raw backslashes) as proxy-normalization test data.
 # They are NOT in EXCLUDED_PATHS — they are scanned like everything else and
 # must pass, because no LEGACY_TOKEN matches the escaped byte form.
-FEATURE_13_FIXTURE_DIR = "tests/feature-13-ds4-proxy"
+FEATURE_13_FIXTURE_DIR = "tests/feature-13-ccgw-proxy"
 ESCAPED_WINDOWS_PATH = "git\\\\ds4-ops"
 
 
@@ -385,7 +534,7 @@ def test_legacy_and_new_token_sets_are_disjoint():
 def test_feature_13_fixtures_scanned_and_clean():
     """The escaped Windows spelling is a deliberate non-token boundary.
 
-    `tests/feature-13-ds4-proxy/` fixtures carry `C:\\\\git\\\\ds4-ops` (two raw
+    `tests/feature-13-ccgw-proxy/` fixtures carry `C:\\\\git\\\\ds4-ops` (two raw
     backslashes) as proxy-normalization input data. That byte form is NOT a
     LEGACY_TOKEN and must not become one: it is payload, not a repo path.
     This test pins both halves of the boundary so neither can drift silently.

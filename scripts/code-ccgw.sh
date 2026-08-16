@@ -2,7 +2,7 @@
 # ccgw client launcher (macOS / Linux). POSIX counterpart of scripts/code-ccgw.ps1.
 #
 # Every client reaches the backends through the Mac LiteLLM gateway; the direct
-# DS4 Proxy route is retired, so there is exactly one path and nothing to fall
+# CCGW Proxy route is retired, so there is exactly one path and nothing to fall
 # back to. An unconfigured base URL or credential is therefore an error rather
 # than a dummy default -- a dummy default only defers the failure to a confusing
 # 401 at request time. Rationale: docs/architecture.md;
@@ -16,7 +16,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 # lib/load-dotenv.sh keeps the "shell value wins over .env" semantics that
 # code-ccgw.ps1 implements with its own "shell value wins" check.
-DS4_SCRIPT_DIR="$SCRIPT_DIR"
+CCGW_SCRIPT_DIR="$SCRIPT_DIR"
 # shellcheck source=scripts/lib/root.sh
 . "$SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
