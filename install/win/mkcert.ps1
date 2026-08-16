@@ -1,4 +1,4 @@
-# mkcert.ps1 - Install mkcert (local TLS CA), used to sign the DS4 Proxy and LiteLLM certs
+# mkcert.ps1 - Install mkcert (local TLS CA), used to sign the CCGW Proxy and LiteLLM certs
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"

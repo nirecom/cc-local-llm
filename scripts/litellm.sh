@@ -8,10 +8,10 @@
 # (see litellm-server/config.yaml).
 set -eu
 
-DS4_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=scripts/lib/root.sh
-. "$DS4_SCRIPT_DIR/lib/root.sh"
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
 # shellcheck source=scripts/lib/load-dotenv.sh
-. "$DS4_SCRIPT_DIR/lib/load-dotenv.sh"
+. "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
 
-exec "$DS4_SCRIPT_DIR/serverctl.sh" __run litellm
+exec "$CCGW_SCRIPT_DIR/serverctl.sh" __run litellm

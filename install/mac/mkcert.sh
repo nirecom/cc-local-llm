@@ -1,6 +1,6 @@
 #!/bin/bash
 # mkcert.sh - Install mkcert (local TLS CA) via Homebrew.
-# The Mac needs this in both roles: as the backend host it signs the DS4 Proxy
+# The Mac needs this in both roles: as the backend host it signs the CCGW Proxy
 # certificate, and as a client it trusts that certificate through the same CA.
 
 # Color fallback (standalone-safe: this script also runs directly, not only via install.sh)

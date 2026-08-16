@@ -3,17 +3,17 @@
 # lib/root.sh — this file requires it to be sourced first.
 set -eu
 
-: "${DS4_OPS_ROOT:?paths.sh requires lib/root.sh to be sourced first}"
+: "${CCGW_OPS_ROOT:?paths.sh requires lib/root.sh to be sourced first}"
 DS4_SERVER_ROOT="$HOME/git/ds4"
-LLAMA_SWAP_ROOT="$DS4_OPS_ROOT/llama-swap"
-LITELLM_ROOT="$DS4_OPS_ROOT/litellm-server"
-DS4_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"
+LLAMA_SWAP_ROOT="$CCGW_OPS_ROOT/llama-swap"
+LITELLM_ROOT="$CCGW_OPS_ROOT/litellm-server"
+CCGW_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"
 
-_ds4_pid_file() { echo "$DS4_RUN_DIR/${1}.pid"; }
+_ds4_pid_file() { echo "$CCGW_RUN_DIR/${1}.pid"; }
 
 _ds4_log_dir() {
     case "$1" in
-        proxy)      echo "$HOME/Library/Logs/ds4-proxy" ;;
+        proxy)      echo "$HOME/Library/Logs/ccgw-proxy" ;;
         server)     echo "$HOME/Library/Logs/ds4-server" ;;
         llama-swap) echo "$HOME/Library/Logs/llama-swap" ;;
         litellm)    echo "$HOME/Library/Logs/litellm" ;;
@@ -53,12 +53,12 @@ _ds4_pgrep_pattern() {
 }
 
 # Foreground-launcher wrapper filename under scripts/, used by launchd
-# ProgramArguments. ds4-proxy/ds4-server are named after the literal process
-# they launch; llama-swap and litellm are neutral (non-ds4-branded) tools, so
-# they keep their own names rather than a "ds4-" prefix.
+# ProgramArguments. Each name is the component it launches: ccgw-proxy is the
+# gateway's own reverse proxy, ds4-server is the DeepSeek V4 Flash backend, and
+# llama-swap/litellm are third-party tools that keep their own names.
 _ds4_wrapper_script() {
     case "$1" in
-        proxy)      echo "ds4-proxy.sh" ;;
+        proxy)      echo "ccgw-proxy.sh" ;;
         server)     echo "ds4-server.sh" ;;
         llama-swap) echo "llama-swap.sh" ;;
         litellm)    echo "litellm.sh" ;;

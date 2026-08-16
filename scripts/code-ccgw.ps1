@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ccgw client launcher (Windows). Every client reaches the backends through the Mac
-# LiteLLM gateway; the direct DS4 Proxy route is retired, so there is exactly one path
+# LiteLLM gateway; the direct CCGW Proxy route is retired, so there is exactly one path
 # and nothing to fall back to. An unconfigured base URL or credential is therefore an
 # error rather than a dummy default -- a dummy default only defers the failure to a
 # confusing 401 at request time. Isolates the VS Code process so the env does not bleed

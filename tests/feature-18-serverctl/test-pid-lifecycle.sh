@@ -8,7 +8,7 @@
 # A fake service (parent that forks a child) stands in for the real backend via
 # the DS4CTL_EXEC_OVERRIDE seam so no real ds4 process is launched.
 # L3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
+#   caffeinate process supervision on macOS; real CCGW_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -23,7 +23,7 @@ WORK="$(mktemp -d)"
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; seed it with a stub auth token so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token
 ' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 PID_DIR="$HOME/Library/Application Support/cc-local-llm/run"

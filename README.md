@@ -6,11 +6,11 @@ backends**, plus smaller local models (Devstral, Qwen3-Coder) for lighter tiers.
 
 - **Mac (M5 Max, 128 GB)**: runs ds4-server and Laguna S 2.1, managed by **llama-swap**
   (`127.0.0.1:18080`) — mutually exclusive, since both together exceed 128 GB unified
-  memory. A TLS reverse proxy (**DS4 Proxy**, `:8443`) sits in front for auth and
+  memory. A TLS reverse proxy (**CCGW Proxy**, `:8443`) sits in front for auth and
   prompt normalization; see [docs/architecture.md](docs/architecture.md).
 - **LiteLLM gateway (Mac, `:8445`)**: the single endpoint every client talks to, configured in
   `litellm-server/`. It selects the tier by model name — Haiku/Sonnet to the Windows PC's
-  llama-swap, Fable/Opus to the Mac's DS4 Proxy (Fable is ds4, Opus is Laguna S 2.1) — and is
+  llama-swap, Fable/Opus to the Mac's CCGW Proxy (Fable is ds4, Opus is Laguna S 2.1) — and is
   the only place the Anthropic wire format is converted.
 - **Clients (Windows, macOS, Linux)**: Claude Code points at the gateway and nothing else.
 

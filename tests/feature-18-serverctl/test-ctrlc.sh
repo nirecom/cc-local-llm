@@ -7,9 +7,9 @@
 # Runs against the EXISTING proxy/server.py (not serverctl). Before Phase 1 lands
 # this is expected to FAIL (raw KeyboardInterrupt traceback); it is intentionally
 # NOT skipped on missing implementation so the regression is recorded.
-# Skips (exit 77) only when prerequisites (DS4_PROXY_AUTH_TOKEN / uv / openssl) are absent.
+# Skips (exit 77) only when prerequisites (CCGW_PROXY_AUTH_TOKEN / uv / openssl) are absent.
 # TL3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
+#   caffeinate process supervision on macOS; real CCGW_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -17,7 +17,7 @@ REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 SERVER="$REPO/proxy/server.py"
 
 [ -f "$SERVER" ] || { echo "SKIP: $SERVER not found"; exit 77; }
-printenv DS4_PROXY_AUTH_TOKEN >/dev/null 2>&1 || { echo "SKIP: DS4_PROXY_AUTH_TOKEN not set"; exit 77; }
+printenv CCGW_PROXY_AUTH_TOKEN >/dev/null 2>&1 || { echo "SKIP: CCGW_PROXY_AUTH_TOKEN not set"; exit 77; }
 command -v uv >/dev/null 2>&1 || { echo "SKIP: uv not available"; exit 77; }
 command -v openssl >/dev/null 2>&1 || { echo "SKIP: openssl not available"; exit 77; }
 
@@ -37,7 +37,7 @@ WORK="$(mktemp -d)"
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; seed it with a stub auth token so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token
 ' > "$DOTENV_FILE"
 PID=""; WATCH=""
 cleanup() {
@@ -56,10 +56,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout "$WORK/key.pem" \
 PORT=$(( (RANDOM % 2000) + 18000 ))
 LOG="$WORK/proxy.log"
 
-export DS4_PROXY_CERT="$WORK/cert.pem"
-export DS4_PROXY_KEY="$WORK/key.pem"
-export DS4_PROXY_PORT="$PORT"
-export DS4_PROXY_TEE="off"
+export CCGW_PROXY_CERT="$WORK/cert.pem"
+export CCGW_PROXY_KEY="$WORK/key.pem"
+export CCGW_PROXY_PORT="$PORT"
+export CCGW_PROXY_TEE="off"
 
 # Launch the proxy directly (NOT under a timeout wrapper — a wrapper would
 # intercept the SIGINT we need to deliver to the proxy itself).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests: scripts/lib/launchd.sh
+# Tests: scripts/lib/launchd.sh, scripts/lib/paths.sh, scripts/ccgw-proxy.sh
 # Tags: lifecycle, serverctl, launchd, path, scope:issue-specific
 #
 # Scenario (issue #41 / detail plan D6): launchd hands a LaunchAgent a minimal
@@ -33,25 +33,25 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 mkdir -p "$HOME/Library/LaunchAgents"
 trap 'rm -rf "$WORK"' EXIT
 
-DS4_SCRIPT_DIR="$REPO/scripts"
-export DS4_SCRIPT_DIR
-PLIST="$HOME/Library/LaunchAgents/com.nire.ds4-proxy.plist"
+CCGW_SCRIPT_DIR="$REPO/scripts"
+export CCGW_SCRIPT_DIR
+PLIST="$HOME/Library/LaunchAgents/com.nire.ccgw-proxy.plist"
 
 # lifecycle.sh / launchd.sh carry `set -eu`, so the plist is generated in an
 # isolated subshell rather than by sourcing into this shell.
 write_plist() {
     rm -f "$PLIST"
-    env PATH="$1" HOME="$HOME" DS4_SCRIPT_DIR="$DS4_SCRIPT_DIR" DOTENV_FILE="$DOTENV_FILE" \
+    env PATH="$1" HOME="$HOME" CCGW_SCRIPT_DIR="$CCGW_SCRIPT_DIR" DOTENV_FILE="$DOTENV_FILE" \
         sh -c '
-            . "$DS4_SCRIPT_DIR/lib/root.sh"
-            . "$DS4_SCRIPT_DIR/lib/paths.sh"
-            . "$DS4_SCRIPT_DIR/lib/launchd.sh"
-            . "$DS4_SCRIPT_DIR/lib/lifecycle.sh"
+            . "$CCGW_SCRIPT_DIR/lib/root.sh"
+            . "$CCGW_SCRIPT_DIR/lib/paths.sh"
+            . "$CCGW_SCRIPT_DIR/lib/launchd.sh"
+            . "$CCGW_SCRIPT_DIR/lib/lifecycle.sh"
             _ds4_write_plist proxy
         ' || fail "_ds4_write_plist proxy exited non-zero (PATH=$1)"
     [ -f "$PLIST" ] || fail "_ds4_write_plist proxy did not write $PLIST"
@@ -60,6 +60,13 @@ write_plist() {
 # Extract the single PATH <string> that follows the PATH <key> in the plist.
 plist_path_value() {
     grep -A1 '<key>PATH</key>' "$PLIST" | grep '<string>' \
+        | sed -e 's/.*<string>//' -e 's|</string>.*||'
+}
+
+# Extract the second <string> entry under ProgramArguments — the wrapper
+# script path launchd actually execs (the first entry is always /bin/sh).
+plist_program_argument() {
+    grep -A3 '<key>ProgramArguments</key>' "$PLIST" | tail -1 \
         | sed -e 's/.*<string>//' -e 's|</string>.*||'
 }
 
@@ -92,6 +99,18 @@ case ":$VAL:" in
     *":$LLMDIR:"*) ;;
     *) fail "litellm's directory is missing from the launchd PATH — the LaunchAgent cannot start it: $VAL" ;;
 esac
+
+# --- 1b. ProgramArguments points at the renamed ccgw-proxy.sh wrapper -------
+# issue #51: the proxy service's launcher script and wrapper-filename lookup
+# (_ds4_wrapper_script) move from the old proxy launcher script to
+# ccgw-proxy.sh. If write-code renamed the file but forgot to update
+# _ds4_wrapper_script (or vice versa),
+# the LaunchAgent would exec a nonexistent path and fail silently at load
+# time — nothing else in this suite pins the actual exec target.
+ARG="$(plist_program_argument)"
+EXPECT_WRAPPER="$CCGW_SCRIPT_DIR/ccgw-proxy.sh"
+[ "$ARG" = "$EXPECT_WRAPPER" ] || fail "ProgramArguments for proxy: expected '$EXPECT_WRAPPER', got '$ARG'"
+[ -f "$EXPECT_WRAPPER" ] || fail "the renamed launcher script does not exist on disk: $EXPECT_WRAPPER (the old proxy launcher script under scripts/ must be git mv'd to scripts/ccgw-proxy.sh)"
 
 # --- 2. The system defaults survive, and the resolved dirs come first -------
 case ":$VAL:" in

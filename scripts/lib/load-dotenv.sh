@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sourced by ds4-proxy.sh. Loads KEY=VALUE pairs from DOTENV_FILE (must be set
+# Sourced by ccgw-proxy.sh. Loads KEY=VALUE pairs from DOTENV_FILE (must be set
 # by caller). Shell-existing values take precedence (matches code-ccgw.ps1 semantics).
 # Lines starting with # and blank lines are skipped.
 
