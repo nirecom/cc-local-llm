@@ -14,7 +14,7 @@
 # LiteLLM legitimately never reads.
 #
 # TL3 gap: whether the values in .env.example actually resolve to a reachable
-# backend (llama-swap on :18080, DS4 Proxy on :8443). Only a live stack can
+# backend (llama-swap on :18080, CCGW Proxy on :8443). Only a live stack can
 # answer that. Closest-to-action mitigation: the manual cutover smoke run in
 # docs/ops.md, executed at WORKFLOW_USER_VERIFIED.
 
@@ -127,7 +127,7 @@ def test_no_retired_env_var_is_still_referenced():
     assert not still_there, (
         f"{CONFIG_PATH} still references retired env var(s): "
         f"{sorted(still_there)} — the opus and fable routes share the single "
-        "LITELLM_DS4_PROXY_URL / LITELLM_DS4_PROXY_API_KEY pair now"
+        "LITELLM_CCGW_PROXY_URL / LITELLM_CCGW_PROXY_API_KEY pair now"
     )
 
 

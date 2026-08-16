@@ -17,7 +17,7 @@ incidents that produced these values in [history.md](history.md).
 | `--kv-cache-continued-interval-tokens` | `50000` | **The write-amplification lever.** Each continued checkpoint rewrites the whole live prefix (not a delta), doubled f16→f32. The default 10000 caused a 137 GB write storm; 25000 more than halved the churn. Doubled again to 50000 on 2026-08-10 (#34): over the 0713–0811 window `reason=continued` was still 317 writes / 325.94 GiB, 37% of all KV disk writes. Note the reduction is **not** linear — a longer interval means each individual checkpoint is larger, so halving the checkpoint count does not halve the bytes. |
 | `--warm-weights` | on | Page in the whole model at startup. RSS ~90.9 GB is expected, not a leak. |
 | `--batched-session` | `2` | **Number of resident KV sessions.** With a single live KV slot, the main conversation, sub-agents and one-off small prompts evict each other's prefix every time they interleave. Over the 0713–0811 window every one of the 548 live-cache misses was `token-mismatch`, and 55% of them shared under 1000 tokens of common prefix — i.e. the slot had been handed to an unrelated request. That eviction is also what produced `reason=evict` 475.00 GiB, 54% of all KV disk writes. So the single slot is the **common cause** of both the 30.7 hours of cold prefill and the bulk of the disk churn, which is why it is attacked first. Started at N=2 rather than N=3 because the premise for sizing N — "~1.3 GB per KV session" — is a derived figure that has never been measured (#34); confirm real RSS before deciding on N=3. |
-| `--host 127.0.0.1` | — | Loopback only; the proxy (scripts/ds4-proxy.sh) is the LAN endpoint. |
+| `--host 127.0.0.1` | — | Loopback only; the proxy (scripts/ccgw-proxy.sh) is the LAN endpoint. |
 
 ## Memory budget (128 GB)
 
@@ -76,8 +76,8 @@ HIGH + `--quality` is the better trade.
 
 | Var | Value | Why |
 |---|---|---|
-| `ANTHROPIC_BASE_URL` | `https://<mac-ip>:8443` | Route CC to the ds4 proxy (TLS). |
-| `ANTHROPIC_AUTH_TOKEN` | must match `DS4_PROXY_AUTH_TOKEN` | The proxy now enforces auth; the token must match the proxy's secret. |
+| `ANTHROPIC_BASE_URL` | `https://<mac-ip>:8443` | Route CC to the ccgw proxy (TLS). |
+| `ANTHROPIC_AUTH_TOKEN` | must match `CCGW_PROXY_AUTH_TOKEN` | The proxy now enforces auth; the token must match the proxy's secret. |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `393216` | Tell CC ds4's real ceiling (CC otherwise assumes the model's nominal 200K/1M window and never compacts in time). Keep in sync with `--ctx`. |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | `75` | Compact at ~75% (~245K by CC's count). Absorbs the tokenizer mismatch — ds4/DeepSeek counts more tokens than CC/Claude for the same text, so CC must compact well before its own ceiling to keep ds4's count under 393216. |
 
@@ -98,18 +98,18 @@ back to a router.
 
 ## Proxy env vars (Mac)
 
-Read by `scripts/ds4-proxy.sh` (from the repo-root `.env`). Design: [architecture.md](architecture.md#reverse-proxy-layer).
+Read by `scripts/ccgw-proxy.sh` (from the repo-root `.env`). Design: [architecture.md](architecture.md#reverse-proxy-layer).
 
 | Var | Value | Why |
 |---|---|---|
-| `DS4_PROXY_PORT` | `8443` (default) | HTTPS listen port. Must match the port in the client's `ANTHROPIC_BASE_URL`. |
-| `DS4_PROXY_UPSTREAM` | `http://127.0.0.1:18080` (default) | Mac llama-swap, which routes by model name to ds4-server or Laguna. An origin with no path — the incoming path is appended verbatim. |
-| `DS4_PROXY_AUTH_TOKEN` | required | Token every request reaching the proxy must present; must match the gateway's `LITELLM_DS4_PROXY_API_KEY`. The proxy refuses to start if unset. |
-| `DS4_PROXY_TLS` | `on` (default) / `off` | Whether the proxy terminates TLS. Only the literal `off` disables it, so a typo fails towards an encrypted listener. Must be switched together with `DS4_PROXY_HOST`, `LITELLM_DS4_PROXY_URL`, `LITELLM_DS4_PROXY_OPENAI_URL` and `SSL_CERT_FILE`. |
-| `DS4_PROXY_HOST` | `0.0.0.0` (default) | Bind address. `127.0.0.1` restricts the proxy to gateways on this Mac. Authentication is required either way. |
-| `DS4_PROXY_CERT` / `DS4_PROXY_KEY` | `~/.config/ds4-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. Unused while `DS4_PROXY_TLS=off`. |
-| `DS4_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. The filename carries the body shape (`anthropic` / `openai`). |
-| `DS4_PROXY_LOG_DIR` | `~/Library/Caches/ds4-proxy/log` (default) | Where tee logs are written when `DS4_PROXY_TEE=on`. |
+| `CCGW_PROXY_PORT` | `8443` (default) | HTTPS listen port. Must match the port in the client's `ANTHROPIC_BASE_URL`. |
+| `CCGW_PROXY_UPSTREAM` | `http://127.0.0.1:18080` (default) | Mac llama-swap, which routes by model name to ds4-server or Laguna. An origin with no path — the incoming path is appended verbatim. |
+| `CCGW_PROXY_AUTH_TOKEN` | required | Token every request reaching the proxy must present; must match the gateway's `LITELLM_CCGW_PROXY_API_KEY`. The proxy refuses to start if unset. |
+| `CCGW_PROXY_TLS` | `on` (default) / `off` | Whether the proxy terminates TLS. Only the literal `off` disables it, so a typo fails towards an encrypted listener. Must be switched together with `CCGW_PROXY_HOST`, `LITELLM_CCGW_PROXY_URL`, `LITELLM_CCGW_PROXY_OPENAI_URL` and `SSL_CERT_FILE`. |
+| `CCGW_PROXY_HOST` | `0.0.0.0` (default) | Bind address. `127.0.0.1` restricts the proxy to gateways on this Mac. Authentication is required either way. |
+| `CCGW_PROXY_CERT` / `CCGW_PROXY_KEY` | `~/.config/ccgw-proxy/cert.pem` / `key.pem` (defaults) | mkcert-generated TLS cert/key for the HTTPS listener. Unused while `CCGW_PROXY_TLS=off`. |
+| `CCGW_PROXY_TEE` | `off` (default) / `on` | When `on`, logs pre- and post-normalization request bodies for debugging. The filename carries the body shape (`anthropic` / `openai`). |
+| `CCGW_PROXY_LOG_DIR` | `~/Library/Caches/ccgw-proxy/log` (default) | Where tee logs are written when `CCGW_PROXY_TEE=on`. |
 
 ### LiteLLM env vars
 
@@ -126,16 +126,16 @@ are set in `.env.example` and resolved at process startup.
 | `LITELLM_PORT` | `8445` | HTTPS listen port. Must match the port in `LITELLM_ANTHROPIC_BASE_URL`. |
 | `LITELLM_TLS` | `on` | Whether the gateway terminates TLS. Clients verify against `CCGW_CA_CERT`, so `off` is only usable from this Mac. |
 | `LITELLM_TLS_CERT` / `LITELLM_TLS_KEY` | (required while `LITELLM_TLS=on`) | mkcert-issued leaf cert/key the gateway serves. The start guard refuses to launch when either is missing. |
-| `SSL_CERT_FILE` | (required while the proxy or llama-swap hop is HTTPS) | Root CA the gateway trusts when connecting to the DS4 Proxy and to the Windows PC's Caddy TLS front — both are signed by the same mkcert root CA. Absolute path — tilde is not expanded. |
-| `LITELLM_DS4_PROXY_URL` | `https://<mac-lan-ip>:8443` | DS4 Proxy origin for the Fable tier. No path component: the proxy appends the incoming path verbatim, and the `anthropic/` provider appends `/v1/messages` itself. |
-| `LITELLM_DS4_PROXY_OPENAI_URL` | `https://<mac-lan-ip>:8443/v1` | The same proxy endpoint with a `/v1` suffix, for the Opus tier. The `openai/` provider appends only `/chat/completions`, so without the suffix the request lands on llama-swap's unrouted `/chat/completions` and comes back as a bare `404 page not found`. Same host and port as `LITELLM_DS4_PROXY_URL` — only the suffix differs. |
-| `LITELLM_DS4_PROXY_API_KEY` | (required) | Credential the gateway presents to the DS4 Proxy. Must match `DS4_PROXY_AUTH_TOKEN`. |
-| `LITELLM_LLAMASWAP_URL` | `https://<windows-lan-ip>:8443/v1` | Windows PC endpoint shared by the Haiku and Sonnet tiers: the host's Caddy TLS front, which reverse-proxies to llama-swap's loopback-only `:18080`. Sole backend for these tiers — no fallback. Its certificate is verified against `SSL_CERT_FILE`; the hop carries no auth key. Carries a `/v1` suffix for the same reason `LITELLM_DS4_PROXY_OPENAI_URL` does — an `openai/`-provider route — and is the only endpoint here addressing a host directly rather than through the DS4 Proxy. |
+| `SSL_CERT_FILE` | (required while the proxy or llama-swap hop is HTTPS) | Root CA the gateway trusts when connecting to the CCGW Proxy and to the Windows PC's Caddy TLS front — both are signed by the same mkcert root CA. Absolute path — tilde is not expanded. |
+| `LITELLM_CCGW_PROXY_URL` | `https://<mac-lan-ip>:8443` | CCGW Proxy origin for the Fable tier. No path component: the proxy appends the incoming path verbatim, and the `anthropic/` provider appends `/v1/messages` itself. |
+| `LITELLM_CCGW_PROXY_OPENAI_URL` | `https://<mac-lan-ip>:8443/v1` | The same proxy endpoint with a `/v1` suffix, for the Opus tier. The `openai/` provider appends only `/chat/completions`, so without the suffix the request lands on llama-swap's unrouted `/chat/completions` and comes back as a bare `404 page not found`. Same host and port as `LITELLM_CCGW_PROXY_URL` — only the suffix differs. |
+| `LITELLM_CCGW_PROXY_API_KEY` | (required) | Credential the gateway presents to the CCGW Proxy. Must match `CCGW_PROXY_AUTH_TOKEN`. |
+| `LITELLM_LLAMASWAP_URL` | `https://<windows-lan-ip>:8443/v1` | Windows PC endpoint shared by the Haiku and Sonnet tiers: the host's Caddy TLS front, which reverse-proxies to llama-swap's loopback-only `:18080`. Sole backend for these tiers — no fallback. Its certificate is verified against `SSL_CERT_FILE`; the hop carries no auth key. Carries a `/v1` suffix for the same reason `LITELLM_CCGW_PROXY_OPENAI_URL` does — an `openai/`-provider route — and is the only endpoint here addressing a host directly rather than through the CCGW Proxy. |
 | `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
 | `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for the Sonnet tier. LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
 | `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
 | `LITELLM_OPUS_MODEL` | `laguna-s-2.1` | Model routing key for the Opus tier — Laguna S 2.1 on the Mac. The two Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches between them. |
-| `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct DS4 Proxy route is retired, so the launcher exits when this is unset. |
+| `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct CCGW Proxy route is retired, so the launcher exits when this is unset. |
 | `LITELLM_CLIENT_KEY` | (required for client) | Credential the launcher presents to the gateway. Same value as `LITELLM_MASTER_KEY`. `LITELLM_VIRTUAL_KEY` is accepted for one release as a deprecated alias, with a warning. |
 | `CCGW_SUBAGENT_MODEL` | (empty) | Pins every subagent to one routing key. Empty — the default — lets each agent's frontmatter decide. |
 

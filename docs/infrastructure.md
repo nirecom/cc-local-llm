@@ -6,7 +6,7 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Host | Role | Spec |
 |---|---|---|
-| Mac (this machine) | LiteLLM gateway + DS4 Proxy + ds4-server / Laguna S 2.1 (backend, mutually exclusive) + llama-swap | MacBook Pro M5 Max, 128 GB unified memory |
+| Mac (this machine) | LiteLLM gateway + CCGW Proxy + ds4-server / Laguna S 2.1 (backend, mutually exclusive) + llama-swap | MacBook Pro M5 Max, 128 GB unified memory |
 | <windows-host> (Windows) | llama-swap (Haiku/Sonnet tiers) + Caddy TLS front | Windows 11 |
 | windows-client | Claude Code client | Windows (same machine as <windows-host>) |
 
@@ -36,7 +36,7 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | Windows Caddy TLS front | `<windows-lan-ip>:8443` (HTTPS, TLS terminated with the same mkcert root CA, reverse-proxies to `http://127.0.0.1:18080`) |
 | LiteLLM listen | `0.0.0.0:8445` (HTTPS, TLS terminated, mkcert cert, native process on the Mac) |
 | Client base URL | `https://<mac-lan-ip>:8445` (the gateway; the only endpoint clients talk to) |
-| DS4 Proxy listen | `0.0.0.0:8443` (HTTPS, this Mac) |
+| CCGW Proxy listen | `0.0.0.0:8443` (HTTPS, this Mac) |
 | <mac-host> LAN IP | `<mac-lan-ip>` |
 | Protocols served | `/v1/messages` (Anthropic), `/v1/chat/completions`, `/v1/completions`, `/v1/responses` (OpenAI), `/v1/models` |
 
@@ -46,14 +46,14 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 |---|---|
 | Unified control command | `~/git/cc-local-llm/scripts/serverctl.sh` (start/stop/restart/status/logs/install/uninstall) |
 | Start script (manual debug only) | `~/git/cc-local-llm/scripts/ds4-server.sh` — not launchd-installed; llama-swap owns ds4-server's lifecycle |
-| Proxy start script | `~/git/cc-local-llm/scripts/ds4-proxy.sh` |
+| Proxy start script | `~/git/cc-local-llm/scripts/ccgw-proxy.sh` |
 | llama-swap start script | `~/git/cc-local-llm/scripts/llama-swap.sh` |
 | LiteLLM start script | `~/git/cc-local-llm/scripts/litellm.sh` |
 | LiteLLM config | `~/git/cc-local-llm/litellm-server/config.yaml` |
 | LiteLLM TLS cert/key | `~/.config/litellm/cert.pem` / `key.pem` (mkcert-generated) |
-| LiteLLM CA cert (DS4 Proxy + Windows Caddy trust) | `<mkcert -CAROOT>/rootCA.pem` (`SSL_CERT_FILE`) |
+| LiteLLM CA cert (CCGW Proxy + Windows Caddy trust) | `<mkcert -CAROOT>/rootCA.pem` (`SSL_CERT_FILE`) |
 | Mac llama-swap config | `~/git/cc-local-llm/llama-swap/config.yaml` |
-| Proxy TLS cert/key | `~/.config/ds4-proxy/cert.pem` / `key.pem` (mkcert-generated) |
+| Proxy TLS cert/key | `~/.config/ccgw-proxy/cert.pem` / `key.pem` (mkcert-generated) |
 | Client launcher (POSIX) | `~/git/cc-local-llm/scripts/code-ccgw.sh` (macOS/Linux counterpart of `code-ccgw.ps1`) |
 | Client VS Code profile | `~/Library/Application Support/vscode-ccgw` (macOS), `${XDG_DATA_HOME:-~/.local/share}/vscode-ccgw` (Linux) |
 | KV disk cache | `~/Library/Caches/ds4-server/kv` (persistent, Time Machine-excluded by macOS default) |

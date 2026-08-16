@@ -327,7 +327,7 @@ async def test_handle_upstream_request_error_returns_502(tmp_path):
 # ===========================================================================
 # Case 7+: forwarding contract (issue #41 / detail plan D3, D8)
 #
-# DS4_PROXY_UPSTREAM is now contractually a PATH-LESS ORIGIN, and the proxy is a
+# CCGW_PROXY_UPSTREAM is now contractually a PATH-LESS ORIGIN, and the proxy is a
 # generic hop that passes the received path through verbatim on every route —
 # not just /v1/messages. LiteLLM points a single api_base at that origin and
 # reaches both `POST /v1/messages` (anthropic route) and `POST /chat/completions`
@@ -396,7 +396,7 @@ async def test_handle_forwards_received_path_verbatim(tmp_path, path):
 
 
 async def test_handle_strips_only_one_trailing_slash_from_origin(tmp_path):
-    """A trailing slash in DS4_PROXY_UPSTREAM must not double up in the URL."""
+    """A trailing slash in CCGW_PROXY_UPSTREAM must not double up in the URL."""
     config = _make_config(upstream="http://127.0.0.1:18080/")
     client = _FakeClient()
     tee = TeeLogger(enabled=False, log_dir=tmp_path)

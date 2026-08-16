@@ -20,7 +20,7 @@
 #
 # Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # TL3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
+#   caffeinate process supervision on macOS; real CCGW_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -36,7 +36,7 @@ WORK="$(mktemp -d)"
 # read; seed every value the start guards require so a guard refusal can never
 # masquerade as a dispatch result.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token\nLITELLM_MASTER_KEY=test-master-key\nLITELLM_DS4_PROXY_URL=http://127.0.0.1:8443\nLITELLM_TLS=off\n' > "$DOTENV_FILE"
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token\nLITELLM_MASTER_KEY=test-master-key\nLITELLM_CCGW_PROXY_URL=http://127.0.0.1:8443\nLITELLM_TLS=off\n' > "$DOTENV_FILE"
 trap 'rm -rf "$WORK"' EXIT
 
 export HOME="$WORK/home"

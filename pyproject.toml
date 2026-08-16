@@ -1,7 +1,7 @@
 [project]
-name = "ds4-proxy"
+name = "ccgw-proxy"
 version = "0.1.0"
-description = "ds4 reverse proxy: request normalization, HTTP framing, and auth"
+description = "ccgw reverse proxy: request normalization, HTTP framing, and auth"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",

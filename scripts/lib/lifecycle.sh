@@ -26,7 +26,7 @@ _ds4_check_path() {
     esac
 }
 
-# Fail-closed TLS toggle, mirroring proxy/config.py's DS4_PROXY_TLS handling:
+# Fail-closed TLS toggle, mirroring proxy/config.py's CCGW_PROXY_TLS handling:
 # only an explicit, case-insensitive "off" (surrounding whitespace ignored)
 # disables TLS. A typo such as "ON" or "0" must never silently drop the gateway
 # to plaintext on a LAN-visible bind.
@@ -80,7 +80,7 @@ _ds4_cmd() {
 
 _ds4_cwd() {
     case "$1" in
-        proxy)      echo "$DS4_OPS_ROOT" ;;
+        proxy)      echo "$CCGW_OPS_ROOT" ;;
         server)     echo "$DS4_SERVER_ROOT" ;;
         llama-swap) echo "$LLAMA_SWAP_ROOT" ;;
         litellm)    echo "$LITELLM_ROOT" ;;
@@ -94,8 +94,8 @@ _ds4_cwd() {
 _ds4_check_config() {
     case "$1" in
         proxy)
-            if [ -z "${DS4_PROXY_AUTH_TOKEN:-}" ]; then
-                echo "[ds4-proxy] DS4_PROXY_AUTH_TOKEN is not set in .env — refusing to start" >&2
+            if [ -z "${CCGW_PROXY_AUTH_TOKEN:-}" ]; then
+                echo "[ccgw-proxy] CCGW_PROXY_AUTH_TOKEN is not set in .env — refusing to start" >&2
                 return 1
             fi
             ;;
@@ -105,8 +105,8 @@ _ds4_check_config() {
                 echo "[litellm] LITELLM_MASTER_KEY is not set in .env — refusing to start" >&2
                 _bad=1
             fi
-            if [ -z "${LITELLM_DS4_PROXY_URL:-}" ]; then
-                echo "[litellm] LITELLM_DS4_PROXY_URL is not set in .env — refusing to start" >&2
+            if [ -z "${LITELLM_CCGW_PROXY_URL:-}" ]; then
+                echo "[litellm] LITELLM_CCGW_PROXY_URL is not set in .env — refusing to start" >&2
                 _bad=1
             fi
             if _ds4_litellm_tls_enabled &&
@@ -148,7 +148,7 @@ ds4_exec() {
         if [ "$_svc" = "server" ] && [ "${DS4_SERVER_COLOR_LOG:-on}" = "on" ]; then
             _color_filter="ds4_colorize"
         fi
-        if [ "${DS4_LOG:-on}" = "on" ]; then
+        if [ "${CCGW_LOG:-on}" = "on" ]; then
             cd "$_cwd"
             eval "$_cmd" 2>&1 | tee -a "$_logfile" | "$_color_filter"
         else
@@ -177,11 +177,11 @@ ds4_start() {
         return 0
     fi
     _ds4_check_config "$_svc" || exit 1
-    mkdir -p "$DS4_RUN_DIR"
+    mkdir -p "$CCGW_RUN_DIR"
     mkdir -p "$(_ds4_log_dir "$_svc")"
     _logfile="$(_ds4_log_file "$_svc")"
     _pid_file="$(_ds4_pid_file "$_svc")"
-    if [ "${DS4_LOG:-on}" = "on" ]; then
+    if [ "${CCGW_LOG:-on}" = "on" ]; then
         nohup "$SERVERCTL" __run "$_svc" >>"$_logfile" 2>&1 &
     else
         nohup "$SERVERCTL" __run "$_svc" >/dev/null 2>&1 &
@@ -247,8 +247,8 @@ ds4_status() {
 
 ds4_logs() {
     _svc="$1"
-    if [ "${DS4_LOG:-on}" != "on" ]; then
-        echo "[serverctl] log recording is disabled (DS4_LOG=off)" >&2
+    if [ "${CCGW_LOG:-on}" != "on" ]; then
+        echo "[serverctl] log recording is disabled (CCGW_LOG=off)" >&2
         return 1
     fi
     if [ "$_svc" = "all" ]; then
@@ -262,14 +262,14 @@ ds4_logs() {
         # following; three services at the default would flood 30 lines on
         # startup alone, well past one terminal screen. Keep the per-service
         # backlog small so `all` fits in a normal window.
-        _n="${DS4_LOG_TAIL_LINES:-6}"
+        _n="${CCGW_LOG_TAIL_LINES:-6}"
         _found=0
         _pids=""
         for _s in proxy llama-swap litellm; do
             _f="$(_ds4_log_file "$_s")"
             [ -f "$_f" ] || continue
             _found=1
-            if [ -t 1 ] && [ "${DS4_LOG_COLOR:-on}" = "on" ]; then
+            if [ -t 1 ] && [ "${CCGW_LOG_COLOR:-on}" = "on" ]; then
                 tail -n "$_n" -f "$_f" | ds4_prefix_colorize "$_s" &
             else
                 tail -n "$_n" -f "$_f" | ds4_prefix_plain "$_s" &

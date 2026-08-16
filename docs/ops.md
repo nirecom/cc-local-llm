@@ -16,13 +16,13 @@ root; nothing new has to be distributed and trusted.
 
 1. On the Windows client, issue a leaf cert/key for the proxy from the existing root CA. The
    root CA private key never leaves the client.
-2. Copy only the generated cert/key to the Mac as `~/.config/ds4-proxy/cert.pem` and `key.pem`.
+2. Copy only the generated cert/key to the Mac as `~/.config/ccgw-proxy/cert.pem` and `key.pem`.
 
 Exact mkcert flags and cert locations are environment-specific — see mkcert's own docs.
 
 Add the shared auth token to the server-side `.env` (repo root, gitignored):
 ```sh
-# .env: DS4_PROXY_AUTH_TOKEN=<generated-secret>   (generate with /create-key)
+# .env: CCGW_PROXY_AUTH_TOKEN=<generated-secret>   (generate with /create-key)
 ```
 
 Start the proxy in the background:
@@ -32,10 +32,10 @@ Start the proxy in the background:
 
 Or foreground (for debugging):
 ```sh
-~/git/cc-local-llm/scripts/ds4-proxy.sh
+~/git/cc-local-llm/scripts/ccgw-proxy.sh
 ```
 
-The gateway sends `LITELLM_DS4_PROXY_API_KEY`, which must equal `DS4_PROXY_AUTH_TOKEN`. Clients
+The gateway sends `LITELLM_CCGW_PROXY_API_KEY`, which must equal `CCGW_PROXY_AUTH_TOKEN`. Clients
 never talk to the proxy directly — see [Client (Windows)](#client-windows).
 
 ## LiteLLM gateway (Mac)
@@ -53,7 +53,7 @@ format is converted. It runs as a native process on this Mac, installed by `inst
    There is no database and no `/key/generate` step: clients present this same value as
    `LITELLM_CLIENT_KEY`.
 
-2. Issue an mkcert leaf cert/key for the gateway from the same root CA the DS4 Proxy uses, so
+2. Issue an mkcert leaf cert/key for the gateway from the same root CA the CCGW Proxy uses, so
    one `CCGW_CA_CERT` covers every endpoint, and point `.env` at the files:
    ```sh
    mkcert localhost 127.0.0.1 ::1 <mac-lan-ip>
@@ -61,12 +61,12 @@ format is converted. It runs as a native process on this Mac, installed by `inst
    #       LITELLM_TLS_KEY=/Users/<you>/.config/litellm/key.pem
    ```
 
-3. Point the gateway at the DS4 Proxy and at the root CA that signed the proxy's certificate.
+3. Point the gateway at the CCGW Proxy and at the root CA that signed the proxy's certificate.
    The same CA also signs the Windows PC's TLS front, so one value covers both hops:
    ```sh
-   # .env: LITELLM_DS4_PROXY_URL=https://<mac-lan-ip>:8443
-   #       LITELLM_DS4_PROXY_OPENAI_URL=https://<mac-lan-ip>:8443/v1
-   #       LITELLM_DS4_PROXY_API_KEY=<same value as DS4_PROXY_AUTH_TOKEN>
+   # .env: LITELLM_CCGW_PROXY_URL=https://<mac-lan-ip>:8443
+   #       LITELLM_CCGW_PROXY_OPENAI_URL=https://<mac-lan-ip>:8443/v1
+   #       LITELLM_CCGW_PROXY_API_KEY=<same value as CCGW_PROXY_AUTH_TOKEN>
    #       SSL_CERT_FILE=<mkcert -CAROOT>/rootCA.pem      (absolute path, no ~)
    ```
 
@@ -80,7 +80,7 @@ format is converted. It runs as a native process on this Mac, installed by `inst
    # .env: LITELLM_LLAMASWAP_URL=https://<windows-lan-ip>:8443/v1
    ```
 
-The gateway refuses to start when `LITELLM_MASTER_KEY` or `LITELLM_DS4_PROXY_URL` is unset, or
+The gateway refuses to start when `LITELLM_MASTER_KEY` or `LITELLM_CCGW_PROXY_URL` is unset, or
 when `LITELLM_TLS=on` without both cert and key — no process is launched in that case.
 
 ### Start / stop / verify
@@ -127,12 +127,12 @@ two commands force a model swap between them; expect a cold start on each switch
 | `Connection refused` on :8445 | Verify `LITELLM_HOST` / `LITELLM_PORT` and that the process is up |
 | Haiku/Sonnet tier cannot connect to :8443 | The Windows PC's Caddy front or the llama-swap behind it is down; no fallback exists — start both and retry |
 | TLS errors on the Haiku/Sonnet hop | Verify `SSL_CERT_FILE` points at the mkcert root CA and that Caddy's cert on the Windows PC is signed by it |
-| DS4 Proxy unreachable | Verify `LITELLM_DS4_PROXY_URL` and that `serverctl.sh status proxy` reports running |
-| Client reports "the selected model may not exist" for one tier only | A 404 or 400 the client renders opaquely. Check `LITELLM_DS4_PROXY_OPENAI_URL` is set with its `/v1` suffix; that `use_chat_completions_url_for_anthropic_messages: true` is still in `litellm-server/config.yaml` (without it the `openai/` tiers go to the Responses API, which `mlx_lm.server` does not implement); and that the tier still carries `drop_params: true` (without it the client's `reasoning_effort` is a 400). The gateway log holds the real status and message |
+| CCGW Proxy unreachable | Verify `LITELLM_CCGW_PROXY_URL` and that `serverctl.sh status proxy` reports running |
+| Client reports "the selected model may not exist" for one tier only | A 404 or 400 the client renders opaquely. Check `LITELLM_CCGW_PROXY_OPENAI_URL` is set with its `/v1` suffix; that `use_chat_completions_url_for_anthropic_messages: true` is still in `litellm-server/config.yaml` (without it the `openai/` tiers go to the Responses API, which `mlx_lm.server` does not implement); and that the tier still carries `drop_params: true` (without it the client's `reasoning_effort` is a 400). The gateway log holds the real status and message |
 | TLS errors from clients | Verify `LITELLM_TLS_CERT` / `LITELLM_TLS_KEY` exist and are mkcert-signed |
 | TLS errors on the Fable/Opus hop | Verify `SSL_CERT_FILE` is an absolute path (no `~`) to the mkcert root CA |
 | `401 Unauthorized` from the gateway | `LITELLM_CLIENT_KEY` on the client must equal `LITELLM_MASTER_KEY` on the Mac |
-| `401` from the DS4 Proxy | `LITELLM_DS4_PROXY_API_KEY` must equal `DS4_PROXY_AUTH_TOKEN` |
+| `401` from the CCGW Proxy | `LITELLM_CCGW_PROXY_API_KEY` must equal `CCGW_PROXY_AUTH_TOKEN` |
 
 ## Install llama-swap and Laguna S 2.1 (Mac, one-time)
 
@@ -151,7 +151,7 @@ before starting llama-swap. The individual steps live under
 [install/mac/](../install/mac/) (`llama-swap.sh`, `mlx-lm.sh`) if you need to re-run just one.
 
 `LLAMA_SWAP_HOST` / `LLAMA_SWAP_PORT` in `.env` default to `127.0.0.1:18080`, which matches
-`DS4_PROXY_UPSTREAM` — leave them as-is unless you have a reason to change the port.
+`CCGW_PROXY_UPSTREAM` — leave them as-is unless you have a reason to change the port.
 
 ## Retire the always-on ds4-server LaunchAgent (one-time, existing installs only)
 
@@ -170,7 +170,7 @@ This stops the resident ds4-server process and removes
 
 ## Run llama-swap (Mac)
 
-llama-swap is the DS4 Proxy's sole upstream; starting it makes both ds4-server and Laguna
+llama-swap is the CCGW Proxy's sole upstream; starting it makes both ds4-server and Laguna
 reachable (llama-swap spawns whichever one is requested, on demand):
 
 ```sh
@@ -208,7 +208,7 @@ this alongside llama-swap — both would try to manage the same process.
 ~/git/cc-local-llm/scripts/serverctl.sh restart all       # restart all three
 ~/git/cc-local-llm/scripts/serverctl.sh status all        # show status
 ~/git/cc-local-llm/scripts/serverctl.sh logs llama-swap   # tail llama-swap log (color in TTY)
-~/git/cc-local-llm/scripts/serverctl.sh logs proxy        # tail ds4-proxy log
+~/git/cc-local-llm/scripts/serverctl.sh logs proxy        # tail ccgw-proxy log
 ~/git/cc-local-llm/scripts/serverctl.sh logs litellm      # tail LiteLLM gateway log
 ~/git/cc-local-llm/scripts/serverctl.sh logs all          # tail all three logs
 ```
@@ -229,19 +229,20 @@ Uninstall (stops the service and removes auto-start):
 ```
 
 Plist locations and labels:
-- `~/Library/LaunchAgents/com.nire.ds4-proxy.plist` (`com.nire.ds4-proxy`)
-- `~/Library/LaunchAgents/com.nire.ds4-llama-swap.plist` (`com.nire.ds4-llama-swap`)
+- `~/Library/LaunchAgents/com.nire.ccgw-proxy.plist` (`com.nire.ccgw-proxy`)
+- `~/Library/LaunchAgents/com.nire.ccgw-llama-swap.plist` (`com.nire.ccgw-llama-swap`)
 
-The gateway follows the same `com.nire.ds4-<service>` naming as the other two; the label and
-path are derived from the `serverctl` target name (`_ds4_plist_path` in `scripts/lib/launchd.sh`).
+The gateway follows the same `com.nire.ccgw-<service>` naming as the other two; the label and
+path come from a per-service lookup keyed on the `serverctl` target name (`_ds4_plist_label` in
+`scripts/lib/launchd.sh`).
 
 `server` (bare ds4-server) has no plist — it is not launchd-installable; llama-swap starts and
 stops it on demand instead.
 
 KeepAlive=true means launchd restarts the service automatically on crash.
 
-**DS4_LOG change requires reinstall**: the log paths are baked into the plist at install time.
-After changing `DS4_LOG` in `.env`, run `serverctl install all` to regenerate the plist.
+**CCGW_LOG change requires reinstall**: the log paths are baked into the plist at install time.
+After changing `CCGW_LOG` in `.env`, run `serverctl install all` to regenerate the plist.
 
 **Stopping a launchd-managed service**: `serverctl stop` will refuse with an error when the
 service is launchd-managed (KeepAlive would restart it immediately anyway). Use
@@ -253,10 +254,10 @@ service is launchd-managed (KeepAlive would restart it immediately anyway). Use
 only opens a window in which no LaunchAgent exists, and buys nothing.
 
 **Run `install` from the checkout the plist should point at.** `_ds4_write_plist` bakes the
-absolute path `$DS4_OPS_ROOT/scripts/<wrapper>.sh` into `ProgramArguments` (`ds4-proxy.sh`,
+absolute path `$CCGW_OPS_ROOT/scripts/<wrapper>.sh` into `ProgramArguments` (`ccgw-proxy.sh`,
 `ds4-server.sh`, `llama-swap.sh`, or `litellm.sh` — see `_ds4_wrapper_script` in
 `scripts/lib/paths.sh`), and
-`DS4_OPS_ROOT` is derived by `scripts/lib/root.sh` from the parent directory of the script
+`CCGW_OPS_ROOT` is derived by `scripts/lib/root.sh` from the parent directory of the script
 that was actually executed. Installing from a throwaway checkout (a git worktree, say) leaves
 the LaunchAgent pointing at a path that disappears when that checkout is removed, and the
 service then fails to start. Always run it from the everyday checkout (`~/git/cc-local-llm`).
@@ -272,16 +273,16 @@ Five independent toggles control different log streams:
 
 | Toggle | Controls | off effect |
 |---|---|---|
-| `DS4_LOG` | Service stdout/stderr → `proxy.log` / `kvcache.log` | No disk write for these logs |
-| `DS4_PROXY_TEE` | Proxy body-dump debug logs (`DS4_PROXY_LOG_DIR`) | No body-dump disk write |
+| `CCGW_LOG` | Service stdout/stderr → `proxy.log` / `kvcache.log` | No disk write for these logs |
+| `CCGW_PROXY_TEE` | Proxy body-dump debug logs (`CCGW_PROXY_LOG_DIR`) | No body-dump disk write |
 | `DS4_SERVER_COLOR_LOG` | ANSI color in terminal output for ds4-server | Plain text in terminal |
-| `DS4_LOG_COLOR` | ANSI "[service]" prefix per line in `serverctl logs all` | Plain "[service]" prefix, no color |
-| `DS4_LOG_TAIL_LINES` | Backlog lines shown per service when `serverctl logs all` starts (default 6) | N/A — sets the count, no on/off |
+| `CCGW_LOG_COLOR` | ANSI "[service]" prefix per line in `serverctl logs all` | Plain "[service]" prefix, no color |
+| `CCGW_LOG_TAIL_LINES` | Backlog lines shown per service when `serverctl logs all` starts (default 6) | N/A — sets the count, no on/off |
 
-`DS4_LOG=off` stops only the stdout/stderr log files. If `DS4_PROXY_TEE=on`, the proxy
-still writes body-dump logs to `DS4_PROXY_LOG_DIR` — they are independent.
+`CCGW_LOG=off` stops only the stdout/stderr log files. If `CCGW_PROXY_TEE=on`, the proxy
+still writes body-dump logs to `CCGW_PROXY_LOG_DIR` — they are independent.
 
-Log file paths: `~/Library/Logs/ds4-proxy/proxy.log` and `~/Library/Logs/llama-swap/llama-swap.log`
+Log file paths: `~/Library/Logs/ccgw-proxy/proxy.log` and `~/Library/Logs/llama-swap/llama-swap.log`
 (ds4-server's own stdout/stderr flow through llama-swap into the latter file — see
 `kvcache.log` under [Monitoring](#monitoring-mac) for the separate KV-cache log ds4-server writes
 directly).
@@ -319,7 +320,7 @@ The wrapper loads `.env`, then sets the ccgw env (`ANTHROPIC_BASE_URL`, `ANTHROP
 the per-tier model aliases (the tier table under "Client (macOS / Linux)" applies here too),
 `NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. There is exactly one route: the
-direct DS4 Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
+direct CCGW Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
 `LITELLM_CLIENT_KEY` is an error and the wrapper exits rather than falling back to a placeholder
 that would surface later as a confusing 401. A value set in the shell takes precedence over
 `.env`. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
@@ -418,7 +419,7 @@ for expected weight size):
 ```sh
 curl -s http://127.0.0.1:18080/v1/messages \
   -H "Content-Type: application/json" \
-  -H "x-api-key: $DS4_PROXY_AUTH_TOKEN" \
+  -H "x-api-key: $CCGW_PROXY_AUTH_TOKEN" \
   -H "anthropic-version: 2023-06-01" \
   -d '{"model":"laguna-s-2.1","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 ```

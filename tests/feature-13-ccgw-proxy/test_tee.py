@@ -16,7 +16,7 @@
 # TL3 gap: real concurrent connections writing into the same log dir from the
 # live proxy (this suite drives TeeLogger directly, single-process).
 # Closest-to-action mitigation: covered by the manual cutover smoke run in
-# docs/ops.md (serverctl logs proxy with DS4_PROXY_TEE=on).
+# docs/ops.md (serverctl logs proxy with CCGW_PROXY_TEE=on).
 
 import json
 

@@ -27,7 +27,7 @@ WORK="$(mktemp -d)"
 # Pinned into this test's tmpdir so the real dotenv is never read; the stub
 # token is there so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token\n' > "$DOTENV_FILE"
 trap 'rm -rf "$WORK"' EXIT
 
 # _ds4_cmd server interpolates $HOME and $HOST; both are pinned so the expected

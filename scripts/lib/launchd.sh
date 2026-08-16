@@ -3,8 +3,19 @@
 # Sourced by serverctl.sh before lifecycle.sh.
 set -eu
 
-_ds4_plist_path() { echo "$HOME/Library/LaunchAgents/com.nire.ds4-${1}.plist"; }
-_ds4_plist_label() { echo "com.nire.ds4-${1}"; }
+# Per-service lookup rather than a flat "com.nire.ds4-${1}" concatenation: the
+# gateway services carry the ccgw- prefix, while `server` keeps its ds4- label
+# because it really is the DeepSeek V4 Flash backend.
+_ds4_plist_label() {
+    case "$1" in
+        proxy)      echo "com.nire.ccgw-proxy" ;;
+        llama-swap) echo "com.nire.ccgw-llama-swap" ;;
+        litellm)    echo "com.nire.ccgw-litellm" ;;
+        server)     echo "com.nire.ds4-server" ;;
+    esac
+}
+
+_ds4_plist_path() { echo "$HOME/Library/LaunchAgents/$(_ds4_plist_label "$1").plist"; }
 
 _ds4_launchd_active() {
     _label="$(_ds4_plist_label "$1")"
@@ -16,11 +27,11 @@ _ds4_write_plist() {
     _svc="$1"
     _plist="$(_ds4_plist_path "$_svc")"
     _label="$(_ds4_plist_label "$_svc")"
-    _wrapper="$DS4_OPS_ROOT/scripts/$(_ds4_wrapper_script "$_svc")"
+    _wrapper="$CCGW_OPS_ROOT/scripts/$(_ds4_wrapper_script "$_svc")"
     _cwd="$(_ds4_cwd "$_svc")"
     _logfile="$(_ds4_log_file "$_svc")"
 
-    if [ "${DS4_LOG:-on}" = "on" ]; then
+    if [ "${CCGW_LOG:-on}" = "on" ]; then
         _out_path="$_logfile"
         _err_path="$_logfile"
     else

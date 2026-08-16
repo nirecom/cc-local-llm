@@ -2,11 +2,11 @@
 # Tests: scripts/serverctl.sh, scripts/lib/lifecycle.sh, scripts/lib/paths.sh
 # Tags: lifecycle, serverctl, scope:issue-specific
 #
-# Scenario: serverctl DS4_LOG toggle — on creates/appends a log file; off writes no file.
+# Scenario: serverctl CCGW_LOG toggle — on creates/appends a log file; off writes no file.
 #
 # Skips (exit 77) until scripts/serverctl.sh exists (implementation pending).
 # L3 gap: real launchctl load/unload persistence across reboots; actual
-#   caffeinate process supervision on macOS; real DS4_PROXY_AUTH_TOKEN auth check.
+#   caffeinate process supervision on macOS; real CCGW_PROXY_AUTH_TOKEN auth check.
 set -u
 
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
@@ -21,12 +21,12 @@ WORK="$(mktemp -d)"
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; seed it with a stub auth token so the start guard sees a value.
 export DOTENV_FILE="$WORK/dotenv"
-printf 'DS4_PROXY_AUTH_TOKEN=test-token
+printf 'CCGW_PROXY_AUTH_TOKEN=test-token
 ' > "$DOTENV_FILE"
 export HOME="$WORK/home"
 PID_DIR="$HOME/Library/Application Support/cc-local-llm/run"
 mkdir -p "$PID_DIR"
-LOG_DIR="$HOME/Library/Logs/ds4-proxy"
+LOG_DIR="$HOME/Library/Logs/ccgw-proxy"
 
 cleanup() {
     [ -f "$PID_DIR/proxy.pid" ] && kill "$(cat "$PID_DIR/proxy.pid")" 2>/dev/null
@@ -52,9 +52,9 @@ export DS4CTL_EXEC_OVERRIDE="$FAKE"
 wait_for() { _i=0; while [ ! -s "$1" ] && [ "$_i" -lt "${2}0" ]; do perl -e 'select undef,undef,undef,0.1'; _i=$((_i+1)); done; [ -s "$1" ]; }
 stop_proxy() { PATH="$STUB:$PATH" bash "$SERVERCTL" stop proxy >/dev/null 2>&1 || true; perl -e 'select undef,undef,undef,0.3'; }
 
-# --- DS4_LOG=on -> log file created and receives service output -------------
+# --- CCGW_LOG=on -> log file created and receives service output -------------
 rm -rf "$LOG_DIR"
-DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log on) failed: $(cat "$WORK/out")"
+CCGW_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log on) failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log on: proxy did not start"
 LOGFILE=""
 _i=0
@@ -69,16 +69,16 @@ grep -q "FAKE-MARKER-LINE" "$LOGFILE" || fail "log on: service output not captur
 # Append semantics: restart appends rather than truncating.
 BEFORE_BYTES=$(wc -c < "$LOGFILE")
 stop_proxy
-DS4_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "restart (log on) failed"
+CCGW_LOG=on PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "restart (log on) failed"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log on restart: proxy did not start"
 perl -e 'select undef,undef,undef,0.5'
 AFTER_BYTES=$(wc -c < "$LOGFILE")
 [ "$AFTER_BYTES" -ge "$BEFORE_BYTES" ] || fail "log on: file shrank ($AFTER_BYTES < $BEFORE_BYTES) — not appending"
 stop_proxy
 
-# --- DS4_LOG=off -> no log file written -------------------------------------
+# --- CCGW_LOG=off -> no log file written -------------------------------------
 rm -rf "$LOG_DIR"
-DS4_LOG=off PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log off) failed: $(cat "$WORK/out")"
+CCGW_LOG=off PATH="$STUB:$PATH" bash "$SERVERCTL" start proxy >"$WORK/out" 2>&1 || fail "start (log off) failed: $(cat "$WORK/out")"
 wait_for "$PID_DIR/proxy.pid" 5 || fail "log off: proxy did not start"
 perl -e 'select undef,undef,undef,0.5'
 if ls "$LOG_DIR"/*.log >/dev/null 2>&1; then

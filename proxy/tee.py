@@ -1,7 +1,7 @@
-"""Optional body-only request logging for the ds4 reverse proxy.
+"""Optional body-only request logging for the ccgw reverse proxy.
 
 TeeLogger writes the pre- and post-normalization request bodies to disk when
-DS4_PROXY_TEE=on, so a normalization rule can be debugged by diffing what the
+CCGW_PROXY_TEE=on, so a normalization rule can be debugged by diffing what the
 client sent against what was forwarded upstream. Auth headers are never part of
 the body, so nothing sensitive is logged and no scrubbing is needed.
 """

@@ -1,4 +1,4 @@
-"""asyncio TLS reverse proxy for ds4.
+"""asyncio TLS reverse proxy for ccgw.
 
 Terminates TLS from LiteLLM, authenticates the request against a shared token,
 normalizes the request body for a stable prompt-cache prefix, then forwards to
@@ -6,7 +6,7 @@ the plain-HTTP Mac llama-swap and relays the (possibly streamed) response back.
 One handler runs per client connection.
 
 The proxy is a path-preserving generic hop: it appends the incoming path to
-DS4_PROXY_UPSTREAM verbatim and never rewrites the model name. llama-swap
+CCGW_PROXY_UPSTREAM verbatim and never rewrites the model name. llama-swap
 routes by model name to ds4-server or Laguna's mlx_lm.server, both of which
 speak the OpenAI /v1/chat/completions shape — Anthropic-to-OpenAI conversion
 is LiteLLM's job, upstream of here. Normalization therefore has to understand
@@ -231,7 +231,7 @@ async def main() -> None:
             ctx.load_cert_chain(config.cert, config.key)
         except (FileNotFoundError, ssl.SSLError) as exc:
             sys.exit(
-                f"[ds4-proxy] failed to load TLS cert/key "
+                f"[ccgw-proxy] failed to load TLS cert/key "
                 f"({config.cert} / {config.key}): {exc}"
             )
 
@@ -244,7 +244,7 @@ async def main() -> None:
             ssl=ctx,
         )
         print(
-            f"[ds4-proxy] listening on {scheme}://{config.host}:{config.port}"
+            f"[ccgw-proxy] listening on {scheme}://{config.host}:{config.port}"
             f" → {config.upstream}"
         )
         async with server:
@@ -255,4 +255,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("[ds4-proxy] shutting down", file=sys.stderr)
+        print("[ccgw-proxy] shutting down", file=sys.stderr)
