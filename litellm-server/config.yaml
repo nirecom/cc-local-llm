@@ -71,7 +71,7 @@ model_list:
   # llama-swap's useModelName.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
-      model: openai/laguna-s-2.1
+      model: openai/qwen3-coder-next-80b-a3b
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
