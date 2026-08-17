@@ -19,12 +19,47 @@ $ErrorActionPreference = 'Stop'
 # code should abort this launcher, so that conversion is switched off where it exists.
 if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 
+# Strips #@if <token> / #@endif blocks. Must stay behaviorally identical to
+# agents/hooks/lib/load-env.js's filterOsBlocks() state machine
+# (docs/env-conditional-blocks.md is the SSOT spec both follow).
+function ConvertFrom-OsConditionalLines {
+    param([string[]]$Lines, [string]$ActiveToken)
+    $depth = 0
+    $suppressing = $false
+    $suppressDepth = 0
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($raw in $Lines) {
+        $stripped = $raw.TrimEnd("`r")
+        $line = $stripped.Trim()
+        if ($line -like '#@if *') {
+            $depth++
+            $token = $line.Substring(5).Trim()
+            if (-not $suppressing -and $token -ne $ActiveToken) { $suppressing = $true; $suppressDepth = $depth }
+            continue
+        }
+        if ($line -eq '#@endif') {
+            if ($depth -gt 0) {
+                if ($suppressing -and $depth -eq $suppressDepth) { $suppressing = $false }
+                $depth--
+            }
+            continue
+        }
+        if ($line.StartsWith('#@')) { continue }
+        if (-not $suppressing) { $out.Add($stripped) }
+    }
+    return $out
+}
+
 # Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 # Format: KEY=value, one per line, # comment lines allowed. A value already set in
 # the shell takes precedence over .env. See .env.example for the supported keys.
+# .env may also carry #@if windows / #@if posix / #@endif blocks (docs/env-conditional-blocks.md).
 $EnvFile = Join-Path (Join-Path $PSScriptRoot '..') '.env'
 if (Test-Path -LiteralPath $EnvFile) {
-    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+    $IsWindowsPlatform = if (Test-Path variable:IsWindows) { $IsWindows } else { $true }
+    $ActiveToken = if ($IsWindowsPlatform) { 'windows' } else { 'posix' }
+    $filteredLines = ConvertFrom-OsConditionalLines -Lines (Get-Content -LiteralPath $EnvFile) -ActiveToken $ActiveToken
+    foreach ($line in $filteredLines) {
         $trimmed = $line.Trim()
         if ($trimmed -eq '' -or $trimmed.StartsWith('#')) { continue }
         $split = $trimmed.IndexOf('=')
