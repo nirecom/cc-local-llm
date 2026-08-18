@@ -113,3 +113,7 @@ Launchd labels com.nire.ds4-{proxy,litellm,llama-swap} -> com.nire.ccgw-{proxy,l
 ### FEATURE: PR #52 — feature/51-ds4-proxy-ds4-ccgw (2026-08-16, 96132f7099f01074a3264eae7a3648106082dbd3, #52)
 Background: PR #52 merged on 2026-08-16.
 Changes: Renamed `ds4-proxy` to `ccgw-proxy` and the shared `DS4_*` env vars to `CCGW_*` across scripts, launchd labels, config, and docs, since the proxy component now also fronts Laguna and the old DS4-specific name was misleading; `DS4_SERVER_*`/`ds4-server` was excluded (it accurately names the DeepSeek V4 backend) and `_ds4_*` internal shell function prefixes were deferred to a follow-up issue (#51) <!-- compose-doc-append-sentinel: branch=feature/51-ds4-proxy-ds4-ccgw pr=#52 -->
+
+### FEATURE: PR #57 — feature/56-cc-local-llm (2026-08-18, ffdd8e882338b151f3a22e8f71d8a637f0359997, #57)
+Background: feature/56 cc local llm
+Changes: #56: Added native `#@if windows` / `#@if posix` / `#@endif` OS-conditional-block marker support to cc-local-llm's `.env` loading — the POSIX (`scripts/lib/load-dotenv.sh`) and PowerShell (`scripts/code-ccgw.ps1`) loaders now filter blocks by platform token, so a single `.env` (shared across machines via a symlink to a centrally-managed private dotfiles store) can carry both Windows and macOS/Linux values. Added SSOT spec `docs/env-conditional-blocks.md`; `.env.example`'s `CCGW_CA_CERT` entry converted to marker form as the reference example. <!-- compose-doc-append-sentinel: branch=feature/56-cc-local-llm pr=#57 -->
