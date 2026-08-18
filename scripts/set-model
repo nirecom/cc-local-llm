@@ -1,0 +1,239 @@
+#!/bin/sh
+# set-model — change which physical backend a Claude Code tier routes to.
+#
+# Two things have to move together, or Claude Code's own /model display goes
+# stale: LITELLM_<TIER>_MODEL in .env (what Claude Code sends as the request's
+# `model` field, via ANTHROPIC_DEFAULT_<TIER>_MODEL -- see scripts/code-ccgw.sh)
+# and litellm_params.model in litellm-server/config.yaml (the actual backend
+# that tier's model_list block calls). This script writes both, keyed off the
+# same bare model-key, then restarts litellm-server so it re-resolves
+# os.environ/LITELLM_<TIER>_MODEL from the new .env value.
+#
+# fable/opus route to Mac llama-swap (llama-swap/config.yaml `models:` keys,
+# enumerable from this repo). haiku/sonnet route to the Windows llama-swap
+# instance, whose config.yaml is not in this repo (docs/infrastructure.md) --
+# their choices, and the provider shape of a given key, can't be verified
+# here, only the currently-configured backend can be shown.
+set -eu
+
+CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=scripts/lib/root.sh
+. "$CCGW_SCRIPT_DIR/lib/root.sh"
+# shellcheck source=scripts/lib/load-dotenv.sh
+. "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
+# shellcheck source=scripts/lib/paths.sh
+. "$CCGW_SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=scripts/lib/launchd.sh
+. "$CCGW_SCRIPT_DIR/lib/launchd.sh"
+# shellcheck source=scripts/lib/lifecycle.sh
+. "$CCGW_SCRIPT_DIR/lib/lifecycle.sh"
+
+LLAMA_SWAP_CONFIG="$LLAMA_SWAP_ROOT/config.yaml"
+LITELLM_CONFIG="$LITELLM_ROOT/config.yaml"
+
+_display_path() {
+    case "$1" in
+        "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
+        *)         printf '%s' "$1" ;;
+    esac
+}
+
+_usage() {
+    cat <<EOF
+Usage: set-model <tier> <model-key>
+       set-model --list [tier]
+       set-model -h|--help
+
+Tiers: haiku, sonnet, fable, opus
+
+--list with no tier shows all four; --list <tier> shows just that one.
+fable/opus choices are read live from $(_display_path "$LLAMA_SWAP_CONFIG").
+haiku/sonnet run on the Windows llama-swap instance, whose config.yaml is
+not in this repo -- only the currently-configured backend can be shown for
+those two, not the full choice list, and its provider shape isn't verified.
+
+Edits $(_display_path "$LITELLM_CONFIG") (litellm_params.model, keeping the
+existing provider prefix) and $(_display_path "$DOTENV_FILE") (LITELLM_<TIER>_MODEL,
+bare key) together, then restarts litellm-server. Refuses a fable/opus switch
+whose target backend uses a different provider shape (e.g. ds4-server's
+anthropic/ vs mlx_lm.server's openai/) -- that needs a manual config edit
+(provider, api_base, and context_window all differ), not a same-shape swap.
+EOF
+}
+
+_usage_error() {
+    echo "[set-model] $1" >&2
+    _usage >&2
+    exit 2
+}
+
+_env_var_for_tier() {
+    case "$1" in
+        haiku)  echo LITELLM_HAIKU_MODEL ;;
+        sonnet) echo LITELLM_SONNET_MODEL ;;
+        fable)  echo LITELLM_FABLE_MODEL ;;
+        opus)   echo LITELLM_OPUS_MODEL ;;
+        *) return 1 ;;
+    esac
+}
+
+# Mac-side model keys, from llama-swap/config.yaml's top-level `models:`
+# block (2-space-indented `key:` lines, ending at the next 0-indent line).
+_mac_model_keys() {
+    [ -f "$LLAMA_SWAP_CONFIG" ] || return 0
+    awk '
+        /^models:/ { in_block = 1; next }
+        in_block && /^[A-Za-z]/ { in_block = 0 }
+        in_block && /^  [A-Za-z0-9_.-]+:/ {
+            key = $0
+            sub(/^  /, "", key)
+            sub(/:.*/, "", key)
+            print key
+        }
+    ' "$LLAMA_SWAP_CONFIG"
+}
+
+# Provider shape a Mac model key needs, inferred from which server binary its
+# llama-swap `cmd` invokes. Empty output means "couldn't tell" (key not found,
+# or its cmd names neither known binary).
+_mac_model_shape() {
+    [ -f "$LLAMA_SWAP_CONFIG" ] || return 0
+    awk -v target="$1" '
+        /^models:/ { in_block = 1; next }
+        in_block && /^[A-Za-z]/ { in_block = 0 }
+        in_block && /^  [A-Za-z0-9_.-]+:/ {
+            key = $0
+            sub(/^  /, "", key)
+            sub(/:.*/, "", key)
+            cur = (key == target)
+        }
+        cur && /mlx_lm\.server/ { print "openai"; exit }
+        cur && /ds4-server/     { print "anthropic"; exit }
+    ' "$LLAMA_SWAP_CONFIG"
+}
+
+# Prints the "      model: <provider>/<backend-key>" line of the model_list
+# block whose model_name is os.environ/<envname>.
+_current_backend_line() {
+    awk -v envname="$1" '
+        index($0, "  - model_name: os.environ/" envname) == 1 { in_block = 1; next }
+        /^  - model_name:/ { in_block = 0 }
+        in_block && index($0, "      model: ") == 1 { print; in_block = 0 }
+    ' "$LITELLM_CONFIG"
+}
+
+_list_tier() {
+    _lt_tier="$1"
+    _lt_envvar="$(_env_var_for_tier "$_lt_tier")"
+    _lt_line="$(_current_backend_line "$_lt_envvar")"
+    _lt_value="${_lt_line#*model: }"
+    case "$_lt_tier" in
+        haiku|sonnet)
+            echo "$_lt_tier   (Windows llama-swap; not enumerable from this repo -- check its config.yaml on the Windows PC, see docs/infrastructure.md)"
+            echo "  current backend: ${_lt_value:-(unknown)}"
+            ;;
+        fable|opus)
+            echo "$_lt_tier   (Mac llama-swap: $(_display_path "$LLAMA_SWAP_CONFIG"))"
+            echo "  current backend: ${_lt_value:-(unknown)}"
+            printf '  choices: '
+            _mac_model_keys | tr '\n' ',' | sed 's/,$//; s/,/, /g'
+            echo
+            ;;
+    esac
+}
+
+# Atomic replace-or-append of a KEY=VALUE line in DOTENV_FILE.
+_set_env_var() {
+    _sev_key="$1"
+    _sev_val="$2"
+    _sev_tmp="$(mktemp "${DOTENV_FILE}.XXXXXX")"
+    awk -v key="$_sev_key" -v val="$_sev_val" '
+        BEGIN { done = 0 }
+        index($0, key "=") == 1 { print key "=" val; done = 1; next }
+        { print }
+        END { if (!done) print key "=" val }
+    ' "$DOTENV_FILE" > "$_sev_tmp"
+    mv "$_sev_tmp" "$DOTENV_FILE"
+}
+
+# Replaces the "      model: " line inside the model_list block whose
+# model_name is os.environ/<envname>, keeping every other line untouched.
+_set_backend_model() {
+    _sbm_envname="$1"
+    _sbm_newline="      model: $2"
+    _sbm_tmp="$(mktemp "${LITELLM_CONFIG}.XXXXXX")"
+    awk -v envname="$_sbm_envname" -v newline="$_sbm_newline" '
+        index($0, "  - model_name: os.environ/" envname) == 1 { in_block = 1; print; next }
+        /^  - model_name:/ { in_block = 0 }
+        in_block && index($0, "      model: ") == 1 { print newline; in_block = 0; next }
+        { print }
+    ' "$LITELLM_CONFIG" > "$_sbm_tmp"
+    mv "$_sbm_tmp" "$LITELLM_CONFIG"
+}
+
+if [ $# -lt 1 ]; then
+    _usage
+    exit 2
+fi
+
+case "$1" in
+    -h|--help)
+        _usage
+        exit 0
+        ;;
+    --list)
+        if [ $# -ge 2 ]; then
+            _env_var_for_tier "$2" >/dev/null 2>&1 || _usage_error "unknown tier: $2"
+            _list_tier "$2"
+        else
+            for _t in haiku sonnet fable opus; do
+                _list_tier "$_t"
+            done
+        fi
+        exit 0
+        ;;
+esac
+
+[ $# -ge 2 ] || _usage_error "missing model-key for tier: $1"
+
+TIER="$1"
+MODEL_KEY="$2"
+ENV_VAR="$(_env_var_for_tier "$TIER")" || _usage_error "unknown tier: $TIER (expected haiku|sonnet|fable|opus)"
+
+CURRENT_LINE="$(_current_backend_line "$ENV_VAR")"
+[ -n "$CURRENT_LINE" ] || _usage_error "could not find the $TIER model_list block in $(_display_path "$LITELLM_CONFIG")"
+CURRENT_VALUE="${CURRENT_LINE#*model: }"
+PROVIDER="${CURRENT_VALUE%%/*}"
+
+case "$TIER" in
+    fable|opus)
+        if ! _mac_model_keys | grep -qx "$MODEL_KEY"; then
+            echo "[set-model] unknown model-key for $TIER: $MODEL_KEY" >&2
+            echo "[set-model] choices:" >&2
+            _mac_model_keys | sed 's/^/  /' >&2
+            exit 2
+        fi
+        TARGET_SHAPE="$(_mac_model_shape "$MODEL_KEY")"
+        if [ -n "$TARGET_SHAPE" ] && [ "$TARGET_SHAPE" != "$PROVIDER" ]; then
+            echo "[set-model] $MODEL_KEY needs provider '$TARGET_SHAPE/' but $TIER is currently wired as '$PROVIDER/' -- provider, api_base, and context_window all differ between these two shapes." >&2
+            echo "[set-model] not supported by this script; edit $(_display_path "$LITELLM_CONFIG") by hand." >&2
+            exit 2
+        fi
+        ;;
+    haiku|sonnet)
+        echo "[set-model] note: $TIER's choices and provider shape can't be verified from this repo (Windows-side config) -- trusting the value as given" >&2
+        ;;
+esac
+
+_set_backend_model "$ENV_VAR" "$PROVIDER/$MODEL_KEY"
+_set_env_var "$ENV_VAR" "$MODEL_KEY"
+echo "[set-model] $TIER backend: $CURRENT_VALUE -> $PROVIDER/$MODEL_KEY (in $(_display_path "$LITELLM_CONFIG"))"
+echo "[set-model] $ENV_VAR=$MODEL_KEY (in $(_display_path "$DOTENV_FILE"))"
+
+if _ds4_launchd_active litellm; then
+    ds4_uninstall litellm
+    ds4_install litellm
+else
+    "$CCGW_SCRIPT_DIR/serverctl.sh" restart litellm
+fi
+echo "[set-model] $TIER now routes to $MODEL_KEY"
