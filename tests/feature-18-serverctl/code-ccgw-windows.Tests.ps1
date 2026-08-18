@@ -642,5 +642,216 @@ Describe 'code-ccgw.ps1' {
             $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
             Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'dotenv/absent: launcher still runs'
         }
+
+        # --- OS-conditional blocks (issue #56): `#@if windows` / `#@if posix` /
+        # `#@endif` in the repo-root .env. `ConvertFrom-OsConditionalLines` does
+        # NOT exist yet in scripts/code-ccgw.ps1 as of this writing -- written
+        # FIRST against the 13-case reference spec in the issue #56 detail plan,
+        # so the follow-up implementation has a red suite to turn green.
+        #
+        # This suite runs wherever pwsh happens to execute, not necessarily on
+        # Windows, and the launcher's own platform-token resolution ($IsWindows,
+        # falling back to 'windows' only when that variable does not exist at
+        # all) is a property of whatever REAL host runs the child launcher
+        # process below -- it cannot be mocked without touching the source. So
+        # every assertion here is phrased in terms of $script:OsBlockToken,
+        # resolved the same way, rather than hardcoding an assumption that the
+        # host is Windows.
+        BeforeAll {
+            $script:OsBlockToken = if (Test-Path variable:IsWindows) { if ($IsWindows) { 'windows' } else { 'posix' } } else { 'windows' }
+            $script:OsBlockOtherToken = if ($script:OsBlockToken -eq 'windows') { 'posix' } else { 'windows' }
+
+            function Get-OsBlockExpected {
+                param([string]$WindowsValue, [string]$PosixValue)
+                if ($script:OsBlockToken -eq 'windows') { return $WindowsValue }
+                return $PosixValue
+            }
+
+            $script:OsBlockCase1 = New-FixtureTree -Name 'fixture-osblock-case1' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '#@if windows'
+                'BASIC_KEY=win_value'
+                '#@endif'
+                '#@if posix'
+                'BASIC_KEY=posix_value'
+                '#@endif'
+            )
+            $script:OsBlockCase3 = New-FixtureTree -Name 'fixture-osblock-case3' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '# a plain comment'
+                'PLAIN_KEY=plain_value'
+            )
+            $script:OsBlockCase4 = New-FixtureTree -Name 'fixture-osblock-case4' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                'BEFORE_KEY=before_value'
+                ''
+                'AFTER_KEY=after_value'
+            )
+            $script:OsBlockCase5 = New-FixtureTree -Name 'fixture-osblock-case5' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                "#@if $($script:OsBlockOtherToken)"
+                'OUTER_KEY=outer_should_not_appear'
+                "#@if $($script:OsBlockToken)"
+                'INNER_KEY=inner_should_not_appear'
+                '#@endif'
+                '#@endif'
+            )
+            $script:OsBlockCase6 = New-FixtureTree -Name 'fixture-osblock-case6' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                "#@if $($script:OsBlockToken)"
+                'BEFORE_KEY=before_value'
+                "#@if $($script:OsBlockOtherToken)"
+                'NESTED_KEY=nested_should_not_appear'
+                '#@endif'
+                'AFTER_KEY=after_value'
+                '#@endif'
+            )
+            $script:OsBlockCase7 = New-FixtureTree -Name 'fixture-osblock-case7' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '#@if darwin'
+                'UNKNOWN_TOKEN_KEY=should_never_appear'
+                '#@endif'
+            )
+            $script:OsBlockCase8 = New-FixtureTree -Name 'fixture-osblock-case8' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '#@ifwindows'
+                'FOLLOW_KEY=should_always_appear'
+                '#@endif'
+            )
+            $script:OsBlockCase9 = New-FixtureTree -Name 'fixture-osblock-case9' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                'BEFORE_KEY=before_value'
+                '#@endif'
+                'AFTER_KEY=after_value'
+            )
+            $script:OsBlockCase10 = New-FixtureTree -Name 'fixture-osblock-case10' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                "#@if $($script:OsBlockOtherToken)"
+                'INSIDE_KEY=inside_value'
+                '#@endif foo'
+                'AFTER_KEY=after_value'
+            )
+
+            $script:OsBlockCase11 = New-FixtureTree -Name 'fixture-osblock-case11'
+            $osBlockCase11Root = Split-Path (Split-Path $script:OsBlockCase11 -Parent) -Parent
+            $osBlockCase11Lines = @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '#@if windows'
+                'BASIC_KEY=win_value'
+                '#@endif'
+                '#@if posix'
+                'BASIC_KEY=posix_value'
+                '#@endif'
+            )
+            # Explicit CRLF write: New-FixtureTree's Set-Content uses this host's
+            # default newline, which is already LF on macOS/Linux -- this case
+            # exists specifically to prove a CRLF-authored .env (e.g. edited on a
+            # real Windows box) resolves identically regardless of host.
+            [System.IO.File]::WriteAllText((Join-Path $osBlockCase11Root '.env'), (($osBlockCase11Lines -join "`r`n") + "`r`n"))
+
+            $script:OsBlockCase12 = New-FixtureTree -Name 'fixture-osblock-case12' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                '  #@if windows  '
+                'PAD_KEY=win_value'
+                '  #@endif  '
+                '  #@if posix  '
+                'PAD_KEY=posix_value'
+                '  #@endif  '
+            )
+            $script:OsBlockCase13 = New-FixtureTree -Name 'fixture-osblock-case13' -DotEnvLines @(
+                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
+                'LITELLM_CLIENT_KEY=ck'
+                'DUP_KEY=first_value'
+                "#@if $($script:OsBlockToken)"
+                'DUP_KEY=second_value_inside_active_block'
+                '#@endif'
+            )
+        }
+
+        It '[env-conditional-blocks: case 1] only the active platform block''s value survives' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase1
+            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
+            Assert-LauncherEnv $r 'BASIC_KEY' $expected "os-block/case1 (host token: $($script:OsBlockToken))"
+        }
+
+        It '[env-conditional-blocks: case 2] marker lines never leak into the loaded env' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase1
+            $leaked = @($r.Env.Keys | Where-Object { $r.Env[$_] -match '#@if|#@endif' })
+            $leaked.Count | Should -Be 0 -Because "marker syntax must never appear in an exported value; found in: $($leaked -join ', ')"
+        }
+
+        It '[env-conditional-blocks: case 3] plain lines outside any block are unconditional' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase3
+            Assert-LauncherEnv $r 'PLAIN_KEY' 'plain_value' 'os-block/case3'
+        }
+
+        It '[env-conditional-blocks: case 4] blank lines outside marker blocks are preserved' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase4
+            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' 'os-block/case4'
+            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case4'
+        }
+
+        It '[env-conditional-blocks: case 5] nesting does not leak -- an inactive outer block suppresses a would-be-active nested block' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase5
+            Assert-LauncherEnvUnset $r 'OUTER_KEY' "os-block/case5 (host token: $($script:OsBlockToken))"
+            Assert-LauncherEnvUnset $r 'INNER_KEY' 'os-block/case5: suppressDepth must pin at the outer depth'
+        }
+
+        It '[env-conditional-blocks: case 6] nesting does not leak the other way -- an active outer block only removes the nested inactive block' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase6
+            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' "os-block/case6 (host token: $($script:OsBlockToken))"
+            Assert-LauncherEnvUnset $r 'NESTED_KEY' 'os-block/case6: the nested inactive block must be removed'
+            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case6: content after the nested block, still inside the active outer block, must load'
+        }
+
+        It '[env-conditional-blocks: case 7] an unrecognized token suppresses its block on any host' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase7
+            Assert-LauncherEnvUnset $r 'UNKNOWN_TOKEN_KEY' "os-block/case7 (host token: $($script:OsBlockToken))"
+        }
+
+        It '[env-conditional-blocks: case 8] non-strict spelling ("#@ifwindows", no space) opens no block' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase8
+            Assert-LauncherEnv $r 'FOLLOW_KEY' 'should_always_appear' "os-block/case8 (host token: $($script:OsBlockToken))"
+        }
+
+        It '[env-conditional-blocks: case 9] an orphan #@endif is a no-op' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase9
+            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' 'os-block/case9'
+            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case9'
+        }
+
+        It '[env-conditional-blocks: case 10] "#@endif foo" (trailing text) never closes the block -- deliberately non-lenient' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase10
+            Assert-LauncherEnvUnset $r 'INSIDE_KEY' "os-block/case10: #@if $($script:OsBlockOtherToken) is inactive on this host (token: $($script:OsBlockToken))"
+            Assert-LauncherEnvUnset $r 'AFTER_KEY' 'os-block/case10: "#@endif foo" does not close the block, so suppression never lifts'
+        }
+
+        It '[env-conditional-blocks: case 11] CRLF-saved markers resolve identically to LF' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase11
+            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
+            Assert-LauncherEnv $r 'BASIC_KEY' $expected "os-block/case11 (host token: $($script:OsBlockToken))"
+        }
+
+        It '[env-conditional-blocks: case 12] whitespace-padded marker lines are still recognized' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase12
+            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
+            Assert-LauncherEnv $r 'PAD_KEY' $expected "os-block/case12 (host token: $($script:OsBlockToken))"
+        }
+
+        It '[env-conditional-blocks: case 13] duplicate keys -- first occurrence wins' {
+            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase13
+            Assert-LauncherEnv $r 'DUP_KEY' 'first_value' "os-block/case13: the loader skips re-setting an already-set var (host token: $($script:OsBlockToken))"
+        }
     }
 }
