@@ -325,7 +325,9 @@ direct CCGW Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
 that would surface later as a confusing 401. A value set in the shell takes precedence over
 `.env`. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
 with a warning. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>\rootCA.pem` so Node trusts the
-gateway certificate (if unset the wrapper warns and TLS will not be trusted).
+gateway certificate (if unset the wrapper warns and TLS will not be trusted). `.env` may carry
+`#@if windows` / `#@if posix` / `#@endif` blocks so one file holds both platforms' values — see
+[env-conditional-blocks.md](env-conditional-blocks.md).
 
 Subagent routing is opt-in: set `CCGW_SUBAGENT_MODEL` to a LiteLLM routing key to pin every
 subagent to one tier. Left empty — the default — each agent's own frontmatter decides.
@@ -377,6 +379,10 @@ Then fill in `.env`:
   that issued the certificate.
 - **On another Linux host:** `LITELLM_ANTHROPIC_BASE_URL=https://<mac-lan-ip>:8445`,
   `LITELLM_CLIENT_KEY`, and `CCGW_CA_CERT` pointing at a copy of the Mac's `rootCA.pem`.
+
+The same repo-root `.env` is shared with the Windows client above, so a value that differs by
+platform (like `CCGW_CA_CERT`'s path syntax) can live in one `#@if windows` / `#@if posix` /
+`#@endif` block instead of two files — see [env-conditional-blocks.md](env-conditional-blocks.md).
 
 Launch:
 ```bash

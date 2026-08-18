@@ -2,7 +2,8 @@
 
 What/Why of running ds4 as a Claude Code backend, at the design level. Concrete parameter
 values and their rationale live in [tuning.md](tuning.md); procedures in [ops.md](ops.md);
-host facts in [infrastructure.md](infrastructure.md); chronology in [history.md](history.md).
+host facts in [infrastructure.md](infrastructure.md); chronology in [history.md](history.md);
+`.env` OS-conditional blocks in [env-conditional-blocks.md](env-conditional-blocks.md).
 
 ## Goal
 
