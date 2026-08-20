@@ -23,6 +23,8 @@ CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
 # shellcheck source=scripts/lib/paths.sh
 . "$CCGW_SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=scripts/lib/atomic-write.sh
+. "$CCGW_SCRIPT_DIR/lib/atomic-write.sh"
 # shellcheck source=scripts/lib/launchd.sh
 . "$CCGW_SCRIPT_DIR/lib/launchd.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
@@ -146,14 +148,14 @@ _list_tier() {
 _set_env_var() {
     _sev_key="$1"
     _sev_val="$2"
-    _sev_tmp="$(mktemp "${DOTENV_FILE}.XXXXXX")"
+    _sev_tmp="$(_ccgw_begin_write "$DOTENV_FILE")"
     awk -v key="$_sev_key" -v val="$_sev_val" '
         BEGIN { done = 0 }
         index($0, key "=") == 1 { print key "=" val; done = 1; next }
         { print }
         END { if (!done) print key "=" val }
     ' "$DOTENV_FILE" > "$_sev_tmp"
-    mv "$_sev_tmp" "$DOTENV_FILE"
+    _ccgw_commit_write "$_sev_tmp" "$DOTENV_FILE"
 }
 
 # Replaces the "      model: " line inside the model_list block whose
@@ -161,14 +163,14 @@ _set_env_var() {
 _set_backend_model() {
     _sbm_envname="$1"
     _sbm_newline="      model: $2"
-    _sbm_tmp="$(mktemp "${LITELLM_CONFIG}.XXXXXX")"
+    _sbm_tmp="$(_ccgw_begin_write "$LITELLM_CONFIG")"
     awk -v envname="$_sbm_envname" -v newline="$_sbm_newline" '
         index($0, "  - model_name: os.environ/" envname) == 1 { in_block = 1; print; next }
         /^  - model_name:/ { in_block = 0 }
         in_block && index($0, "      model: ") == 1 { print newline; in_block = 0; next }
         { print }
     ' "$LITELLM_CONFIG" > "$_sbm_tmp"
-    mv "$_sbm_tmp" "$LITELLM_CONFIG"
+    _ccgw_commit_write "$_sbm_tmp" "$LITELLM_CONFIG"
 }
 
 if [ $# -lt 1 ]; then
