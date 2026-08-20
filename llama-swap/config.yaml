@@ -73,3 +73,25 @@ models:
     # are conservative first-pass values pending real-world tuning -- see
     # docs/tuning.md before adjusting.
     concurrencyLimit: 3
+  qwen3-next-80b-a3b-thinking:
+    # Same Qwen3-Next-80B-A3B base architecture as qwen3-coder-next-80b-a3b
+    # above (hybrid Gated DeltaNet/Gated Attention, 80B/3B, 84.7GB in 8bit),
+    # but the Thinking variant instead of Coder -- an A/B alternative for the
+    # opus tier when Coder-Next's lack of a thinking mode is the bottleneck.
+    # Switch between the two with `scripts/set-model opus <key>` -- both are
+    # mlx_lm.server/openai-shape, so it's a same-shape swap needing no manual
+    # litellm-server/config.yaml edit.
+    cmd: >-
+      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3-Next-80B-A3B-Thinking-8bit
+      --prompt-cache-bytes 20GB
+      --prompt-cache-size 5
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 0
+    # Same mlx_lm.server default-model-routing quirk as laguna-s-2.1 -- see
+    # that entry's comment.
+    useModelName: default_model
+    # Sizing mirrors qwen3-coder-next-80b-a3b (identical weight size, same
+    # hybrid-attention KV profile) -- see that entry's comment and
+    # docs/tuning.md before adjusting.
+    concurrencyLimit: 3
