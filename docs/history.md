@@ -117,3 +117,12 @@ Changes: Renamed `ds4-proxy` to `ccgw-proxy` and the shared `DS4_*` env vars to 
 ### FEATURE: PR #57 — feature/56-cc-local-llm (2026-08-18, ffdd8e882338b151f3a22e8f71d8a637f0359997, #57)
 Background: feature/56 cc local llm
 Changes: #56: Added native `#@if windows` / `#@if posix` / `#@endif` OS-conditional-block marker support to cc-local-llm's `.env` loading — the POSIX (`scripts/lib/load-dotenv.sh`) and PowerShell (`scripts/code-ccgw.ps1`) loaders now filter blocks by platform token, so a single `.env` (shared across machines via a symlink to a centrally-managed private dotfiles store) can carry both Windows and macOS/Linux values. Added SSOT spec `docs/env-conditional-blocks.md`; `.env.example`'s `CCGW_CA_CERT` entry converted to marker form as the reference example. <!-- compose-doc-append-sentinel: branch=feature/56-cc-local-llm pr=#57 -->
+
+### BUGFIX: ccgw model-routing keys always come from .env (stale shell value was overriding the opus tier on Windows) (2026-08-22)
+
+Background: The Windows launcher (scripts/code-ccgw.ps1) loaded .env with 'shell value wins over .env', so a stale inherited LITELLM_OPUS_MODEL left in the launching shell could override .env's correct value. On this machine .env carried qwen3-next-80b-a3b-thinking but the /model opus tier showed qwen3-coder-next-80b-a3b, diverging from the Mac/gateway side which used the .env value.
+
+Changes: Added an opt-in DOTENV_FORCE_KEYS (space-separated, NON-exported) to scripts/lib/load-dotenv.sh so .env always wins for listed keys; scripts/code-ccgw.sh sets it for the 5 model-routing keys (LITELLM_HAIKU_MODEL, LITELLM_SONNET_MODEL, LITELLM_FABLE_MODEL, LITELLM_OPUS_MODEL, CCGW_SUBAGENT_MODEL) and scripts/code-ccgw.ps1 mirrors it with $ModelRoutingKeys. Loaders that never set the list keep the default shell-value-wins behavior. Also fixed a pre-existing harness bug in tests/feature-18-serverctl/test-load-dotenv-os-blocks.sh: run_dotenv expanded $@ without shifting away $1/$2, leaking the dotenv-file/stub-dir into env's positional args so every case produced an empty env dump; added cases 14/15 locking the DOTENV_FORCE_KEYS opt-in behavior.
+
+Test gap: no test asserted the model-routing keys take .env over a stale shell value; the loader test's run_dotenv also had an unshifted $@ that made all its cases fail with an empty dump
+

@@ -57,12 +57,17 @@ write_fixture_crlf() { # write_fixture_crlf <path> <line>...
 # `env` (the second/final one, printing the resulting environment) is what we
 # assert against: it captures exactly what the loader exported, without
 # re-implementing any of the loader's own parsing here.
-run_dotenv() { # run_dotenv <dotenv-file> <uname-stub-dir>
+run_dotenv() { # run_dotenv <dotenv-file> <uname-stub-dir> [extra-env-args...]
+    # Capture $1/$2 and shift them away so the remaining "$@" is exactly the
+    # optional extra env args (KEY=VALUE) -- without this shift, "$@" would also
+    # carry the dotenv file and stub dir, which env would mistake for its command.
     rm -f "$DUMP"
+    local _dotenv_file="$1" _stub_dir="$2"; shift 2
     env -i \
-        PATH="$2:/usr/bin:/bin" \
+        PATH="$_stub_dir:/usr/bin:/bin" \
         HOME="$WORK/home" \
-        DOTENV_FILE="$1" \
+        DOTENV_FILE="$_dotenv_file" \
+        "$@" \
         LOADER="$LOADER" \
         sh -c '. "$LOADER"; env' > "$DUMP" 2>"$WORK/err"
     RC=$?
@@ -257,5 +262,32 @@ write_fixture "$WORK/case13.env" \
     '#@endif'
 run_dotenv "$WORK/case13.env" "$POSIX_STUB"
 assert_env DUP_KEY first_value "case 13 (posix): the first physical occurrence wins; the loader skips re-setting an already-set var"
+
+# =============================================================================
+# --- DOTENV_FORCE_KEYS: the opt-in .env-always-wins escape hatch -------------
+# Default (no DOTENV_FORCE_KEYS): shell value wins over .env.
+# With DOTENV_FORCE_KEYS: .env wins for the listed keys even when the shell
+# already has a value.
+# [dotenv-force-keys: case 14]
+write_fixture "$WORK/case14.env" \
+    'ROUTING_KEY=from_dotenv' \
+    'PLAIN_KEY=plain_dotenv'
+# Default behavior: pre-set shell value wins.
+run_dotenv "$WORK/case14.env" "$WIN_STUB" 'ROUTING_KEY=from_shell' 'PLAIN_KEY=plain_shell'
+assert_env ROUTING_KEY from_shell "case 14 (default): without DOTENV_FORCE_KEYS, a pre-set shell value still wins over .env"
+assert_env PLAIN_KEY plain_shell "case 14 (default): plain keys keep the default shell-value-wins behavior"
+
+# Forced: the listed key takes .env even though the shell also has a value.
+run_dotenv "$WORK/case14.env" "$WIN_STUB" 'ROUTING_KEY=from_shell' 'PLAIN_KEY=plain_shell' 'DOTENV_FORCE_KEYS=ROUTING_KEY'
+assert_env ROUTING_KEY from_dotenv "case 14 (forced): DOTENV_FORCE_KEYS makes .env win for the listed key despite the shell value"
+assert_env PLAIN_KEY plain_shell "case 14 (forced): a key NOT in DOTENV_FORCE_KEYS keeps shell-value-wins"
+
+# --- Case 15: a forced key absent from .env is not invented -----------------
+# [dotenv-force-keys: case 15]
+write_fixture "$WORK/case15.env" \
+    'ROUTING_KEY=from_dotenv'
+run_dotenv "$WORK/case15.env" "$WIN_STUB" 'ROUTING_KEY=from_shell' 'OTHER_KEY=other_shell' 'DOTENV_FORCE_KEYS=OTHER_KEY'
+assert_env ROUTING_KEY from_shell "case 15: forcing a key that .env does not define leaves the shell value untouched"
+assert_env OTHER_KEY other_shell "case 15: a forced-but-absent-in-.env key keeps the shell value (nothing to override)"
 
 echo "PASS: test-load-dotenv-os-blocks"
