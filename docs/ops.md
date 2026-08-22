@@ -323,7 +323,10 @@ the per-tier model aliases (the tier table under "Client (macOS / Linux)" applie
 direct CCGW Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
 `LITELLM_CLIENT_KEY` is an error and the wrapper exits rather than falling back to a placeholder
 that would surface later as a confusing 401. A value set in the shell takes precedence over
-`.env`. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
+`.env` — except for the model-routing keys (`LITELLM_HAIKU_MODEL`, `LITELLM_SONNET_MODEL`,
+`LITELLM_FABLE_MODEL`, `LITELLM_OPUS_MODEL`, `CCGW_SUBAGENT_MODEL`), which always come from `.env`
+so a stale inherited shell value (e.g. an old `LITELLM_OPUS_MODEL` from a previous launch) cannot
+override the repo's intent. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
 with a warning. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>\rootCA.pem` so Node trusts the
 gateway certificate (if unset the wrapper warns and TLS will not be trusted). `.env` may carry
 `#@if windows` / `#@if posix` / `#@endif` blocks so one file holds both platforms' values — see

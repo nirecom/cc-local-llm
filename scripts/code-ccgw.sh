@@ -19,6 +19,12 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CCGW_SCRIPT_DIR="$SCRIPT_DIR"
 # shellcheck source=scripts/lib/root.sh
 . "$SCRIPT_DIR/lib/root.sh"
+# The model-routing keys must ALWAYS come from .env: a stale inherited shell
+# value (e.g. an old LITELLM_OPUS_MODEL left over from a previous launch) must
+# never override the repo's .env intent. DOTENV_FORCE_KEYS is deliberately
+# NON-exported -- it is consumed only by lib/load-dotenv.sh, and leaking it into
+# the child (VS Code) environment would be noise.
+DOTENV_FORCE_KEYS="LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL LITELLM_OPUS_MODEL CCGW_SUBAGENT_MODEL"
 # shellcheck source=scripts/lib/load-dotenv.sh
 . "$SCRIPT_DIR/lib/load-dotenv.sh"
 

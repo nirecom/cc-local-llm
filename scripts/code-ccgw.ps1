@@ -52,9 +52,13 @@ function ConvertFrom-OsConditionalLines {
 
 # Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
 # Format: KEY=value, one per line, # comment lines allowed. A value already set in
-# the shell takes precedence over .env. See .env.example for the supported keys.
+# the shell takes precedence over .env -- EXCEPT for $ModelRoutingKeys, which must
+# always come from .env so a stale inherited shell value (e.g. an old
+# LITELLM_OPUS_MODEL from a previous launch) can never override the repo's intent.
+# See .env.example for the supported keys.
 # .env may also carry #@if windows / #@if posix / #@endif blocks (docs/env-conditional-blocks.md).
 $EnvFile = Join-Path (Join-Path $PSScriptRoot '..') '.env'
+$ModelRoutingKeys = @('LITELLM_HAIKU_MODEL', 'LITELLM_SONNET_MODEL', 'LITELLM_FABLE_MODEL', 'LITELLM_OPUS_MODEL', 'CCGW_SUBAGENT_MODEL')
 if (Test-Path -LiteralPath $EnvFile) {
     $IsWindowsPlatform = if (Test-Path variable:IsWindows) { $IsWindows } else { $true }
     $ActiveToken = if ($IsWindowsPlatform) { 'windows' } else { 'posix' }
@@ -68,8 +72,9 @@ if (Test-Path -LiteralPath $EnvFile) {
         $value = $trimmed.Substring($split + 1).Trim()
         # Shell value wins, but only when non-empty: a defined-but-empty variable is
         # indistinguishable from an unset one for every consumer below, so treating it
-        # as "already set" would silently discard the .env value.
-        if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key))) { continue }
+        # as "already set" would silently discard the .env value. Model-routing keys
+        # are the exception: they always take the .env value (see $ModelRoutingKeys).
+        if (-not ($ModelRoutingKeys -contains $key) -and -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key))) { continue }
         Set-Item -Path "env:$key" -Value $value
     }
 }
