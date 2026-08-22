@@ -2,35 +2,23 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
-# Part of the code-ccgw-windows.Tests.ps1 suite (see that file for the scenario).
-# Dot-sourced from the suite's top-level BeforeAll: fixture trees and the `code`
-# / `mkcert` stubs. Definitions only -- setup.ps1 is what builds anything.
-#
-# Both dumping stubs write the SAME two files in the same format, so every
-# assertion helper is blind to which one ran:
-#   argv dump  -- line 1 `CWD=<working directory>`, then one `ARG="<value>"`
-#                line per argument, in order.
-#   env dump   -- one `NAME=value` line per inherited variable (the shape `set`
-#                produces, so the .cmd stub needs no formatting logic).
+# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from the
+# suite's top-level BeforeAll: fixture trees and the `code` / `mkcert`
+# stubs. Definitions only -- setup.ps1 builds anything. Both dumping stubs
+# write the SAME two files, so assertion helpers are blind to which ran:
+# argv dump -- `CWD=<dir>` then `ARG="<value>"` per argument in order; env
+# dump -- `NAME=value` per variable (the `set` shape, no formatting needed).
 
 # --- code.cmd stub (Windows) ------------------------------------------------
-# Windows uses a code.cmd because that is what a real VS Code install puts on
-# PATH, and because System.Diagnostics.Process cannot start a .ps1 at all -- a
-# .ps1 stub would silently exempt the launcher from the implicit cmd.exe re-parse
-# that Context 9 exists to police.
-#
-# The `ARG="%~1"` quoting is load-bearing, not cosmetic: cmd expands %~1 as text
-# into the line it is already scanning, so an unquoted `echo ARG=%~1` would let a
-# `&` or `|` inside the VALUE split the stub's own echo into two commands -- the
-# stub would then misreport the argv it was asked to observe, and could run
-# whatever followed the operator.
-#
-# chcp 65001 first, by absolute path (the child's PATH is the stub dir alone):
-# `echo` and `set` render through the CONSOLE code page, so without this the
-# round-trip of a non-ASCII argument would hold only on a host whose code page
-# happens to represent it -- CP932 here, CP850 elsewhere. Pinning UTF-8 makes the
-# dump the same bytes on every host (CPR-UNV) and is what lets Context 12 assert
-# a non-ASCII argument literally.
+# Windows uses code.cmd since that's what a real VS Code install puts on
+# PATH, and Process can't start a .ps1 at all -- a .ps1 stub would exempt
+# the launcher from the cmd.exe re-parse Context 9 polices. `ARG="%~1"`
+# quoting is load-bearing: cmd expands %~1 as text into the line it's
+# scanning, so unquoted `echo ARG=%~1` would let `&`/`|` in the VALUE split
+# the stub's own echo, misreporting argv or running what followed the
+# operator. chcp 65001 first, by absolute path (PATH is the stub dir alone):
+# `echo`/`set` render via the CONSOLE code page, so without this a non-ASCII
+# round-trip only holds where the code page happens to match; pinning UTF-8 makes it the same bytes everywhere (CPR-UNV).
 $script:CodeStubCmdBody = @'
 @echo off
 %SystemRoot%\System32\chcp.com 65001 > nul
@@ -66,21 +54,15 @@ $script:CodeStubCmdPositionalBody = @'
 set > "%CCGW_TEST_DUMP%"
 '@
 
-# Long-lived variant of the same stub: it dumps argv and the environment exactly
-# as above, announces itself by creating %CCGW_TEST_STARTED%, and only then stays
-# alive until the test releases it with %CCGW_TEST_STOP%. It exists because every
-# other stub here exits in milliseconds, so a launcher that WAITS for VS Code --
-# `Start-Process -Wait`, or .WaitForExit() with no timeout -- passes all of them
-# while leaving the developer's terminal blocked until they close the editor.
-# Only a child that outlives the measurement window can tell the two apart.
-#
-# ping.exe rather than timeout.exe: timeout.exe refuses to run at all when stdin
-# is redirected ("ERROR: Input redirection is not supported"), which is exactly
-# how a launched child is started here. `ping -n 2` costs one second.
-#
-# The iteration cap is a safety net, not the mechanism: the test releases the
-# stub as soon as it has measured, and the cap only guarantees that a test which
-# dies before doing so cannot leave a process behind forever.
+# Long-lived variant: dumps argv/environment as above, announces itself via
+# %CCGW_TEST_STARTED%, then stays alive until released via %CCGW_TEST_STOP%.
+# Needed because every other stub exits in milliseconds, so a launcher that
+# WAITS (`Start-Process -Wait`, or .WaitForExit() with no timeout) passes
+# them all while blocking the developer's terminal -- only an outliving
+# child can tell. ping.exe not timeout.exe: timeout.exe refuses stdin
+# redirection, which is how the child starts here (`ping -n 2` = 1s). The
+# iteration cap is a safety net, not the mechanism: the test releases the
+# stub once measured; the cap only stops a dying test leaking a process.
 $script:CodeStubCmdLongLivedBody = @'
 @echo off
 %SystemRoot%\System32\chcp.com 65001 > nul
@@ -116,17 +98,14 @@ $script:CodeStubCmdForwardBodyFormat = @'
 "{0}" %*
 '@
 
-# A shebang script on PATH, found via `Get-Command code -CommandType Application`
-# exactly like a real VS Code CLI shim on macOS/Linux: a plain extensionless file
-# with the execute bit set, whose first line hands it to pwsh. Used only off
-# Windows, where cmd.exe (and the .cmd stub above) does not exist.
-#
-# A bare `code.ps1` does NOT satisfy this: PowerShell's own command discovery
-# resolves a .ps1 as an ExternalScript, and the launcher filters
-# `Get-Command code -CommandType Application` -- ExternalScript is excluded, so
-# a .ps1 stub would make the launcher report "code not found" on every
-# non-Windows host, silently exempting these platform-independent contexts
-# from ever actually invoking the stub.
+# A shebang script on PATH, found via `Get-Command code -CommandType
+# Application`, like a real VS Code CLI shim on macOS/Linux: an
+# extensionless file with the execute bit set, first line handing it to
+# pwsh. Used only off Windows, where cmd.exe (and the .cmd stub) don't
+# exist. A bare `code.ps1` does NOT satisfy this: PowerShell resolves a
+# .ps1 as ExternalScript, which the launcher's `-CommandType Application`
+# filter excludes, so a .ps1 stub would make the launcher report "code not
+# found" on every non-Windows host, silently exempting these contexts.
 $script:CodeStubPs1Body = @'
 #!/usr/bin/env pwsh
 $argvOut = New-Object System.Collections.Generic.List[string]

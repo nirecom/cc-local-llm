@@ -5,17 +5,15 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #66)' -Skip:(-not $IsWindows) {
-    # Windows-only by nature: the hazard is cmd.exe, and the stub that observes it
-    # is a .cmd. `code` resolves to code.cmd on a real VS Code install, and Win32
-    # CreateProcess given a .cmd/.bat silently re-launches cmd.exe to interpret it
-    # -- so an argument carrying &, |, ^, <, > or % is re-read as shell syntax even
-    # when it contains no whitespace at all (the BatBadBut class).
-    # CommandLineToArgvW-style quoting, which is what an .exe target needs, does
-    # not defend against this.
-    #
-    # These cases depend on the stub echoing `ARG="%~1"` with the expansion
-    # already inside quotes; see the Method note in the suite header for why an
-    # unquoted stub would misreport exactly the inputs under test.
+    # Windows-only by nature: the hazard is cmd.exe, observed via a .cmd stub.
+    # `code` resolves to code.cmd on a real VS Code install, and Win32
+    # CreateProcess given a .cmd/.bat silently re-launches cmd.exe to
+    # interpret it, so an argument carrying &, |, ^, <, > or % is re-read as
+    # shell syntax even with no whitespace at all (the BatBadBut class);
+    # CommandLineToArgvW-style quoting, what an .exe target needs, does not
+    # defend against this. Cases depend on the stub echoing `ARG="%~1"` with
+    # the expansion already inside quotes -- see the suite header's Method
+    # note for why an unquoted stub would misreport these inputs.
 
     BeforeAll {
         # One class, one table (CPR-E2C): each of these is "a value the shell would
@@ -110,19 +108,16 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
     }
 
     It '9d. an argument containing a newline is refused before anything is launched, and its payload never runs' {
-        # cmd.exe truncates its command line at a newline, so the tail of such an
-        # argument would run as a separate command. No escaping makes that safe,
-        # which leaves refusing it as the only honest option -- and refusing BEFORE
-        # the launch, so there is no half-executed state.
-        #
-        # Refusing is asserted three ways, because each alone is satisfiable by
-        # the wrong implementation: a non-zero exit alone would also be produced by
-        # a launcher that ran the payload and then failed; "the stub was never
-        # reached" alone would also hold if the payload had run INSTEAD of VS Code.
-        # The marker file is the one that closes it -- the second line of every
-        # payload below is a complete cmd command that creates a file, so if the
-        # newline ever reached cmd.exe the file exists, whatever else happened
-        # (CWE-78).
+        # cmd.exe truncates its command line at a newline, so the tail of such
+        # an argument would run as a separate command; no escaping makes that
+        # safe, so refusing BEFORE the launch is the only honest option, with
+        # no half-executed state. Refusing is asserted three ways since each
+        # alone is satisfiable by a wrong implementation: non-zero exit alone
+        # also fits a launcher that ran the payload and then failed; "stub
+        # never reached" alone also fits the payload running INSTEAD of VS
+        # Code. The marker file closes it -- each payload's second line is a
+        # complete cmd command creating a file, so if the newline reached
+        # cmd.exe the file exists regardless of anything else (CWE-78).
         $bad = New-Object System.Collections.Generic.List[string]
         $i = 0
         foreach ($template in @(
@@ -154,19 +149,15 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
 
     It '9e. a `code.cmd` whose own directory contains a space and metacharacters is still launched correctly' {
         # Everything above escapes the ARGUMENTS. The resolved path of `code`
-        # itself goes onto the very same command line and needs the very same
-        # treatment -- and it is the half that no stub directory in this suite
-        # would have caught, because they are all shell-safe names under TEMP.
-        #
-        # The real world is not: "C:\Program Files (x86)\Microsoft VS Code\bin\code.cmd"
-        # already carries a space and parentheses, and `&` is legal in a directory
-        # name. Unquoted, cmd.exe splits the path at the space and treats what
-        # follows `&` as a second command; quoted but not escaped, the `&` inside
-        # the quotes is safe while an unquoted `(` is not.
-        # Every argument here is deliberately shell-safe: 9a already owns the
-        # argument axis, and reusing a metacharacter argument would make this case
-        # fail for 9a's reason and say nothing about the path (CPR-SC -- one
-        # variable at a time).
+        # goes onto the same command line and needs the same treatment -- the
+        # half no stub directory in this suite would catch, since they're all
+        # shell-safe names under TEMP. Real world: "C:\Program Files (x86)\...
+        # \code.cmd" already has a space and parentheses, and `&` is legal in a
+        # directory name; unquoted, cmd.exe splits at the space and runs what
+        # follows `&` as a second command, while quoted-but-unescaped leaves an
+        # unquoted `(` unsafe. Arguments here stay shell-safe on purpose: 9a
+        # owns the argument axis, and reusing a metachar argument would fail
+        # for 9a's reason and say nothing about the path (CPR-SC).
         $r = Invoke-Launcher -StubDir $script:StubMetacharDir -Environment (New-Env) `
             -Arguments @('C:\some\project', '--new-window')
 
@@ -186,21 +177,16 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
     }
 
     It '9f. an embedded quote and a trailing backslash round-trip byte for byte' {
-        # 9b and 9c settle for "not split, not injected" on these two shapes for a
-        # reason that is about the OBSERVER, not about the contract: the default
-        # stub recovers each argument with `%~1`, which undoes neither the doubled
-        # "" nor the doubled trailing backslash that correct quoting produces, so
-        # a literal comparison there would fail on a correct launcher.
-        #
-        # This case removes that limitation instead of living with it: `code` is a
-        # code.cmd that forwards %* to a real executable -- which is exactly what a
-        # genuine VS Code install does -- and the executable reports the argv
-        # CommandLineToArgvW handed it. Both hops therefore run for real, and what
-        # comes out can be compared against what went in with no allowance made.
-        #
-        # These are the two shapes quoting gets wrong in opposite directions: a
-        # doubled quote arrives as two quotes, and a trailing backslash that is not
-        # doubled escapes the closing quote and swallows the argument after it.
+        # 9b/9c settle for "not split, not injected" here for an OBSERVER
+        # reason: `%~1` undoes neither a doubled "" nor a doubled trailing
+        # backslash, so literal comparison fails there even on a correct
+        # launcher. This case removes that limit: `code` is a code.cmd
+        # forwarding %* to a real executable (as a genuine install does),
+        # which reports the argv CommandLineToArgvW handed it, so both hops
+        # run for real and output compares to input with no allowance made.
+        # Opposite-direction failure shapes: a doubled quote arrives as two
+        # quotes; an undoubled trailing backslash escapes the closing quote
+        # and swallows the next argument.
         if (-not $script:HaveObserverExe) {
             Set-ItResult -Skipped -Because 'no C# compiler was available to build the argv observer that code.cmd forwards to'
             return

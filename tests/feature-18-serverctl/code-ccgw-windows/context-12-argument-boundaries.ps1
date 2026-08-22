@@ -14,16 +14,14 @@ Context '12. Argument boundaries: empty, non-ASCII, and over-long' {
     # each case asserts on what the child RECEIVED, never on the exit code alone.
 
     It '12a. an empty argument is preserved in place, not dropped' {
-        # `code -g file:1:1 "" --wait` is a real shape: an empty string is how a
-        # caller passes "this optional positional is blank", and dropping it
-        # shifts every later argument one slot left -- VS Code then reads the next
-        # argument as the value of the previous flag. Nothing about that failure is
-        # visible in the exit code.
-        #
-        # The default .cmd stub cannot observe this: `if "%~1"==""` is its
-        # end-of-argv test, so an empty argument ends the dump early and the
-        # remaining arguments look dropped even when they were delivered. This case
-        # therefore uses the positional stub, which dumps a fixed number of slots
+        # `code -g file:1:1 "" --wait` is a real shape: an empty string means
+        # "this optional positional is blank", and dropping it shifts every
+        # later argument one slot left -- VS Code then reads the next
+        # argument as the value of the previous flag, invisibly in the exit
+        # code. The default .cmd stub can't observe this: `if "%~1"==""` is
+        # its end-of-argv test, so an empty argument ends the dump early and
+        # later arguments look dropped even when delivered. This case uses
+        # the positional stub instead, which dumps a fixed number of slots
         # whether or not they are empty.
         $r = Invoke-Launcher -StubDir $script:StubPositional -Environment (New-Env) `
             -Arguments @('SENTINEL-A', '', 'SENTINEL-B')
@@ -102,22 +100,15 @@ Context '12. Argument boundaries: empty, non-ASCII, and over-long' {
     }
 
     It '12c-ii. an over-long command line is delivered whole or refused outright, never truncated' -Skip:(-not $IsWindows) {
-        # cmd.exe stops reading its command line at roughly 8191 characters. Since
-        # a .cmd target is reached THROUGH cmd.exe (see Context 9), a long argument
-        # list crosses that ceiling long before the 32767-character CreateProcess
-        # limit -- and cmd.exe truncates rather than failing, so the launcher exits
-        # 0 while VS Code opens a path that ends mid-word.
-        #
-        # Two outcomes are acceptable and one is not. Delivering the whole thing is
-        # correct. Refusing before the launch, with an error that says what is
-        # wrong, is also correct -- the transport genuinely cannot carry it. Exiting
-        # 0 having launched nothing, or having launched something that received a
-        # truncated argument, is the failure this case exists to catch.
-        #
-        # The exact ceiling depends on the length of the stub's own path, so the
-        # lengths below bracket it rather than sitting on it: just under, and
-        # clearly over. The comfortably-under lengths live in 12c-i, where a
-        # refusal is NOT one of the acceptable answers.
+        # cmd.exe stops reading at ~8191 chars. A .cmd target is reached
+        # THROUGH cmd.exe (Context 9), so a long argument list crosses that
+        # well before the 32767-char CreateProcess limit, truncating rather
+        # than failing -- exit 0, path ending mid-word. Acceptable:
+        # delivering the whole thing, or refusing before launch with an
+        # explanatory error. Not acceptable: exit 0 with nothing launched, or
+        # a truncated delivery. Ceiling depends on the stub's own path
+        # length, so lengths below bracket it; comfortably-under lengths live
+        # in 12c-i, where refusal is NOT acceptable.
         $bad = New-Object System.Collections.Generic.List[string]
         foreach ($len in @(7000, 9000)) {
             # Sentinels at both ends: truncation of any amount changes the tail,

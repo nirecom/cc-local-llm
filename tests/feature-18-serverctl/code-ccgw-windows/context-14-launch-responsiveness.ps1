@@ -5,25 +5,16 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '14. The launch is fire-and-forget: the launcher does not wait for VS Code' -Skip:(-not $IsWindows) {
-    # Every other stub in this suite exits in milliseconds, which makes one whole
-    # class of defect invisible: a launcher that WAITS for the process it started
-    # -- `Start-Process -Wait`, or a bare .WaitForExit() with no timeout on the
-    # ProcessStartInfo path issue #66 introduces -- passes all of them and still
-    # leaves the developer's prompt hanging until they close the editor. Nothing
-    # in an exit code, an env dump or an argv dump distinguishes the two; only a
-    # child that outlives the measurement can.
-    #
-    # Why fire-and-forget is the contract and not merely the current behaviour:
-    # the launcher's job ends once VS Code owns the environment it computed. It
-    # has nothing left to do with the editor's exit status (it does not propagate
-    # it -- `code` on Windows returns as soon as it has handed the folder to the
-    # running instance), and staying attached would additionally tie the editor's
-    # lifetime to a console the user is entitled to close. The POSIX counterpart
-    # gets this for free by exec'ing; on Windows it has to be a decision.
-    #
-    # Windows-only: off Windows `code` is a .ps1 stub, which PowerShell runs
-    # INSIDE the launcher process rather than starting as one, so "the launcher
-    # did not wait for it" is not a question that can be asked there.
+    # Every other stub exits in milliseconds, hiding one class of defect: a
+    # launcher that WAITS for the process it started (`Start-Process -Wait`,
+    # or .WaitForExit() with no timeout on the #66 ProcessStartInfo path)
+    # leaves the developer's prompt hanging until they close the editor --
+    # only a child outliving the measurement can tell. Fire-and-forget is the
+    # contract: the launcher's job ends once VS Code owns the environment
+    # (`code` returns without propagating exit status), and staying attached
+    # would tie the editor's lifetime to a console the user may close.
+    # Windows-only: off Windows `code` is a .ps1 run INSIDE the launcher
+    # process, so "did it wait" is unaskable there.
 
     BeforeAll {
         # One measured launch, read by both cases (CPR-SSOT): they are two halves

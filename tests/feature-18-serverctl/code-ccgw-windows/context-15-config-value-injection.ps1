@@ -5,29 +5,12 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '15. Adversarial CONFIG values stay data too (issue #66)' -Skip:(-not $IsWindows) {
-    # Context 9 feeds metacharacters through argv. This one feeds them through the
-    # other input the launcher has -- the values it reads from .env and from the
-    # shell -- because those travel a different road to the child and a fix that
-    # secures one road says nothing about the other.
-    #
-    # The road matters: an environment BLOCK is a list of NAME=value pairs handed
-    # to CreateProcess, and nothing in it is ever re-parsed, so a correct
-    # implementation carries `& del *` in a client key without a thought. An
-    # implementation that instead composes the values into the command line --
-    # `cmd /c "set K=%v% && code ..."`, a `-Command` string, an `Invoke-Expression`
-    # -- turns every one of these values into syntax. The two are indistinguishable
-    # on the well-behaved values Contexts 1-4 use, which is precisely why the
-    # adversarial ones belong here.
-    #
-    # Not a hypothetical set: a LiteLLM key is generated, so `&`, `%` and `"` are
-    # all reachable characters; a CA path really can sit under
-    # "C:\Program Files (x86)\..."; and a `%VAR%` in any of them is what a user who
-    # pasted a Windows path into .env ends up with.
-    #
-    # Newlines are deliberately absent -- they are unrepresentable rather than
-    # merely dangerous, and Context 9d covers that contract for argv. `=` is absent
-    # too, but only because the `set`-shaped dump this suite parses cannot
-    # represent it; the launcher never splits a value.
+    # Context 9 covers argv metacharacters; this covers .env/shell values --
+    # a different road, since CreateProcess's env BLOCK is never re-parsed,
+    # so only composing values into a command line (cmd /c "set K=%v% && ...",
+    # -Command) would turn them into syntax. Adversarial, not hypothetical: a
+    # generated key can hold `&`/`%`/`"`, a CA path can sit under "Program
+    # Files (x86)". Newlines absent (unrepresentable, per 9d).
 
     BeforeAll {
         # One shape per launch, applied to ALL FOUR value-carrying inputs at once:

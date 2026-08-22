@@ -2,16 +2,12 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
-# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from its top-level
-# BeforeAll: two of the three ways this suite runs the launcher, plus the
-# environment-block builder and dump parsers all three share (the third,
-# Measure-LauncherLaunch, is in helpers-runners-latency.ps1 and builds on these).
-# Definitions only.
-#
-# The child's environment block is cleared and rebuilt, so an ambient
-# LITELLM_*/CCGW_*/DS4_* value in the developer's shell can never satisfy an
-# assertion by accident, and a genuinely installed mkcert cannot turn the
-# "no mkcert" case into a false pass.
+# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from its
+# top-level BeforeAll: two of the three ways this suite runs the launcher,
+# plus the shared environment-block builder and dump parsers (the third,
+# Measure-LauncherLaunch, is in helpers-runners-latency.ps1). The child's
+# environment block is cleared and rebuilt so an ambient LITELLM_*/CCGW_*
+# value in the dev's shell can't satisfy an assertion by accident, and a real mkcert can't fake "no mkcert" passing.
 
 # Builds the child's environment block. Shared by every runner below so the
 # "cleared and rebuilt" guarantee is stated once (CPR-SSOT).
@@ -133,20 +129,15 @@ function Invoke-Launcher {
 }
 
 # --- invoking-shell runner (issue #66) --------------------------------------
-# Invoke-Launcher above can never see the bug this suite exists to catch: it
-# inspects the CHILD's environment, and the leak is in the PARENT's. This runner
-# therefore inserts one wrapper script that plays the developer's interactive
-# shell -- it snapshots its own process environment, calls the launcher with `&`
-# (a child SCOPE, not a child PROCESS, so every `$env:` assignment the launcher
-# makes stays in the wrapper exactly as it stays in the invoking pwsh), and
-# snapshots again. The two snapshots are the evidence; the child dump is still
-# collected so the same run can also show the values did reach VS Code.
-#
-# `exit` inside a `&`-called script ends that script, not the wrapper, so the
-# after-snapshot is written on the failure paths too -- which is what lets the
-# error cases (8g-8j) be asserted here rather than only through a disposable
-# child process. The launcher's own exit code survives in $LASTEXITCODE and is
-# recorded separately: the wrapper's process exit code is the WRAPPER's.
+# Invoke-Launcher above can never see this suite's target bug: it inspects
+# the CHILD's environment, and the leak is in the PARENT's. This runner
+# inserts a wrapper script playing the interactive shell -- it snapshots its
+# own process environment, calls the launcher with `&` (a child SCOPE not a
+# PROCESS, so every `$env:` assignment stays exactly as in the invoking
+# pwsh), and snapshots again; the child dump still shows values reached VS
+# Code too. `exit` inside a `&`-called script ends that script, not the
+# wrapper, so the after-snapshot is written on failure paths too, letting
+# 8g-8j be asserted here ($LASTEXITCODE records the launcher's own exit code separately).
 $script:ParentShellWrapperBody = @'
 param(
     [string]$LauncherPath,

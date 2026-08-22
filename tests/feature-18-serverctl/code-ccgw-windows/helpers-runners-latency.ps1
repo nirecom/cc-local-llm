@@ -2,14 +2,12 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
-# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from its top-level
-# BeforeAll, after helpers-runners.ps1 (whose Set-ChildEnvBlock and dump parsers
-# it uses): the runner that measures how long the launcher takes to come back.
-# Definitions only.
-#
-# It lives in its own file rather than in helpers-runners.ps1 because that file
-# had reached the 300-line split threshold, and this runner is a self-contained
-# third way of running the launcher -- neither of the other two can time it.
+# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from its
+# top-level BeforeAll, after helpers-runners.ps1 (whose Set-ChildEnvBlock
+# and dump parsers it uses): the runner that measures how long the launcher
+# takes to come back. Definitions only. Lives in its own file rather than
+# helpers-runners.ps1 because that file hit the 300-line split threshold,
+# and this is a self-contained third way of running the launcher -- neither of the others can time it.
 
 # --- responsiveness runner (issue #66) --------------------------------------
 # Invoke-Launcher cannot measure how long the launcher takes to return, for a
@@ -79,18 +77,14 @@ function Measure-LauncherLaunch {
             $proc.WaitForExit(10000) | Out-Null
         }
     } else {
-        # The launcher is fire-and-forget: it starts the stub child and returns
-        # well before that long-lived child has necessarily finished writing its
-        # own $started/$dump/$argvFile files. Waiting for the LAUNCHER process to
-        # exit (above) says nothing about whether the CHILD has reached that
-        # point yet, so reading the marker files immediately here races the
-        # child's own writes -- intermittently reporting Reached=$false / an
-        # empty Argv even though the child would have written them a few
-        # milliseconds later. Poll briefly for $started (and, once that shows the
-        # child is alive, for $dump/$argvFile) before trusting their presence.
-        # This only firms up the artifact-existence observation; ElapsedMs and
-        # ExitedWithinBudget above already captured the launcher's own
-        # responsiveness and are untouched by this wait.
+        # The launcher is fire-and-forget: it returns well before the
+        # long-lived child necessarily finishes writing $started/$dump/
+        # $argvFile. Waiting for the LAUNCHER to exit says nothing about the
+        # CHILD reaching that point, so reading the markers immediately
+        # races the child's writes -- intermittently reporting Reached=
+        # $false / empty Argv even though they'd land a few ms later. Poll
+        # briefly for $started, then $dump/$argvFile, before trusting them;
+        # this only firms up artifact existence -- ElapsedMs/ExitedWithinBudget above are untouched.
         $pollBudget = [System.Diagnostics.Stopwatch]::StartNew()
         while (-not (Test-Path -LiteralPath $started) -and $pollBudget.ElapsedMilliseconds -lt 3000) {
             Start-Sleep -Milliseconds 50

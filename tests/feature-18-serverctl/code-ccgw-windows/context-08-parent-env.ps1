@@ -5,36 +5,16 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '8. The invoking shell keeps its own environment (issue #66)' {
-    # Contexts 1-7 all read the CHILD's environment, and the defect reported in
-    # #66 lives in the PARENT's: PowerShell has no exec, so a launcher that
-    # assigns to `$env:` outlives the VS Code launch and leaves those values in
-    # the shell the developer typed the command into. The next, unrelated cloud
-    # Claude Code session started from that same shell then inherits local-LLM
-    # routing. Only Invoke-LauncherInParentShell can see it: it interposes a
-    # wrapper that runs the launcher in its own process and snapshots its
-    # environment on either side.
-    #
-    # Why every variable the launcher sets carries a sentinel rather than just
-    # ANTHROPIC_API_KEY (which is all the suite used to pre-seed): the two failure
-    # shapes are different and each hides on a different variable. "Assigned, then
-    # never cleaned up" leaves the launcher's value behind; "assigned, then
-    # removed" deletes a value the shell already had. 8b names the offending
-    # variable in its own message so either shape points straight at the
-    # assignment that caused it.
-    #
-    # 8b and 8e are deliberately a pair, and read the SAME run: "the parent is
-    # untouched" is satisfied just as well by a launcher that computes nothing at
-    # all, so the child must be shown to have received the correctly-computed
-    # values in the very same launch (CPR-E2E).
-    #
-    # 8g-8j carry the same contract onto the paths that do NOT reach a launch.
-    # Every one of them fails partway through the resolution sequence, which is
-    # precisely where a half-applied environment would be abandoned in the shell:
-    # a launcher that unwound its own writes only on the happy path would satisfy
-    # 8a and still poison the shell of every developer who mistyped a variable
-    # name. They also assert the negative that a snapshot comparison cannot see --
-    # no VS Code was started -- and that the refusal message did not echo the
-    # credential back.
+    # Contexts 1-7 read the CHILD's environment; #66 lives in the PARENT's:
+    # PowerShell has no exec, so `$env:` assignments outlive the VS Code launch
+    # and leak into the developer's shell, inherited by the next unrelated
+    # cloud session as local-LLM routing. Invoke-LauncherInParentShell wraps
+    # the launcher and snapshots the environment on either side. Every
+    # variable carries a sentinel (not just the old ANTHROPIC_API_KEY
+    # pre-seed) since "never cleaned up" vs. "assigned then removed" hide on
+    # different names, and 8b names the offender. 8b/8e read the SAME run
+    # (CPR-E2E: an untouched parent alone also fits a launcher that computes
+    # nothing). 8g-8j repeat the contract on paths that never launch.
 
     BeforeAll {
         # One map, two roles (CPR-SSOT): its keys are the variables that must

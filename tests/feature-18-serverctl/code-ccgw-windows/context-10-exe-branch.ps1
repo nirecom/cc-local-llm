@@ -5,24 +5,16 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '10. The non-batch (.exe) launch path' {
-    # `code` resolves to code.cmd on every real Windows VS Code install, so the
-    # .exe branch has to be driven through a purpose-built stand-in. It is covered
-    # at the two points where it can fail: the quoting rule it applies (10a,
-    # against the real function, extracted from the source rather than
-    # re-implemented here) and what an .exe target actually receives (10b).
-    #
-    # 10b used to assert only that two error strings were ABSENT, which a launcher
-    # that started no process at all would also satisfy -- absence of an error is
-    # not evidence of a launch. It now runs a compiled stub that reports what it
-    # got: a marker file (a process really started), its argv, and its inherited
-    # environment. The stub writes through File.WriteAllLines, so unlike the .cmd
-    # stub it is code-page-independent and can carry the non-ASCII case too.
-    #
-    # TL3 gap: whether the .exe was reached DIRECTLY or through a cmd.exe wrapper
-    #   is not observable from inside the child -- both deliver the same argv when
-    #   the wrapper quotes correctly. What is observable, and asserted, is that a
-    #   .cmd target IS re-parsed by cmd.exe (Context 9) and that an .exe target
-    #   receives its argv and environment intact.
+    # `code` resolves to code.cmd on every real install, so the .exe branch is
+    # driven through a stand-in, covered at its two failure points: the
+    # quoting rule (10a, against the real function extracted from source) and
+    # what an .exe target receives (10b). 10b used to assert only that two
+    # error strings were ABSENT -- also true of a launcher that started
+    # nothing -- so it now runs a compiled stub reporting a marker file, argv,
+    # and inherited environment via File.WriteAllLines (code-page-independent,
+    # carries non-ASCII). TL3 gap: DIRECT vs. cmd.exe-wrapper reach is
+    # unobservable when quoting is correct; asserted instead: .cmd IS
+    # re-parsed (Context 9), .exe gets argv/env intact.
 
     It '10a. ConvertTo-ArgvQuotedArgument follows the CommandLineToArgvW rules' {
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:SourceLauncher, [ref]$null, [ref]$null)

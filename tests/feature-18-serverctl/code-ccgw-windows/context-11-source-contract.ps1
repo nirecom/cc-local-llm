@@ -5,27 +5,16 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '11. The zero-pollution contract, asserted against the source itself' {
-    # Context 8 observes the parent environment before and after a launch, which
-    # catches pollution only on the paths the tests happen to walk. This context
-    # closes the gap from the other side: it reads scripts/code-ccgw.ps1 and
-    # requires that NO statement anywhere in it writes to the process environment,
-    # on any path, reachable or not (CPR-UNV -- the contract holds over the whole
-    # input domain, not the sampled one).
-    #
-    # Why this is the load-bearing assertion for issue #66: PowerShell has no
-    # exec(), so every `$env:X = ...` the launcher performs lands in the shell the
-    # developer is still sitting in and outlives the VS Code it launched. The fix
-    # is not "unset it afterwards" -- an interrupted launcher never reaches the
-    # cleanup -- it is "never write to this process at all", and instead hand the
-    # values to the child through ProcessStartInfo.Environment. That is a
-    # structural property of the source, so the test is structural too.
-    #
-    # AST, not regex: a regex over the text cannot tell `$env:X = 'v'` (a write)
-    # from `$env:X` inside a string (a read), nor see through line breaks and
-    # continuations. The parser already knows the difference.
-    #
-    # Reads stay legal, and are expected -- the launcher must still consult
-    # LOCALAPPDATA, USERPROFILE and PATH.
+    # Context 8 observes the parent environment before/after a launch, which
+    # catches pollution only on paths the tests walk. This closes the gap the
+    # other way: it reads scripts/code-ccgw.ps1 and requires NO statement
+    # anywhere write to the process environment, reachable or not (CPR-UNV --
+    # whole input domain, not the sampled one). Load-bearing for #66: no
+    # exec() in PowerShell means every `$env:X = ...` lands in the developer's
+    # own shell and outlives the launch, so the fix is "never write to this
+    # process" (values go to the child via ProcessStartInfo.Environment
+    # instead) -- structural, tested via AST (a regex can't tell a write from
+    # a read inside a string). Reads (LOCALAPPDATA etc.) stay legal.
 
     BeforeAll {
         $script:EnvWriteScan = {

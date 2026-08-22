@@ -5,29 +5,11 @@
 # Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced into its Describe.
 
 Context '13. Routing keys: .env outranks the inherited shell, and the shell keeps its own value' {
-    # Two rules meet on exactly these five keys, and nowhere else.
-    #
-    # The first is the precedence inversion of PR #63: for every other key an
-    # already-set shell value wins over .env, but a model-routing key must always
-    # come FROM .env -- a stale LITELLM_OPUS_MODEL left in a shell by an earlier
-    # launch would otherwise silently re-point a tier the repo has since moved.
-    # Context 7 asserts the general rule; only this Context asserts the exception,
-    # and it has to be asserted per key, because the exception is a membership
-    # test against a literal list ($ModelRoutingKeys) and a list is exactly the
-    # kind of thing that loses an entry in a rename (CPR-ORTH).
-    #
-    # The second is issue #66: overriding the inherited value must not mean
-    # OVERWRITING it. The launcher reaches its .env value by assigning the key --
-    # today into its own process, which is the invoking shell's -- so the run that
-    # proves .env won is the same run that would destroy the developer's own
-    # LITELLM_OPUS_MODEL. Both halves therefore ride on ONE launch per key: a
-    # child-side-only check could be satisfied by a launcher that trashes the
-    # shell, and a parent-side-only check by one that ignores .env entirely
-    # (CPR-E2E).
-    #
-    # One fixture per key rather than one .env carrying all five: a launcher that
-    # applied the exception to only the first key it met would still satisfy a
-    # combined run for that key, and each row here names the key that failed.
+    # Two rules, five keys only: PR #63's inversion (.env always wins here,
+    # unlike every other key -- per-key since $ModelRoutingKeys can lose an
+    # entry in a rename, CPR-ORTH) and issue #66 (winning must not mean
+    # OVERWRITING the shell's value -- one launch proves both, CPR-E2E).
+    # One fixture per key: a partial fix would still pass a combined run.
 
     $ctx13Rows = @(
         @{ Key = 'LITELLM_HAIKU_MODEL'; Child = 'ANTHROPIC_DEFAULT_HAIKU_MODEL' }
