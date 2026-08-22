@@ -285,3 +285,18 @@ the pin opt-in, and it takes a routing key that is passed through untranslated.
 The LiteLLM router is the implementation for the "Hybrid (router)" strategy, but with
 the caveat that it does not preserve an Anthropic subscription (the Opus leg goes to
 self-hosted DS4, not real Opus).
+
+### Child-process-only environment injection
+
+`code-ccgw.ps1` used to set routing values with `$env:`, mutating the invoking
+PowerShell process itself; Windows has no `exec`, so those values outlived the launch
+and leaked into whatever ran next in that shell, including unrelated cloud sessions
+(issue #66). It now overlays a `$ChildEnv` block onto the spawned VS Code process's
+`ProcessStartInfo.Environment` only — the parent's `$env:` is never written.
+
+The child still inherits the rest of the parent's environment, so stripping only
+`ANTHROPIC_API_KEY` was not enough: `CLAUDE_CODE_OAUTH_TOKEN`, the Bedrock/Vertex
+switches and their AWS/GCP credentials, and `NODE_TLS_REJECT_UNAUTHORIZED` are cleared
+too, so a real credential can't reach the local gateway's egress path. `code-ccgw.sh`
+execs rather than spawning, but the same ambient class would otherwise reach the
+replaced process unchanged, so it clears the same set.
