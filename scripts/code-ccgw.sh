@@ -28,8 +28,23 @@ DOTENV_FORCE_KEYS="LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL 
 # shellcheck source=scripts/lib/load-dotenv.sh
 . "$SCRIPT_DIR/lib/load-dotenv.sh"
 
-# Clear any real Anthropic API key so the local backend is used instead.
+# Clear any real Anthropic API key so the local backend is used instead. Exported
+# defined-but-empty rather than unset: every consumer reads an empty value as "no key",
+# and the exported empty makes the clearing visible to anything inspecting the child env.
 export ANTHROPIC_API_KEY=""
+
+# The rest of the credential/provider-switch class that must never reach the child
+# `exec` replaces this shell with -- see docs/architecture.md "Child-process-only
+# environment injection" for why the class is this wide and how to extend it.
+for _stripped in \
+    CLAUDE_CODE_OAUTH_TOKEN \
+    CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX \
+    AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_REGION \
+    GOOGLE_APPLICATION_CREDENTIALS \
+    NODE_TLS_REJECT_UNAUTHORIZED; do
+    unset "$_stripped"
+done
+unset _stripped
 
 # --- Base URL --------------------------------------------------------------
 # The LiteLLM gateway is the only endpoint. Defined-but-empty counts as unset:
@@ -80,21 +95,37 @@ fi
 # tier verbatim. The launcher owns no backend names: inventing one would address
 # a model the gateway has no entry for, and the error would surface as a 400
 # from LiteLLM rather than as a message from here.
+#
+# Absence of a source key means "the child must not have the derived variable at all",
+# never "keep whatever the invoking shell happened to carry": a leftover ANTHROPIC_MODEL
+# from an earlier session would otherwise pin a tier the repo's .env no longer names.
+# Hence every conditional export has an explicit unsetting else branch.
 if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
     export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
+else
+    unset ANTHROPIC_DEFAULT_FABLE_MODEL
 fi
 if [ -n "${LITELLM_OPUS_MODEL:-}" ]; then
     export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
+else
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL
 fi
 if [ -n "${LITELLM_SONNET_MODEL:-}" ]; then
     export ANTHROPIC_DEFAULT_SONNET_MODEL="$LITELLM_SONNET_MODEL"
+else
+    unset ANTHROPIC_DEFAULT_SONNET_MODEL
 fi
 if [ -n "${LITELLM_HAIKU_MODEL:-}" ]; then
     export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LITELLM_HAIKU_MODEL"
+else
+    unset ANTHROPIC_DEFAULT_HAIKU_MODEL
 fi
 if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
     export ANTHROPIC_MODEL="$LITELLM_FABLE_MODEL"
     export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
+else
+    unset ANTHROPIC_MODEL
+    unset ANTHROPIC_CUSTOM_MODEL_OPTION
 fi
 
 # Subagent routing is opt-in. LiteLLM multiplexes, so pinning every subagent to
@@ -103,6 +134,8 @@ fi
 # key, passed through untranslated.
 if [ -n "${CCGW_SUBAGENT_MODEL:-}" ]; then
     export CLAUDE_CODE_SUBAGENT_MODEL="$CCGW_SUBAGENT_MODEL"
+else
+    unset CLAUDE_CODE_SUBAGENT_MODEL
 fi
 
 export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Local model via ccgw"
