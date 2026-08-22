@@ -2,6 +2,18 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
+# Entry point for the Windows client-launcher suite. The cases themselves live in
+# the sibling folder code-ccgw-windows/ and are dot-sourced below, so
+# `Invoke-Pester` against THIS path still discovers and runs every one of them.
+#
+#   code-ccgw-windows/
+#     helpers-fixtures.ps1        fixture trees, the code/mkcert stubs, New-Env
+#     helpers-runners.ps1         Invoke-Launcher, Invoke-LauncherInParentShell, dumps
+#     helpers-runners-latency.ps1 Measure-LauncherLaunch (times the launcher itself)
+#     helpers-assertions.ps1      Assert-LauncherEnv and friends
+#     setup.ps1                   builds the fixtures (runs last, uses all of the above)
+#     context-NN-*.ps1            one file per group of Contexts
+#
 # Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
 # retired, so the Windows client launcher (pwsh counterpart of
 # scripts/code-ccgw.sh) has exactly ONE path — through the Mac LiteLLM.
@@ -14,17 +26,64 @@
 # a dummy default is what turns a misconfiguration into a confusing 401 much
 # later, at request time.
 #
-# This file is the 1:1 mirror of tests/feature-18-serverctl/test-code-ccgw-posix.sh
+# This suite is the 1:1 mirror of tests/feature-18-serverctl/test-code-ccgw-posix.sh
 # (CPR-ORTH: the two launchers are symmetric members of one class, so the
 # contract asserted on one must be asserted on the other). The only intentional
 # divergences are the platform-specific ones: the VS Code profile dir lives
 # under LOCALAPPDATA rather than being derived from `uname`, and PowerShell's
 # native-command error conversion needs its own regression case.
 #
-# Method: `code` is stubbed on PATH with a code.ps1 that dumps the environment
-# it inherited plus its argv to files, so every assertion is made against the
+# Scenario (issue #66): the launcher used to write every value it resolved into
+# its OWN process environment before starting VS Code. PowerShell has no exec,
+# so the launcher survives the call and those variables stay behind in the shell
+# that invoked it — a later, unrelated cloud Claude Code session started from the
+# same shell silently inherited local-LLM routing (ANTHROPIC_BASE_URL,
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW, …). The fix moves the destination, not the
+# logic: every value is computed into script-local state and injected into the
+# CHILD process's environment block only. Seven consequences are asserted here and
+# nowhere else — Context 8 (the invoking shell is byte-for-byte untouched on the
+# success paths AND on every error path, while the child still receives the
+# computed values), Context 9 (an explicit process launch of a .cmd target must
+# not let cmd.exe re-interpret argument metacharacters — the BatBadBut class —
+# including the metacharacters in the resolved path of `code` itself, and with an
+# observer faithful enough to compare an embedded quote literally), Context 11 (no
+# statement in the source writes the environment at all, on any path, reachable by
+# these tests or not), Context 12 (the argument shapes an explicit launch loses
+# silently: empty, non-ASCII, over-long — and the safely-sized ones it must not
+# refuse), Context 13 (the five model-routing keys, where ".env wins over the
+# inherited value" and "the shell keeps its own value" have to hold at once, per
+# key), Context 14 (the launcher hands over and returns instead of waiting for the
+# editor — invisible to every fast-exiting stub) and Context 15 (the same
+# metacharacter contract for the values the launcher READS, which reach the child
+# through the environment block rather than through the command line).
+#
+# Method: `code` is stubbed on PATH with a stub that dumps the environment it
+# inherited plus its argv to files, so every assertion is made against the
 # environment the launcher actually hands to Claude Code — none of the
 # launcher's branching is re-implemented here. `mkcert` is stubbed the same way.
+# On Windows the `code` stub is a **code.cmd**, because the real `code` on a
+# Windows VS Code install resolves to code.cmd: a .ps1 stub cannot be started by
+# System.Diagnostics.Process at all, and — more importantly — it would never
+# exercise the implicit cmd.exe re-parse that makes Context 9 necessary. On
+# non-Windows hosts (where cmd.exe does not exist) the stub stays a code.ps1
+# writing the identical dump format, so the platform-independent cases (the .env
+# loader, precedence, the tier map) still run there. Context 10's `code` is
+# instead a compiled .exe that reports what it received, because "the .exe branch
+# was taken" cannot be shown by the absence of an error message.
+#   Stub limitation: the .cmd stub recovers each argument through `%~1`, which
+#   does NOT collapse a doubled embedded `""` back to `"` nor halve a doubled
+#   trailing backslash. Arguments carrying an embedded quote or a trailing
+#   backslash therefore cannot be round-trip-compared literally by THAT stub;
+#   Context 9a-9c assert the weaker-but-still-decisive contract for those (no
+#   argument splitting, no injection side effect), and Context 9f removes the
+#   limitation with a second .cmd that forwards `%*` to a compiled argv observer
+#   — the shape of a real code.cmd handing off to Code.exe — where the two shapes
+#   are compared byte for byte.
+#   Two further stubs exist for contracts a fast, well-named stub cannot express:
+#   one whose DIRECTORY name carries a space, parentheses and `&` (Context 9e —
+#   the path of `code` is part of the command line too), and one that stays alive
+#   until released, so "the launcher returned" can be told apart from "the
+#   launcher waited for VS Code" (Context 14).
 # The launcher runs in a child pwsh whose environment block is cleared and
 # rebuilt from scratch, so an ambient LITELLM_*/CCGW_*/DS4_* value in the
 # developer's shell can never satisfy an assertion by accident. The script under
@@ -32,826 +91,70 @@
 # developer's real .env — which holds the actual base URL and API keys — is
 # never read.
 #
+# Which PowerShell hosts the launcher: the launcher declares
+# `#Requires -Version 5.1`, but only pwsh (7.x) ever ran it, so a 5.1-only
+# incompatibility in ProcessStartInfo.Environment or the quoting helpers would
+# ship unnoticed. CCGW_TEST_LAUNCHER_HOST selects the host binary for the child
+# launcher process (default: this session's pwsh); test-code-ccgw-windows.sh
+# runs the suite once with that variable explicitly unset and, under the RUN_TL3
+# gate, again with CCGW_TEST_LAUNCHER_HOST=powershell.exe. Only the process under
+# test moves — Pester keeps running on pwsh 7, because this harness itself needs
+# ProcessStartInfo.ArgumentList, which the .NET Framework behind 5.1 does not
+# have. The gate lives in the driver, not here: a host that was explicitly asked
+# for and is missing is a configuration error worth failing on, not a case to
+# quietly skip.
+#
 # TL3 gap: real VS Code startup and profile creation under the derived
 #   --user-data-dir; a real mkcert CA actually being trusted by Node's TLS
 #   stack; genuine end-to-end routing of the selected routing key through
-#   LiteLLM to a loaded backend; a real Windows host. Also unreachable from
-#   here: the $PSNativeCommandUseErrorActionPreference guard itself — that
-#   conversion applies only to native executables, and the mkcert stub is a
-#   .ps1, so the failing-mkcert case below exercises the resulting no-CAROOT
-#   branch rather than the exit-code conversion that would have aborted the
-#   launcher before the fix.
-
-BeforeAll {
-    $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
-    $script:SourceLauncher = Join-Path $script:RepoRoot 'scripts' 'code-ccgw.ps1'
-
-    if (-not (Test-Path -LiteralPath $script:SourceLauncher)) {
-        throw "$($script:SourceLauncher) not found (implementation pending)"
-    }
-
-    $script:Work = Join-Path ([IO.Path]::GetTempPath()) ("ccgw-win-" + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $script:Work -Force | Out-Null
-
-    $script:PwshPath = if ($IsWindows) { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'pwsh' }
-
-    # --- Retired variable names ---------------------------------------------
-    # The cases that prove a retired variable no longer configures anything need
-    # its exact spelling, but those spellings are banned repo-wide by
-    # tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring
-    # match over every tracked file — this one included. The names are therefore
-    # assembled at runtime instead of appearing as literals. The cases
-    # themselves must stay: a stale .env still carrying them is precisely the
-    # situation where a surviving fallback would silently route around the new
-    # single path.
-    $script:RBaseDs4      = 'DS4_ANTHROPIC' + '_BASE_URL'
-    $script:RBaseCcgw     = 'CCGW_ANTHROPIC' + '_BASE_URL'
-    $script:RKeyDs4       = 'DS4_API' + '_KEY'
-    $script:RKeyCcgw      = 'CCGW_API' + '_KEY'
-    $script:RCaDs4        = 'DS4_CA' + '_CERT'
-    $script:RDefaultModel = 'CCGW_DEFAULT' + '_MODEL'
-
-    # --- fixture script tree -------------------------------------------------
-    # The launcher reads <script>/../.env. Copying it into a fixture tree pins
-    # that file to an empty one, so precedence is asserted from the child's
-    # environment block alone.
-    function New-FixtureTree {
-        param([string]$Name, [string[]]$DotEnvLines = @('# intentionally empty: precedence is asserted from the env alone'))
-        $root = Join-Path $script:Work $Name
-        New-Item -ItemType Directory -Path (Join-Path $root 'scripts') -Force | Out-Null
-        Copy-Item -LiteralPath $script:SourceLauncher -Destination (Join-Path $root 'scripts' 'code-ccgw.ps1') -Force
-        Set-Content -LiteralPath (Join-Path $root '.env') -Value $DotEnvLines -Encoding utf8
-        return (Join-Path $root 'scripts' 'code-ccgw.ps1')
-    }
-    $script:Launcher = New-FixtureTree -Name 'fixture-default'
-
-    # --- stubs ---------------------------------------------------------------
-    # A .ps1 on PATH is a first-class command for PowerShell's discovery, so
-    # `Get-Command code` / `& code` resolve these without any native binary.
-    $script:CodeStubBody = @'
-$dump = @{}
-foreach ($e in Get-ChildItem env:) { $dump[$e.Name] = $e.Value }
-$dump | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $env:CCGW_TEST_DUMP -Encoding utf8
-$argvOut = @($args) | ForEach-Object { [string]$_ }
-Set-Content -LiteralPath $env:CCGW_TEST_ARGV -Value $argvOut -Encoding utf8
-'@
-
-    function New-StubDir {
-        param(
-            [string]$Name,
-            [string]$MkcertCaroot,
-            [int]$MkcertExitCode = 0,
-            [switch]$NoCode,
-            [switch]$NoMkcert
-        )
-        $dir = Join-Path $script:Work $Name
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        if (-not $NoCode) {
-            Set-Content -LiteralPath (Join-Path $dir 'code.ps1') -Value $script:CodeStubBody -Encoding utf8
-        }
-        if (-not $NoMkcert) {
-            # Prints the CAROOT it was created with; the launcher pipes it through
-            # Select-Object -First 1. A failing stub prints nothing and exits
-            # non-zero — it deliberately writes no stderr, which would otherwise
-            # contaminate the launcher's own stderr that the warning assertions read.
-            $body = if ($MkcertExitCode -ne 0) {
-                "exit $MkcertExitCode"
-            } else {
-                "Write-Output '" + ($MkcertCaroot -replace "'", "''") + "'"
-            }
-            Set-Content -LiteralPath (Join-Path $dir 'mkcert.ps1') -Value $body -Encoding utf8
-        }
-        return $dir
-    }
-
-    # Default stub dir: `code` present, no mkcert at all.
-    $script:StubDir = New-StubDir -Name 'stub' -NoMkcert
-
-    # mkcert whose CAROOT really holds a rootCA.pem.
-    $script:CarootOk = Join-Path $script:Work 'caroot-ok'
-    New-Item -ItemType Directory -Path $script:CarootOk -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $script:CarootOk 'rootCA.pem') -Value '' -Encoding utf8
-    $script:StubMkcertOk = New-StubDir -Name 'stub-mkcert-ok' -MkcertCaroot $script:CarootOk
-
-    # mkcert whose CAROOT is empty (no rootCA.pem).
-    $script:CarootEmpty = Join-Path $script:Work 'caroot-empty'
-    New-Item -ItemType Directory -Path $script:CarootEmpty -Force | Out-Null
-    $script:StubMkcertBad = New-StubDir -Name 'stub-mkcert-bad' -MkcertCaroot $script:CarootEmpty
-
-    # mkcert that exits non-zero without printing a CAROOT.
-    $script:StubMkcertFails = New-StubDir -Name 'stub-mkcert-fails' -MkcertExitCode 3
-
-    # No `code` on PATH at all.
-    $script:StubNoCode = New-StubDir -Name 'stub-nocode' -NoCode -NoMkcert
-
-    $script:LocalAppData = Join-Path $script:Work 'localappdata'
-    New-Item -ItemType Directory -Path $script:LocalAppData -Force | Out-Null
-
-    # The minimum configuration every non-configuration case needs, so that a
-    # case about (say) argv is never accidentally satisfied by the base-URL
-    # guard refusing to run at all.
-    $script:Configured = @{
-        LITELLM_ANTHROPIC_BASE_URL = 'https://lite:1'
-        LITELLM_CLIENT_KEY         = 'ck'
-    }
-    function New-Env {
-        param([hashtable]$Extra = @{})
-        $h = @{}
-        foreach ($k in $script:Configured.Keys) { $h[$k] = $script:Configured[$k] }
-        foreach ($k in $Extra.Keys) { $h[$k] = $Extra[$k] }
-        return $h
-    }
-
-    # --- launcher runner -----------------------------------------------------
-    # The child's environment block is cleared and rebuilt: only the variables
-    # named here exist inside the launcher. PATH deliberately excludes the host's
-    # real directories, so a genuinely installed mkcert cannot turn the
-    # "no mkcert" case into a false pass.
-    function Invoke-Launcher {
-        param(
-            [hashtable]$Environment = @{},
-            [string[]]$Arguments = @(),
-            [string]$StubDir = $script:StubDir,
-            [string]$LauncherPath = $script:Launcher,
-            [switch]$NoLocalAppData
-        )
-
-        $dump = Join-Path $script:Work 'env.dump.json'
-        $argvFile = Join-Path $script:Work 'argv.dump'
-        Remove-Item -LiteralPath $dump, $argvFile -ErrorAction SilentlyContinue
-
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = $script:PwshPath
-        foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $LauncherPath) + $Arguments) {
-            $psi.ArgumentList.Add([string]$a)
-        }
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.Environment.Clear()
-
-        $psi.Environment['PATH'] = $StubDir
-        $psi.Environment['CCGW_TEST_DUMP'] = $dump
-        $psi.Environment['CCGW_TEST_ARGV'] = $argvFile
-        if (-not $NoLocalAppData) { $psi.Environment['LOCALAPPDATA'] = $script:LocalAppData }
-        $psi.Environment['TEMP'] = $script:Work
-        $psi.Environment['TMP'] = $script:Work
-        $psi.Environment['TMPDIR'] = $script:Work
-        $psi.Environment['HOME'] = $script:Work
-        $psi.Environment['USERPROFILE'] = $script:Work
-        # .ps1 must stay a discoverable command extension for the stubs above.
-        $psi.Environment['PATHEXT'] = '.COM;.EXE;.BAT;.CMD;.PS1'
-        foreach ($passthrough in @('SystemRoot', 'ComSpec', 'windir')) {
-            $v = [Environment]::GetEnvironmentVariable($passthrough)
-            if ($v) { $psi.Environment[$passthrough] = $v }
-        }
-        foreach ($k in $Environment.Keys) {
-            $psi.Environment[[string]$k] = [string]$Environment[$k]
-        }
-
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $stdout = $proc.StandardOutput.ReadToEnd()
-        $stderr = $proc.StandardError.ReadToEnd()
-        if (-not $proc.WaitForExit(60000)) {
-            try { $proc.Kill($true) } catch { }
-            throw "launcher did not exit within 60s"
-        }
-
-        $envMap = @{}
-        if (Test-Path -LiteralPath $dump) {
-            $raw = Get-Content -LiteralPath $dump -Raw
-            if ($raw.Trim()) { $envMap = $raw | ConvertFrom-Json -AsHashtable }
-        }
-        $argv = @()
-        if (Test-Path -LiteralPath $argvFile) {
-            $argv = @(Get-Content -LiteralPath $argvFile)
-        }
-
-        return [pscustomobject]@{
-            ExitCode = $proc.ExitCode
-            StdOut   = $stdout
-            StdErr   = $stderr
-            Env      = $envMap
-            Argv     = $argv
-            Reached  = (Test-Path -LiteralPath $dump)
-        }
-    }
-
-    # --- assertion helpers ---------------------------------------------------
-    function Assert-LauncherEnv {
-        param($Result, [string]$Name, [string]$Expected, [string]$Context)
-        if (-not $Result.Reached) {
-            throw "$Context`: stub 'code' was never reached (no env dump); stderr: $($Result.StdErr)"
-        }
-        if (-not $Result.Env.ContainsKey($Name)) {
-            throw "$Context`: $Name was not exported at all (expected '$Expected')"
-        }
-        if ($Result.Env[$Name] -cne $Expected) {
-            throw "$Context`: $Name='$($Result.Env[$Name])', expected '$Expected'"
-        }
-    }
-
-    function Assert-LauncherEnvUnset {
-        param($Result, [string]$Name, [string]$Context)
-        # The launcher's own contract treats defined-but-empty as unset, and
-        # .NET drops an env var assigned '' on Windows — so either shape counts.
-        if ($Result.Env.ContainsKey($Name) -and -not [string]::IsNullOrEmpty($Result.Env[$Name])) {
-            throw "$Context`: $Name was exported as '$($Result.Env[$Name])' but must not be set at all"
-        }
-    }
-
-    function Assert-LauncherEnvDiffers {
-        param($Result, [string]$A, [string]$B, [string]$Context)
-        if ($Result.Env[$A] -ceq $Result.Env[$B]) {
-            throw "$Context`: $A and $B both resolved to '$($Result.Env[$A])'; the two tiers must stay on separate routing keys"
-        }
-    }
-
-    function Assert-Stderr {
-        param($Result, [string]$Pattern, [string]$Context)
-        if ($Result.StdErr -notmatch [regex]::Escape($Pattern)) {
-            throw "$Context`: expected stderr to contain '$Pattern', got: $($Result.StdErr)"
-        }
-    }
-
-    function Assert-NoCaWarning {
-        param($Result, [string]$Context)
-        if ($Result.StdErr -match 'CCGW_CA_CERT not set') {
-            throw "$Context`: unexpected CA warning: $($Result.StdErr)"
-        }
-    }
-
-    # The four /model tiers Claude Code switches between.
-    $script:TierVars = @(
-        'ANTHROPIC_DEFAULT_FABLE_MODEL'
-        'ANTHROPIC_DEFAULT_OPUS_MODEL'
-        'ANTHROPIC_DEFAULT_SONNET_MODEL'
-        'ANTHROPIC_DEFAULT_HAIKU_MODEL'
-    )
-    # The vars that name the model in play at startup. CLAUDE_CODE_SUBAGENT_MODEL
-    # is deliberately NOT here any more: it is now opt-in (section 4d).
-    $script:ActiveVars = @(
-        'ANTHROPIC_MODEL'
-        'ANTHROPIC_CUSTOM_MODEL_OPTION'
-    )
-    $script:ModelVars = $script:TierVars + $script:ActiveVars + @('CLAUDE_CODE_SUBAGENT_MODEL')
-}
-
-AfterAll {
-    if ($script:Work -and (Test-Path -LiteralPath $script:Work)) {
-        Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
+#   LiteLLM to a loaded backend; a real `code.cmd` from a real VS Code install
+#   (the stub is faithful about being a .cmd, not about what VS Code does with
+#   its argv). Also unreachable from here: the
+#   $PSNativeCommandUseErrorActionPreference guard itself — that conversion
+#   applies only to native executables, and the mkcert stub is a .ps1, so the
+#   failing-mkcert case exercises the resulting no-CAROOT branch rather than the
+#   exit-code conversion that would have aborted the launcher before the fix.
+#   And whether an .exe target is reached DIRECTLY or through a cmd.exe wrapper
+#   is not observable from inside the child; Context 10 asserts what it received,
+#   not how it was spawned.
 
 Describe 'code-ccgw.ps1' {
 
-    Context '1. Base URL: single source, hard failure when absent' {
-        It 'LITELLM_ANTHROPIC_BASE_URL is the only source' {
-            $r = Invoke-Launcher -Environment (New-Env)
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'base-url/configured'
-        }
+    BeforeAll {
+        # Definitions first, then setup.ps1 — which is top-level code, not a
+        # function, so the $script: fixtures it builds land in this block's scope
+        # where every It below can see them.
+        $suite = Join-Path $PSScriptRoot 'code-ccgw-windows'
+        . (Join-Path $suite 'helpers-fixtures.ps1')
+        . (Join-Path $suite 'helpers-runners.ps1')
+        . (Join-Path $suite 'helpers-runners-latency.ps1')
+        . (Join-Path $suite 'helpers-assertions.ps1')
+        . (Join-Path $suite 'setup.ps1')
+    }
 
-        It 'the retired CCGW_/DS4_ base URLs must not configure the launcher' {
-            # A stale .env carrying them is exactly the situation where a silent
-            # fallback would send traffic down the route this change removed.
-            $env1 = @{ LITELLM_CLIENT_KEY = 'ck' }
-            $env1[$script:RBaseCcgw] = 'https://ccgw:2'
-            $env1[$script:RBaseDs4] = 'https://ds4:3'
-            $r = Invoke-Launcher -Environment $env1
-            $r.ExitCode | Should -Not -Be 0 -Because 'the retired base-URL variables are not a configuration source any more'
-        }
-
-        It 'an unset base URL is a hard failure, not a dummy default' {
-            $r = Invoke-Launcher -Environment @{ LITELLM_CLIENT_KEY = 'ck' }
-            $r.ExitCode | Should -Not -Be 0 -Because 'an unconfigured launcher must not silently pick a default endpoint'
-            Assert-Stderr $r 'LITELLM_ANTHROPIC_BASE_URL' 'base-url/unset: the error must name the variable to set'
-            Assert-Stderr $r 'docs/ops.md' 'base-url/unset: the error must point at the setup procedure'
-        }
-
-        It 'a defined-but-empty base URL is treated as unset' {
-            # The retired .cmd's `if defined` accepted an empty string; the port
-            # must not.
-            $r = Invoke-Launcher -Environment @{ LITELLM_ANTHROPIC_BASE_URL = ''; LITELLM_CLIENT_KEY = 'ck' }
-            $r.ExitCode | Should -Not -Be 0 -Because 'an empty value is not a configured endpoint'
+    AfterAll {
+        if ($script:Work -and (Test-Path -LiteralPath $script:Work)) {
+            Remove-Item -LiteralPath $script:Work -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
-    Context '2. Auth token: LITELLM_CLIENT_KEY, with a one-cycle deprecated alias' {
-        # No virtual keys exist without a LiteLLM database, so the client
-        # credential is the master key itself; LITELLM_VIRTUAL_KEY survives one
-        # cycle because an existing .env carrying only the old name would
-        # otherwise 401 with no clue.
-
-        It 'LITELLM_CLIENT_KEY is the credential, and using it warns about nothing' {
-            $r = Invoke-Launcher -Environment (New-Env)
-            Assert-LauncherEnv $r 'ANTHROPIC_AUTH_TOKEN' 'ck' 'auth/current-name'
-            $r.StdErr | Should -Not -Match '(?i)deprecat' -Because 'the current name must not produce a deprecation warning'
-        }
-
-        It 'the deprecated LITELLM_VIRTUAL_KEY is still accepted, with a warning naming both names' {
-            $r = Invoke-Launcher -Environment @{
-                LITELLM_ANTHROPIC_BASE_URL = 'https://lite:1'
-                LITELLM_VIRTUAL_KEY        = 'vk'
-            }
-            Assert-LauncherEnv $r 'ANTHROPIC_AUTH_TOKEN' 'vk' 'auth/alias'
-            Assert-Stderr $r 'LITELLM_VIRTUAL_KEY' 'auth/alias: using the deprecated name must warn'
-            Assert-Stderr $r 'LITELLM_CLIENT_KEY' 'auth/alias: the warning must name the replacement'
-        }
-
-        It 'LITELLM_CLIENT_KEY wins when both names are set' {
-            # A half-migrated .env has to behave predictably.
-            $r = Invoke-Launcher -Environment (New-Env @{ LITELLM_VIRTUAL_KEY = 'vk' })
-            Assert-LauncherEnv $r 'ANTHROPIC_AUTH_TOKEN' 'ck' 'auth/both-names'
-        }
-
-        It 'the retired client key variables must not configure the launcher' {
-            $env1 = @{ LITELLM_ANTHROPIC_BASE_URL = 'https://lite:1' }
-            $env1[$script:RKeyCcgw] = 'ck'
-            $env1[$script:RKeyDs4] = 'dk'
-            $r = Invoke-Launcher -Environment $env1
-            $r.ExitCode | Should -Not -Be 0 -Because 'the proxy token is now internal to LiteLLM and no longer a client credential'
-        }
-
-        It 'an unset credential is a hard failure, not a shared dummy token' {
-            $r = Invoke-Launcher -Environment @{ LITELLM_ANTHROPIC_BASE_URL = 'https://lite:1' }
-            $r.ExitCode | Should -Not -Be 0 -Because 'a missing credential must surface at launch, not as a 401 much later'
-            Assert-Stderr $r 'LITELLM_CLIENT_KEY' 'auth/unset: the error must name the variable to set'
-            $r.StdErr | Should -Not -Match 'dsv4-local' -Because 'the retired dummy token must be gone'
-        }
-
-        It 'a pre-existing ANTHROPIC_API_KEY must be cleared so the local backend is used' {
-            $r = Invoke-Launcher -Environment (New-Env @{ ANTHROPIC_API_KEY = 'cloud-key-must-not-survive' })
-            $r.Reached | Should -BeTrue -Because "stderr: $($r.StdErr)"
-            # Assigning '' removes the variable outright on Windows; both shapes
-            # satisfy the contract "no real cloud key reaches Claude Code".
-            $got = if ($r.Env.ContainsKey('ANTHROPIC_API_KEY')) { $r.Env['ANTHROPIC_API_KEY'] } else { $null }
-            [string]::IsNullOrEmpty($got) | Should -BeTrue -Because "ANTHROPIC_API_KEY survived as '$got'"
-        }
-    }
-
-    Context '3. TLS CA (retained: LiteLLM terminates TLS with the mkcert leaf)' {
-        It 'CCGW_CA_CERT is honored' {
-            $r = Invoke-Launcher -Environment (New-Env @{ CCGW_CA_CERT = 'C:\ca\ccgw.pem' })
-            Assert-LauncherEnv $r 'NODE_EXTRA_CA_CERTS' 'C:\ca\ccgw.pem' 'ca/explicit'
-            Assert-NoCaWarning $r 'ca/explicit'
-        }
-
-        It 'the retired direct-path CA variable must not be picked up' {
-            $r = Invoke-Launcher -Environment (New-Env @{ $script:RCaDs4 = 'C:\ca\ds4.pem' })
-            Assert-LauncherEnvUnset $r 'NODE_EXTRA_CA_CERTS' 'ca/retired-var'
-        }
-
-        It 'TLS verification must never be disabled' {
-            # NODE_TLS_REJECT_UNAUTHORIZED=0 must never be the launcher's answer to TLS.
-            $r = Invoke-Launcher -Environment (New-Env @{ CCGW_CA_CERT = 'C:\ca\ccgw.pem' })
-            Assert-LauncherEnvUnset $r 'NODE_TLS_REJECT_UNAUTHORIZED' 'ca/no-tls-bypass'
-        }
-
-        It '3a. mkcert -CAROOT must be derived when no CA var is set' {
-            $r = Invoke-Launcher -StubDir $script:StubMkcertOk -Environment (New-Env)
-            Assert-LauncherEnv $r 'NODE_EXTRA_CA_CERTS' (Join-Path $script:CarootOk 'rootCA.pem') 'ca/mkcert-ok'
-            Assert-NoCaWarning $r 'ca/mkcert-ok'
-        }
-
-        It 'explicit CCGW_CA_CERT must outrank the mkcert derivation' {
-            $r = Invoke-Launcher -StubDir $script:StubMkcertOk -Environment (New-Env @{ CCGW_CA_CERT = 'C:\ca\explicit.pem' })
-            Assert-LauncherEnv $r 'NODE_EXTRA_CA_CERTS' 'C:\ca\explicit.pem' 'ca/explicit-over-mkcert'
-        }
-
-        It '3b. a CAROOT without rootCA.pem must not yield a bogus NODE_EXTRA_CA_CERTS' {
-            $r = Invoke-Launcher -StubDir $script:StubMkcertBad -Environment (New-Env)
-            Assert-LauncherEnvUnset $r 'NODE_EXTRA_CA_CERTS' 'ca/mkcert-empty'
-            Assert-Stderr $r 'CCGW_CA_CERT not set' 'ca/mkcert-empty'
-        }
-
-        It '3c. mkcert absent entirely must warn and export nothing' {
-            $r = Invoke-Launcher -Environment (New-Env)
-            Assert-LauncherEnvUnset $r 'NODE_EXTRA_CA_CERTS' 'ca/no-mkcert'
-            Assert-Stderr $r 'CCGW_CA_CERT not set' 'ca/no-mkcert'
-        }
-
-        It '3d. a failing mkcert warns and still launches instead of aborting' {
-            # Under PowerShell 7.4+ a non-zero native exit used to become a
-            # terminating error while ErrorActionPreference is Stop, killing the
-            # launcher outright; the script disables that conversion, so the run
-            # must reach `code`. See the TL3 note in the header: a .ps1 stub is
-            # not a native command, so this reaches the warning through the
-            # no-CAROOT branch rather than through the conversion itself.
-            $r = Invoke-Launcher -StubDir $script:StubMkcertFails -Environment (New-Env)
-            $r.Reached | Should -BeTrue -Because "a failing mkcert must not abort the launcher; stderr: $($r.StdErr)"
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            Assert-LauncherEnvUnset $r 'NODE_EXTRA_CA_CERTS' 'ca/mkcert-fails'
-            Assert-Stderr $r 'CCGW_CA_CERT not set' 'ca/mkcert-fails'
-        }
-    }
-
-    Context '4. Model selection (unconditional LiteLLM routing keys)' {
-        # With the direct path gone there is no branch left: each
-        # LITELLM_*_MODEL is a LiteLLM routing key and goes onto its own /model
-        # tier verbatim. The launcher owns no backend names of its own —
-        # inventing one would route to a model the gateway has no entry for, and
-        # the error would surface as a 400 from LiteLLM rather than as a
-        # launcher message.
-
-        BeforeAll {
-            $script:AllKeys = @{
-                LITELLM_FABLE_MODEL  = 'lite-fable'
-                LITELLM_OPUS_MODEL   = 'lite-opus'
-                LITELLM_SONNET_MODEL = 'lite-sonnet'
-                LITELLM_HAIKU_MODEL  = 'lite-haiku'
-            }
-        }
-
-        It '4a. all four routing keys land verbatim on their own tiers' {
-            $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'lite-fable' 'models: fable routing key'
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models: opus routing key'
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_SONNET_MODEL' 'lite-sonnet' 'models: sonnet routing key'
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-haiku' 'models: haiku routing key'
-            Assert-LauncherEnv $r 'ANTHROPIC_MODEL' 'lite-fable' 'models: startup model follows the fable tier'
-            Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' 'lite-fable' 'models: custom model option follows the fable tier'
-            # Stated as an inequality too: a regression that collapses the tiers
-            # onto one key would still satisfy each literal individually if all
-            # literals moved.
-            Assert-LauncherEnvDiffers $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'ANTHROPIC_DEFAULT_OPUS_MODEL' `
-                'models: fable and opus must address different routing keys or /model cannot switch'
-        }
-
-        It '4b. no retired direct-path backend name may appear in any model var' {
-            # The launcher is not allowed to know them any more.
-            $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
-            foreach ($v in $script:ModelVars) {
-                $val = if ($r.Env.ContainsKey($v)) { $r.Env[$v] } else { '' }
-                $val | Should -Not -Match '(?i)deepseek' -Because "models: $v='$val' is a backend name, not a LiteLLM routing key"
-                $val | Should -Not -Match '(?i)laguna' -Because "models: $v='$val' is a backend name, not a LiteLLM routing key"
-            }
-        }
-
-        It '4c. the retired startup-model variable must change nothing at all' {
-            $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ $script:RDefaultModel = 'laguna-s-2.1' }))
-            Assert-LauncherEnv $r 'ANTHROPIC_MODEL' 'lite-fable' 'models/retired-default: the retired startup-model variable must be ignored'
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/retired-default: the tier map must be unaffected'
-        }
-
-        # 4d. Subagent contract (three cases).
-        #
-        # Why it changed: the old launcher pinned CLAUDE_CODE_SUBAGENT_MODEL to
-        # the fable tier so a subagent could not evict the resident backend.
-        # Routing now goes through LiteLLM, which multiplexes, so the pin is no
-        # longer needed — and it actively harms, because it silently overrides
-        # the model an agent definition's frontmatter declares. Default is
-        # therefore "say nothing"; CCGW_SUBAGENT_MODEL exists only for the case
-        # where a user deliberately wants every subagent confined to one route.
-
-        It '4d-i. by default the subagent model is not exported at all' {
-            $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
-            Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/default: an unconditional value overrides agent frontmatter'
-        }
-
-        It '4d-ii. CCGW_SUBAGENT_MODEL is exported verbatim' {
-            $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ CCGW_SUBAGENT_MODEL = 'lite-haiku' }))
-            Assert-LauncherEnv $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'lite-haiku' 'subagent/opt-in'
-        }
-
-        It '4d-iii. an arbitrary routing key passes through untranslated' {
-            # A key the launcher has never heard of must survive intact, and a
-            # tier name must NOT be mapped to that tier's value.
-            $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ CCGW_SUBAGENT_MODEL = 'some-other-routing-key' }))
-            Assert-LauncherEnv $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'some-other-routing-key' 'subagent/domain'
-        }
-
-        It 'a defined-but-empty CCGW_SUBAGENT_MODEL counts as unset' {
-            # Exporting an empty model name would make Claude Code request ""
-            # and fail at the gateway.
-            $r = Invoke-Launcher -Environment (New-Env @{ LITELLM_FABLE_MODEL = 'lite-fable'; CCGW_SUBAGENT_MODEL = '' })
-            Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/empty'
-        }
-
-        It '4e. no routing keys at all: nothing may be invented' {
-            $r = Invoke-Launcher -Environment (New-Env)
-            foreach ($v in $script:ModelVars) {
-                Assert-LauncherEnvUnset $r $v 'models/no-keys: the launcher must substitute no model name of its own'
-            }
-        }
-
-        It '4f. partial keys: the fable tier drives the startup vars, so its absence leaves them unset' {
-            $r = Invoke-Launcher -Environment (New-Env @{
-                LITELLM_OPUS_MODEL   = 'lite-opus'
-                LITELLM_SONNET_MODEL = 'lite-sonnet'
-                LITELLM_HAIKU_MODEL  = 'lite-haiku'
-            })
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/no-fable: opus routing key still applies'
-            Assert-LauncherEnvUnset $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'models/no-fable: no fable key means no fable tier'
-            foreach ($v in $script:ActiveVars) {
-                Assert-LauncherEnvUnset $r $v 'models/no-fable: the launcher must invent no model name of its own'
-            }
-        }
-    }
-
-    Context '5. VS Code profile isolation and argv passthrough' {
-        It 'passes an isolated --user-data-dir under LOCALAPPDATA plus the caller argv' {
-            $r = Invoke-Launcher -Environment (New-Env) -Arguments @('C:\some\project', '--new-window')
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'C:\some\project', '--new-window')
-            @($r.Argv) | Should -Be $expected
-        }
-
-        It 'passes only the --user-data-dir pair when the caller supplied no argv' {
-            $r = Invoke-Launcher -Environment (New-Env)
-            $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'))
-            @($r.Argv) | Should -Be $expected
-        }
-
-        It 'falls back to a home-relative profile dir when LOCALAPPDATA is unset' {
-            # LOCALAPPDATA is always set on a normal Windows session, but a
-            # stripped service environment would otherwise make the final
-            # Join-Path throw after every env var had already been resolved.
-            # The exact fallback spelling is the script's business; what must
-            # hold is that it still launches, still isolates, and still roots the
-            # profile under the user's home.
-            $r = Invoke-Launcher -Environment (New-Env) -NoLocalAppData
-            $r.Reached | Should -BeTrue -Because "an unset LOCALAPPDATA must not abort the launcher; stderr: $($r.StdErr)"
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            @($r.Argv).Count | Should -Be 2
-            $r.Argv[0] | Should -Be '--user-data-dir'
-            $r.Argv[1] | Should -BeLike "$($script:Work)*"
-            $r.Argv[1] | Should -BeLike '*vscode-ccgw'
-            # Still isolated: the fallback must not be the LOCALAPPDATA path, and
-            # must not be the bare home dir either.
-            $r.Argv[1] | Should -Not -Be (Join-Path $script:Work 'vscode-ccgw')
-        }
-    }
-
-    Context '6. Missing code on PATH' {
-        It 'is a hard failure that names both the problem and the remedy' {
-            $r = Invoke-Launcher -StubDir $script:StubNoCode -Environment (New-Env)
-            $r.ExitCode | Should -Not -Be 0 -Because 'a missing code command must not exit 0'
-            Assert-Stderr $r "'code' command not found on PATH" 'missing-code: must name the problem'
-            Assert-Stderr $r "Install 'code' command in PATH" 'missing-code: must state the remedy'
-        }
-    }
-
-    Context '7. Repo-root .env loading' {
-        # The launcher composes the path as Join-Path (Join-Path $PSScriptRoot '..') '.env',
-        # so the separator is the platform's own and these cases run everywhere
-        # pwsh does — they are not Windows-gated.
-
-        BeforeAll {
-            $script:DotEnvLauncher = New-FixtureTree -Name 'fixture-dotenv' -DotEnvLines @(
-                '# comment line must be ignored'
-                ''
-                'LITELLM_ANTHROPIC_BASE_URL=https://from-dotenv:9'
-                'LITELLM_CLIENT_KEY=dotenv-token'
-                '  LITELLM_FABLE_MODEL = lite-fable  '
-                'MALFORMED_NO_EQUALS'
-            )
-        }
-
-        It 'loads KEY=value lines and ignores comments and blanks' {
-            $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncher
-            Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://from-dotenv:9' 'dotenv: base URL comes from .env'
-            Assert-LauncherEnv $r 'ANTHROPIC_AUTH_TOKEN' 'dotenv-token' 'dotenv: auth token comes from .env'
-        }
-
-        It 'trims surrounding whitespace around key and value' {
-            $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncher
-            Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'lite-fable' 'dotenv: whitespace-padded KEY = value is trimmed'
-        }
-
-        It 'a non-empty shell value outranks .env' {
-            $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncher `
-                -Environment @{ LITELLM_ANTHROPIC_BASE_URL = 'https://from-shell:1' }
-            Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://from-shell:1' 'dotenv: shell wins over .env'
-        }
-
-        It 'a defined-but-empty shell value is treated as unset, so .env still applies' {
-            # Every consumer below treats empty as unset, so honouring the empty
-            # shell value would silently discard the .env entry.
-            $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncher `
-                -Environment @{ LITELLM_ANTHROPIC_BASE_URL = '' }
-            Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://from-dotenv:9' 'dotenv: empty shell value must not shadow .env'
-        }
-
-        It 'a missing .env is not an error when the shell supplies the configuration' {
-            $bare = Join-Path $script:Work 'fixture-no-dotenv'
-            New-Item -ItemType Directory -Path (Join-Path $bare 'scripts') -Force | Out-Null
-            Copy-Item -LiteralPath $script:SourceLauncher -Destination (Join-Path $bare 'scripts' 'code-ccgw.ps1') -Force
-            $r = Invoke-Launcher -LauncherPath (Join-Path $bare 'scripts' 'code-ccgw.ps1') -Environment (New-Env)
-            $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-            Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'dotenv/absent: launcher still runs'
-        }
-
-        # --- OS-conditional blocks (issue #56): `#@if windows` / `#@if posix` /
-        # `#@endif` in the repo-root .env. `ConvertFrom-OsConditionalLines` does
-        # NOT exist yet in scripts/code-ccgw.ps1 as of this writing -- written
-        # FIRST against the 13-case reference spec in the issue #56 detail plan,
-        # so the follow-up implementation has a red suite to turn green.
-        #
-        # This suite runs wherever pwsh happens to execute, not necessarily on
-        # Windows, and the launcher's own platform-token resolution ($IsWindows,
-        # falling back to 'windows' only when that variable does not exist at
-        # all) is a property of whatever REAL host runs the child launcher
-        # process below -- it cannot be mocked without touching the source. So
-        # every assertion here is phrased in terms of $script:OsBlockToken,
-        # resolved the same way, rather than hardcoding an assumption that the
-        # host is Windows.
-        BeforeAll {
-            $script:OsBlockToken = if (Test-Path variable:IsWindows) { if ($IsWindows) { 'windows' } else { 'posix' } } else { 'windows' }
-            $script:OsBlockOtherToken = if ($script:OsBlockToken -eq 'windows') { 'posix' } else { 'windows' }
-
-            function Get-OsBlockExpected {
-                param([string]$WindowsValue, [string]$PosixValue)
-                if ($script:OsBlockToken -eq 'windows') { return $WindowsValue }
-                return $PosixValue
-            }
-
-            $script:OsBlockCase1 = New-FixtureTree -Name 'fixture-osblock-case1' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '#@if windows'
-                'BASIC_KEY=win_value'
-                '#@endif'
-                '#@if posix'
-                'BASIC_KEY=posix_value'
-                '#@endif'
-            )
-            $script:OsBlockCase3 = New-FixtureTree -Name 'fixture-osblock-case3' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '# a plain comment'
-                'PLAIN_KEY=plain_value'
-            )
-            $script:OsBlockCase4 = New-FixtureTree -Name 'fixture-osblock-case4' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                'BEFORE_KEY=before_value'
-                ''
-                'AFTER_KEY=after_value'
-            )
-            $script:OsBlockCase5 = New-FixtureTree -Name 'fixture-osblock-case5' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                "#@if $($script:OsBlockOtherToken)"
-                'OUTER_KEY=outer_should_not_appear'
-                "#@if $($script:OsBlockToken)"
-                'INNER_KEY=inner_should_not_appear'
-                '#@endif'
-                '#@endif'
-            )
-            $script:OsBlockCase6 = New-FixtureTree -Name 'fixture-osblock-case6' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                "#@if $($script:OsBlockToken)"
-                'BEFORE_KEY=before_value'
-                "#@if $($script:OsBlockOtherToken)"
-                'NESTED_KEY=nested_should_not_appear'
-                '#@endif'
-                'AFTER_KEY=after_value'
-                '#@endif'
-            )
-            $script:OsBlockCase7 = New-FixtureTree -Name 'fixture-osblock-case7' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '#@if darwin'
-                'UNKNOWN_TOKEN_KEY=should_never_appear'
-                '#@endif'
-            )
-            $script:OsBlockCase8 = New-FixtureTree -Name 'fixture-osblock-case8' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '#@ifwindows'
-                'FOLLOW_KEY=should_always_appear'
-                '#@endif'
-            )
-            $script:OsBlockCase9 = New-FixtureTree -Name 'fixture-osblock-case9' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                'BEFORE_KEY=before_value'
-                '#@endif'
-                'AFTER_KEY=after_value'
-            )
-            $script:OsBlockCase10 = New-FixtureTree -Name 'fixture-osblock-case10' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                "#@if $($script:OsBlockOtherToken)"
-                'INSIDE_KEY=inside_value'
-                '#@endif foo'
-                'AFTER_KEY=after_value'
-            )
-
-            $script:OsBlockCase11 = New-FixtureTree -Name 'fixture-osblock-case11'
-            $osBlockCase11Root = Split-Path (Split-Path $script:OsBlockCase11 -Parent) -Parent
-            $osBlockCase11Lines = @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '#@if windows'
-                'BASIC_KEY=win_value'
-                '#@endif'
-                '#@if posix'
-                'BASIC_KEY=posix_value'
-                '#@endif'
-            )
-            # Explicit CRLF write: New-FixtureTree's Set-Content uses this host's
-            # default newline, which is already LF on macOS/Linux -- this case
-            # exists specifically to prove a CRLF-authored .env (e.g. edited on a
-            # real Windows box) resolves identically regardless of host.
-            [System.IO.File]::WriteAllText((Join-Path $osBlockCase11Root '.env'), (($osBlockCase11Lines -join "`r`n") + "`r`n"))
-
-            $script:OsBlockCase12 = New-FixtureTree -Name 'fixture-osblock-case12' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                '  #@if windows  '
-                'PAD_KEY=win_value'
-                '  #@endif  '
-                '  #@if posix  '
-                'PAD_KEY=posix_value'
-                '  #@endif  '
-            )
-            $script:OsBlockCase13 = New-FixtureTree -Name 'fixture-osblock-case13' -DotEnvLines @(
-                'LITELLM_ANTHROPIC_BASE_URL=https://lite:1'
-                'LITELLM_CLIENT_KEY=ck'
-                'DUP_KEY=first_value'
-                "#@if $($script:OsBlockToken)"
-                'DUP_KEY=second_value_inside_active_block'
-                '#@endif'
-            )
-        }
-
-        It '[env-conditional-blocks: case 1] only the active platform block''s value survives' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase1
-            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
-            Assert-LauncherEnv $r 'BASIC_KEY' $expected "os-block/case1 (host token: $($script:OsBlockToken))"
-        }
-
-        It '[env-conditional-blocks: case 2] marker lines never leak into the loaded env' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase1
-            $leaked = @($r.Env.Keys | Where-Object { $r.Env[$_] -match '#@if|#@endif' })
-            $leaked.Count | Should -Be 0 -Because "marker syntax must never appear in an exported value; found in: $($leaked -join ', ')"
-        }
-
-        It '[env-conditional-blocks: case 3] plain lines outside any block are unconditional' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase3
-            Assert-LauncherEnv $r 'PLAIN_KEY' 'plain_value' 'os-block/case3'
-        }
-
-        It '[env-conditional-blocks: case 4] blank lines outside marker blocks are preserved' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase4
-            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' 'os-block/case4'
-            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case4'
-        }
-
-        It '[env-conditional-blocks: case 5] nesting does not leak -- an inactive outer block suppresses a would-be-active nested block' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase5
-            Assert-LauncherEnvUnset $r 'OUTER_KEY' "os-block/case5 (host token: $($script:OsBlockToken))"
-            Assert-LauncherEnvUnset $r 'INNER_KEY' 'os-block/case5: suppressDepth must pin at the outer depth'
-        }
-
-        It '[env-conditional-blocks: case 6] nesting does not leak the other way -- an active outer block only removes the nested inactive block' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase6
-            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' "os-block/case6 (host token: $($script:OsBlockToken))"
-            Assert-LauncherEnvUnset $r 'NESTED_KEY' 'os-block/case6: the nested inactive block must be removed'
-            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case6: content after the nested block, still inside the active outer block, must load'
-        }
-
-        It '[env-conditional-blocks: case 7] an unrecognized token suppresses its block on any host' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase7
-            Assert-LauncherEnvUnset $r 'UNKNOWN_TOKEN_KEY' "os-block/case7 (host token: $($script:OsBlockToken))"
-        }
-
-        It '[env-conditional-blocks: case 8] non-strict spelling ("#@ifwindows", no space) opens no block' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase8
-            Assert-LauncherEnv $r 'FOLLOW_KEY' 'should_always_appear' "os-block/case8 (host token: $($script:OsBlockToken))"
-        }
-
-        It '[env-conditional-blocks: case 9] an orphan #@endif is a no-op' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase9
-            Assert-LauncherEnv $r 'BEFORE_KEY' 'before_value' 'os-block/case9'
-            Assert-LauncherEnv $r 'AFTER_KEY' 'after_value' 'os-block/case9'
-        }
-
-        It '[env-conditional-blocks: case 10] "#@endif foo" (trailing text) never closes the block -- deliberately non-lenient' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase10
-            Assert-LauncherEnvUnset $r 'INSIDE_KEY' "os-block/case10: #@if $($script:OsBlockOtherToken) is inactive on this host (token: $($script:OsBlockToken))"
-            Assert-LauncherEnvUnset $r 'AFTER_KEY' 'os-block/case10: "#@endif foo" does not close the block, so suppression never lifts'
-        }
-
-        It '[env-conditional-blocks: case 11] CRLF-saved markers resolve identically to LF' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase11
-            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
-            Assert-LauncherEnv $r 'BASIC_KEY' $expected "os-block/case11 (host token: $($script:OsBlockToken))"
-        }
-
-        It '[env-conditional-blocks: case 12] whitespace-padded marker lines are still recognized' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase12
-            $expected = Get-OsBlockExpected -WindowsValue 'win_value' -PosixValue 'posix_value'
-            Assert-LauncherEnv $r 'PAD_KEY' $expected "os-block/case12 (host token: $($script:OsBlockToken))"
-        }
-
-        It '[env-conditional-blocks: case 13] duplicate keys -- first occurrence wins' {
-            $r = Invoke-Launcher -LauncherPath $script:OsBlockCase13
-            Assert-LauncherEnv $r 'DUP_KEY' 'first_value' "os-block/case13: the loader skips re-setting an already-set var (host token: $($script:OsBlockToken))"
-        }
+    # Dot-sourced during Pester's DISCOVERY phase, which is when a Describe body
+    # runs — each file's Context/It blocks are registered as if written here.
+    # Enumerated rather than globbed so the order is the reading order and a new
+    # file has to be added deliberately.
+    foreach ($contextFile in @(
+            'context-01-04-configuration.ps1'
+            'context-05-06-launch.ps1'
+            'context-07-dotenv.ps1'
+            'context-08-parent-env.ps1'
+            'context-09-metacharacters.ps1'
+            'context-10-exe-branch.ps1'
+            'context-11-source-contract.ps1'
+            'context-12-argument-boundaries.ps1'
+            'context-13-routing-precedence.ps1'
+            'context-14-launch-responsiveness.ps1'
+            'context-15-config-value-injection.ps1'
+        )) {
+        . (Join-Path (Join-Path $PSScriptRoot 'code-ccgw-windows') $contextFile)
     }
 }
