@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests: scripts/lib/atomic-write.sh, scripts/set-model
+# Tests: scripts/lib/atomic-write.sh, scripts/set-model.sh
 # Tags: scope:issue-specific, layer:TL1
 # Scenario (issue #62): set-model's old atomic write did
 # mktemp "$TARGET.XXXXXX" + mv tmp "$TARGET", replacing a symlinked TARGET's
@@ -134,8 +134,8 @@ _ccgw_commit_write "$tmp" "$WORK/c10/does-not-exist.txt" || fail "case 10: commi
 [ "$(cat "$WORK/c10/does-not-exist.txt")" = fresh ] || fail "case 10: new file content missing after commit"
 no_leftover_tmp "$WORK/c10" "case 10"
 
-# --- Case 11: static regression guard on scripts/set-model ------------------
-SET_MODEL="$REPO/scripts/set-model"
+# --- Case 11: static regression guard on scripts/set-model.sh ---------------
+SET_MODEL="$REPO/scripts/set-model.sh"
 [ -f "$SET_MODEL" ] || fail "case 11: $SET_MODEL not found"
 grep -q 'lib/atomic-write\.sh' "$SET_MODEL" || fail "case 11: set-model no longer sources lib/atomic-write.sh"
 if grep -E 'mktemp[[:space:]]+"\$(DOTENV_FILE|LITELLM_CONFIG)\.XXXXXX"' "$SET_MODEL" >/dev/null; then
