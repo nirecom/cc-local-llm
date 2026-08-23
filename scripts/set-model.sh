@@ -1,24 +1,20 @@
 #!/bin/sh
 # set-model — change which physical backend a Claude Code tier routes to.
 #
-# Two things have to move together, or Claude Code's own /model display goes
-# stale: LITELLM_<TIER>_MODEL in .env (what Claude Code sends as the request's
-# `model` field, via ANTHROPIC_DEFAULT_<TIER>_MODEL -- see scripts/code-ccgw.sh)
-# and litellm_params.model in litellm-server/config.yaml (the actual backend
-# that tier's model_list block calls). This script writes both, keyed off the
-# same bare model-key, then restarts litellm-server so it re-resolves
-# os.environ/LITELLM_<TIER>_MODEL from the new .env value.
+# .env's LITELLM_<TIER>_MODEL and litellm-server/config.yaml's
+# litellm_params.model must move together or /model goes stale, so this script
+# writes both off one bare model-key and restarts litellm-server.
 #
-# fable/opus route to Mac llama-swap (llama-swap/config.yaml `models:` keys,
-# enumerable from this repo). haiku/sonnet route to the Windows llama-swap
-# instance, whose config.yaml is not in this repo (docs/infrastructure.md) --
-# their choices, and the provider shape of a given key, can't be verified
-# here, only the currently-configured backend can be shown.
+# Only fable/opus keys are enumerable here (llama-swap/config.yaml); haiku and
+# sonnet live on the Windows instance -- see docs/infrastructure.md.
 set -eu
 
 CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=scripts/lib/root.sh
 . "$CCGW_SCRIPT_DIR/lib/root.sh"
+# This script reads and writes the model-routing keys, so .env must win over a
+# stale shell value. Same list as scripts/code-ccgw.sh.
+DOTENV_FORCE_KEYS="LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL LITELLM_OPUS_MODEL CCGW_SUBAGENT_MODEL"
 # shellcheck source=scripts/lib/load-dotenv.sh
 . "$CCGW_SCRIPT_DIR/lib/load-dotenv.sh"
 # shellcheck source=scripts/lib/paths.sh
@@ -42,9 +38,9 @@ _display_path() {
 
 _usage() {
     cat <<EOF
-Usage: set-model <tier> <model-key>
-       set-model --list [tier]
-       set-model -h|--help
+Usage: set-model.sh <tier> <model-key>
+       set-model.sh --list [tier]
+       set-model.sh -h|--help
 
 Tiers: haiku, sonnet, fable, opus
 
