@@ -43,9 +43,21 @@ OUT="$(run_loader LITELLM_OPUS_MODEL=stale DOTENV_FORCE_KEYS=)" || OUT=""
 grep -q 'unbound variable' "$WORK/err" && fail "case 3: unbound variable on empty list"
 [ "$OUT" = "stale" ] || fail "case 3: empty list forced anyway (got '$OUT')"
 
-# --- Case 4: set-model.sh carries its own force-list ------------------------
-[ -f "$SCRIPT" ] || fail "case 4: $SCRIPT not found"
-grep -q '^DOTENV_FORCE_KEYS=.*LITELLM_OPUS_MODEL' "$SCRIPT" \
-    || fail "case 4: set-model.sh no longer sets a non-empty DOTENV_FORCE_KEYS"
+# --- Case 4: set-model.sh's force-list matches code-ccgw.sh's ---------------
+# The two are the same list of routing keys, declared twice; nothing but this
+# case stops them drifting when a fifth key is added to one of them. Cases 1-3
+# prove the loader honors whatever list it is handed, so a complete, matching
+# list here is what makes set-model.sh's own behavior guaranteed -- there is no
+# read-only way to observe the resolved value through the script itself.
+force_list_of() { sed -n 's/^DOTENV_FORCE_KEYS="\(.*\)"$/\1/p' "$1"; }
+CCGW="$REPO/scripts/code-ccgw.sh"
+for f in "$SCRIPT" "$CCGW"; do [ -f "$f" ] || fail "case 4: $f not found"; done
+SET_MODEL_LIST="$(force_list_of "$SCRIPT")"
+CCGW_LIST="$(force_list_of "$CCGW")"
+[ -n "$CCGW_LIST" ] || fail "case 4: code-ccgw.sh no longer declares a DOTENV_FORCE_KEYS list"
+[ "$SET_MODEL_LIST" = "$CCGW_LIST" ] \
+    || fail "case 4: force-list drift between the two declarations:
+  set-model.sh: $SET_MODEL_LIST
+  code-ccgw.sh: $CCGW_LIST"
 
 echo "PASS: test-set-model-dotenv-force-keys"
