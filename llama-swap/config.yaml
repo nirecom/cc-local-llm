@@ -78,7 +78,7 @@ models:
     # above (hybrid Gated DeltaNet/Gated Attention, 80B/3B, 84.7GB in 8bit),
     # but the Thinking variant instead of Coder -- an A/B alternative for the
     # opus tier when Coder-Next's lack of a thinking mode is the bottleneck.
-    # Switch between the two with `scripts/set-model opus <key>` -- both are
+    # Switch between the two with `scripts/set-model.sh opus <key>` -- both are
     # mlx_lm.server/openai-shape, so it's a same-shape swap needing no manual
     # litellm-server/config.yaml edit.
     cmd: >-

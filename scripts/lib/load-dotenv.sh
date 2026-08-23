@@ -51,7 +51,7 @@ _dotenv_filter_os_blocks() {
 # stale shell value -- e.g. the ccgw model-routing keys. Loaders that never set
 # it keep the default "shell value wins" behavior unchanged.
 _dotenv_force_key() {
-    case " $DOTENV_FORCE_KEYS " in
+    case " ${DOTENV_FORCE_KEYS:-} " in
         *" $1 "*) return 0 ;;
         *) return 1 ;;
     esac
