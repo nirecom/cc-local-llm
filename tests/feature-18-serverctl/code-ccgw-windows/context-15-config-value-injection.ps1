@@ -66,7 +66,7 @@ Context '15. Adversarial CONFIG values stay data too (issue #66)' -Skip:(-not $I
                     @{ Var = 'ANTHROPIC_AUTH_TOKEN'; Want = $key }
                     @{ Var = 'NODE_EXTRA_CA_CERTS'; Want = $ca }
                     @{ Var = 'ANTHROPIC_DEFAULT_FABLE_MODEL'; Want = $model }
-                    @{ Var = 'ANTHROPIC_MODEL'; Want = $model }
+                    @{ Var = 'ANTHROPIC_CUSTOM_MODEL_OPTION'; Want = $model }
                 )) {
                 $got = if ($r.Env.ContainsKey($pair.Var)) { $r.Env[$pair.Var] } else { '<absent>' }
                 if ($got -cne $pair.Want) {

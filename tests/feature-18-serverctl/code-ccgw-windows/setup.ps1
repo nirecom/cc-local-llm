@@ -157,10 +157,10 @@ $script:TierVars = @(
     'ANTHROPIC_DEFAULT_SONNET_MODEL'
     'ANTHROPIC_DEFAULT_HAIKU_MODEL'
 )
-# The vars that name the model in play at startup. CLAUDE_CODE_SUBAGENT_MODEL is
-# deliberately NOT here any more: it is now opt-in (section 4d).
+# The var that offers the fable tier as a selectable /model entry. Two names are
+# deliberately NOT here any more: CLAUDE_CODE_SUBAGENT_MODEL, now opt-in (section 4d),
+# and ANTHROPIC_MODEL, which the launcher must never set at all (section 4g).
 $script:ActiveVars = @(
-    'ANTHROPIC_MODEL'
     'ANTHROPIC_CUSTOM_MODEL_OPTION'
 )
-$script:ModelVars = $script:TierVars + $script:ActiveVars + @('CLAUDE_CODE_SUBAGENT_MODEL')
+$script:ModelVars = $script:TierVars + $script:ActiveVars + @('ANTHROPIC_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL')
