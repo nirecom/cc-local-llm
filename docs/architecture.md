@@ -174,7 +174,7 @@ backends:
 | Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Fable | `deepseek-v4-flash` | CCGW Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `laguna-s-2.1` | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+| Opus | `qwen3-next-80b-a3b-thinking` (`.env`-selected) | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
 
 ### Why the gateway moved off Windows/Docker
 
@@ -193,7 +193,7 @@ Haiku/Sonnet tiers' existing no-credential design.
 
 ### Why the Opus tier is converted, not passed through
 
-Both Mac tiers reach the same CCGW Proxy, but Laguna is served by `mlx_lm.server`, which
+Both Mac tiers reach the same CCGW Proxy, but the Opus backend is served by `mlx_lm.server`, which
 speaks only the OpenAI shape. LiteLLM converts that tier with the same `openai/` provider
 pattern already used for Haiku/Sonnet, so protocol conversion stays in exactly one component
 (see [Mac backend layer](#mac-backend-layer-llama-swap)). The CCGW Proxy is a path-preserving
@@ -223,6 +223,11 @@ Fable and Opus deliberately land on the same CCGW Proxy but on different tiers. 
 backends cannot be resident together, so putting them on separate tiers makes `/model` the
 switch — no extra routing key, no second base URL. The cost is a cold start on every switch,
 which is inherent to the memory constraint rather than to this arrangement.
+
+Which tier a session *starts* on is not the launcher's to decide. `code-ccgw.sh` / `.ps1` set
+only the four `ANTHROPIC_DEFAULT_*_MODEL` aliases and never `ANTHROPIC_MODEL`, which outranks
+`settings.json`'s `model` and would silently discard the tier chosen there. The startup tier
+comes from `settings.json` or `--model`; `/model` switches it afterwards.
 
 Haiku and Sonnet have no fallback: llama-swap on <windows-host> is the sole backend for
 both tiers. A Mac (M4 Pro) fallback existed briefly during the 2026-08 migration but was

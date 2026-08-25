@@ -208,8 +208,8 @@ if ($null -ne $CaCert) {
 # than as a message from here.
 # Absence of a source key means "the child must not have the derived variable at all",
 # never "keep whatever the invoking shell happened to carry": a leftover
-# ANTHROPIC_MODEL from an earlier session would otherwise pin a tier the repo's .env
-# no longer names. Hence every conditional set has an explicit clearing else branch.
+# ANTHROPIC_DEFAULT_OPUS_MODEL would otherwise pin a tier the repo's .env no longer
+# names. Hence every conditional set has an explicit clearing else branch.
 $FableModel = Get-EnvOrNull 'LITELLM_FABLE_MODEL'
 if ($null -ne $FableModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_FABLE_MODEL' $FableModel }
 else { Set-ChildEnv 'ANTHROPIC_DEFAULT_FABLE_MODEL' '' }
@@ -222,13 +222,15 @@ else { Set-ChildEnv 'ANTHROPIC_DEFAULT_SONNET_MODEL' '' }
 $HaikuModel = Get-EnvOrNull 'LITELLM_HAIKU_MODEL'
 if ($null -ne $HaikuModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_HAIKU_MODEL' $HaikuModel }
 else { Set-ChildEnv 'ANTHROPIC_DEFAULT_HAIKU_MODEL' '' }
-if ($null -ne $FableModel) {
-    Set-ChildEnv 'ANTHROPIC_MODEL' $FableModel
-    Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' $FableModel
-} else {
-    Set-ChildEnv 'ANTHROPIC_MODEL' ''
-    Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' ''
-}
+# ANTHROPIC_MODEL never reaches the child: it outranks the `model` setting in the user's
+# settings.json, so any value here silently discards the tier chosen there -- an opus
+# session would still start on fable, with nothing in the client to say why. Cleared
+# unconditionally, since an inherited value reintroduces the same override.
+Set-ChildEnv 'ANTHROPIC_MODEL' ''
+
+# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
+if ($null -ne $FableModel) { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' $FableModel }
+else { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' '' }
 
 # Subagent routing is opt-in. LiteLLM multiplexes, so pinning every subagent to one tier
 # is no longer needed -- and an unconditional value silently overrides the model an

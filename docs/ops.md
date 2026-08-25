@@ -400,7 +400,7 @@ values in `.env`, matched against `model_name` entries in
 | Tier | Backend |
 |---|---|
 | Fable | ds4 (`deepseek-v4-flash`), Mac |
-| Opus | Laguna S 2.1 (`laguna-s-2.1`), Mac |
+| Opus | the `.env`-selected Mac backend (`qwen3-next-80b-a3b-thinking`), Mac |
 | Sonnet | Qwen3-Coder-30B-A3B (`qwen3-coder-30b-a3b`), Windows llama-swap |
 | Haiku | Devstral-Small-2-24B (`devstral-small-2-24b`), Windows llama-swap |
 

@@ -130,10 +130,12 @@ assert_no_ca_warning() { # assert_no_ca_warning <context>
 
 # The four /model tiers Claude Code switches between.
 TIER_VARS="ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL"
-# The vars that name the model in play at startup. CLAUDE_CODE_SUBAGENT_MODEL
-# is deliberately NOT here any more: it is now opt-in (section 4d).
-ACTIVE_VARS="ANTHROPIC_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION"
-MODEL_VARS="$TIER_VARS $ACTIVE_VARS CLAUDE_CODE_SUBAGENT_MODEL"
+# The var that offers the fable tier as a selectable /model entry. Two names are
+# deliberately NOT here any more: CLAUDE_CODE_SUBAGENT_MODEL, which is now opt-in
+# (section 4d), and ANTHROPIC_MODEL, which the launcher must never export at all
+# (section 4g) -- it outranks the user's own settings.json `model`.
+ACTIVE_VARS="ANTHROPIC_CUSTOM_MODEL_OPTION"
+MODEL_VARS="$TIER_VARS $ACTIVE_VARS ANTHROPIC_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
 
 # --- Retired variable names --------------------------------------------------
 # The cases that prove a retired variable no longer configures anything need
@@ -268,7 +270,7 @@ assert_env ANTHROPIC_DEFAULT_FABLE_MODEL lite-fable "models: fable routing key"
 assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models: opus routing key"
 assert_env ANTHROPIC_DEFAULT_SONNET_MODEL lite-sonnet "models: sonnet routing key"
 assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL lite-haiku "models: haiku routing key"
-assert_env ANTHROPIC_MODEL lite-fable "models: startup model follows the fable tier"
+assert_unset ANTHROPIC_MODEL "models: the startup tier is settings.json's to choose, not the launcher's"
 assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "models: custom model option follows the fable tier"
 # Stated as an inequality too: a regression that collapses the tiers onto one
 # key would still satisfy each literal individually if all literals moved.
@@ -290,7 +292,7 @@ run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
     LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
     LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
     "$R_DEFAULT_MODEL=laguna-s-2.1"
-assert_env ANTHROPIC_MODEL lite-fable "models/ccgw-default: the retired startup-model variable must be ignored"
+assert_unset ANTHROPIC_MODEL "models/ccgw-default: the retired startup-model variable must configure nothing"
 assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/ccgw-default: the tier map must be unaffected"
 
 # 4d. Subagent contract (three cases).
@@ -338,8 +340,8 @@ for v in $MODEL_VARS; do
 done
 
 # 4f. Partial keys: each tier is independent, and the fable tier drives the
-# startup vars, so with LITELLM_FABLE_MODEL absent they stay unset rather than
-# borrowing another tier's key.
+# /model picker entry, so with LITELLM_FABLE_MODEL absent it stays unset rather
+# than borrowing another tier's key.
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
     LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
 assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/no-fable: opus routing key still applies"
@@ -347,6 +349,20 @@ assert_unset ANTHROPIC_DEFAULT_FABLE_MODEL "models/no-fable: no fable key means 
 for v in $ACTIVE_VARS; do
     assert_unset "$v" "models/no-fable: the launcher must invent no model name of its own"
 done
+
+# 4g. ANTHROPIC_MODEL must never reach the child, whatever the parent carried.
+# It outranks settings.json's `model`, so any value silently discards the tier the
+# user chose there. Asserted against a parent that already carries one: an inherited
+# value takes a different route than an exported one, so the launcher has to clear it
+# rather than merely decline to set it.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
+    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
+    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
+    ANTHROPIC_MODEL=stale-from-parent
+[ "$RC" -eq 0 ] || fail "models/inherited-startup-model: exited $RC: $(cat "$WORK/err")"
+assert_unset ANTHROPIC_MODEL "models/inherited-startup-model: an inherited value must be cleared, not passed through"
+assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/inherited-startup-model: the tier map must be unaffected"
+assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "models/inherited-startup-model: the picker entry must be unaffected"
 
 # --- 5. VS Code profile isolation and argv passthrough ----------------------
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck -- /some/project --new-window
