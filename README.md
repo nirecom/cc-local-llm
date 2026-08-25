@@ -10,7 +10,8 @@ backends**, plus smaller local models (Devstral, Qwen3-Coder) for lighter tiers.
   prompt normalization; see [docs/architecture.md](docs/architecture.md).
 - **LiteLLM gateway (Mac, `:8445`)**: the single endpoint every client talks to, configured in
   `litellm-server/`. It selects the tier by model name — Haiku/Sonnet to the Windows PC's
-  llama-swap, Fable/Opus to the Mac's CCGW Proxy (Fable is ds4, Opus is Laguna S 2.1) — and is
+  llama-swap, Fable/Opus to the Mac's CCGW Proxy (Fable is ds4, Opus is the `.env`-selected
+  `mlx_lm.server` backend) — and is
   the only place the Anthropic wire format is converted.
 - **Clients (Windows, macOS, Linux)**: Claude Code points at the gateway and nothing else.
 
@@ -74,8 +75,8 @@ host on the LAN:
 ```
 On the Mac itself, point `LITELLM_ANTHROPIC_BASE_URL` at `https://127.0.0.1:8445` and leave
 `CCGW_CA_CERT` empty — the launcher derives the CA from `mkcert -CAROOT`. Each tier is its own
-route, so `/model` switches backends: **Fable** is ds4 and **Opus** is Laguna S 2.1 (mutually
-exclusive on the Mac), **Sonnet**/**Haiku** are the Windows PC's smaller models.
+route, so `/model` switches backends: **Fable** is ds4 and **Opus** is the `.env`-selected Mac
+backend (mutually exclusive with ds4), **Sonnet**/**Haiku** are the Windows PC's smaller models.
 See [docs/ops.md](docs/ops.md#client-macos--linux).
 
 ## Configuration at a glance

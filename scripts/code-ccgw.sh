@@ -97,9 +97,9 @@ fi
 # from LiteLLM rather than as a message from here.
 #
 # Absence of a source key means "the child must not have the derived variable at all",
-# never "keep whatever the invoking shell happened to carry": a leftover ANTHROPIC_MODEL
-# from an earlier session would otherwise pin a tier the repo's .env no longer names.
-# Hence every conditional export has an explicit unsetting else branch.
+# never "keep whatever the invoking shell happened to carry": a leftover
+# ANTHROPIC_DEFAULT_OPUS_MODEL would otherwise pin a tier the repo's .env no longer
+# names. Hence every conditional export has an explicit unsetting else branch.
 if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
     export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
 else
@@ -120,11 +120,16 @@ if [ -n "${LITELLM_HAIKU_MODEL:-}" ]; then
 else
     unset ANTHROPIC_DEFAULT_HAIKU_MODEL
 fi
+# ANTHROPIC_MODEL is never exported: it outranks the `model` setting in the user's
+# settings.json, so any value here silently discards the tier chosen there -- an opus
+# session would still start on fable, with nothing in the client to say why. Cleared
+# unconditionally, since an inherited value reintroduces the same override.
+unset ANTHROPIC_MODEL
+
+# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
 if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
-    export ANTHROPIC_MODEL="$LITELLM_FABLE_MODEL"
     export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
 else
-    unset ANTHROPIC_MODEL
     unset ANTHROPIC_CUSTOM_MODEL_OPTION
 fi
 

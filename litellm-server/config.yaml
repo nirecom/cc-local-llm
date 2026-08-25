@@ -44,9 +44,10 @@ model_list:
       drop_params: true
 
   # --- Fable tier: DeepSeek V4 Flash via CCGW Proxy -> Mac swap layer ---
-  # The two Mac backends are mutually exclusive (see llama-swap/config.yaml in this
-  # repo) -- both cannot be resident at once. They sit on separate Claude Code tiers
-  # so /model switches between them: fable -> ds4, opus -> Laguna S 2.1.
+  # The Mac backends are mutually exclusive (see llama-swap/config.yaml in this
+  # repo) -- only one can be resident at once. They sit on separate Claude Code tiers
+  # so /model switches between them: fable -> ds4, opus -> whichever llama-swap entry
+  # .env's LITELLM_OPUS_MODEL currently names.
   #
   # ds4-server accepts the Anthropic shape directly, so this route keeps the
   # anthropic/ provider and reaches the proxy at POST <origin>/v1/messages.
@@ -59,16 +60,16 @@ model_list:
       max_tokens: 8192
       context_window: 393216
 
-  # --- Opus tier: Laguna S 2.1 via CCGW Proxy -> Mac swap layer ---
-  # Laguna is served by mlx_lm.server, which speaks only the OpenAI shape, so
-  # this route uses the same openai/ provider pattern as haiku/sonnet: LiteLLM
-  # performs the Anthropic->OpenAI conversion and reaches the backend at
-  # POST <api_base>/chat/completions. That is why api_base here is the /v1 form
-  # (as LITELLM_LLAMASWAP_URL is) and not the bare origin the fable tier uses:
-  # llama-swap serves /v1/chat/completions, so a bare origin yields the backend's
-  # own "404 page not found" rather than any LiteLLM-level error. The routing key
-  # stays laguna-s-2.1; the body model rewrite that mlx_lm.server needs is
-  # llama-swap's useModelName.
+  # --- Opus tier: the selected mlx_lm.server backend via CCGW Proxy -> Mac swap layer ---
+  # scripts/set-model.sh rewrites the model: line below and .env's LITELLM_OPUS_MODEL
+  # together, so it names whichever llama-swap entry is selected, not a fixed backend.
+  # mlx_lm.server speaks only the OpenAI shape, so this route uses the same openai/
+  # provider pattern as haiku/sonnet: LiteLLM performs the Anthropic->OpenAI conversion
+  # and reaches the backend at POST <api_base>/chat/completions. That is why api_base
+  # here is the /v1 form (as LITELLM_LLAMASWAP_URL is) and not the bare origin the fable
+  # tier uses: llama-swap serves /v1/chat/completions, so a bare origin yields the
+  # backend's own "404 page not found" rather than any LiteLLM-level error. The body
+  # model rewrite mlx_lm.server needs is llama-swap's useModelName.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
       model: openai/qwen3-next-80b-a3b-thinking

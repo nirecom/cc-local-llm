@@ -28,7 +28,6 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
             ANTHROPIC_DEFAULT_OPUS_MODEL              = 'ctx8-opus'
             ANTHROPIC_DEFAULT_SONNET_MODEL            = 'ctx8-sonnet'
             ANTHROPIC_DEFAULT_HAIKU_MODEL             = 'ctx8-haiku'
-            ANTHROPIC_MODEL                           = 'ctx8-fable'
             ANTHROPIC_CUSTOM_MODEL_OPTION             = 'ctx8-fable'
             ANTHROPIC_CUSTOM_MODEL_OPTION_NAME        = 'Local model via ccgw'
             ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = 'Mac backend via the LiteLLM gateway, selected per request'
@@ -39,9 +38,9 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
             CLAUDE_CODE_AUTO_COMPACT_WINDOW           = '65536'
             CLAUDE_AUTOCOMPACT_PCT_OVERRIDE           = '75'
         }
-        # ANTHROPIC_API_KEY is deliberately NOT in that map: its contract is the
-        # opposite shape ("the child must see no key at all"), so it gets its own
-        # case, 8d.
+        # ANTHROPIC_API_KEY and ANTHROPIC_MODEL are deliberately NOT in that map:
+        # their contract is the opposite shape ("the child must see none of it"),
+        # so each gets its own case -- 8d and 8k.
         $script:MustVars = @($script:Ctx8ExpectedChild.Keys)
 
         # Every routing key set, so each variable above is genuinely computed to
@@ -67,13 +66,17 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
         )
 
         $script:Ctx8ApiKey = 'cloud-key-must-survive-in-parent'
+        $script:Ctx8StartupModel = 'parent-startup-model-must-survive'
 
         # The shell the developer typed the command into: every variable the
         # launcher touches already holds a value of the user's own. Reused by the
         # failure cases so they police the same names as 8b.
         function New-Ctx8ParentEnv {
             param([hashtable]$Config = @{})
-            $h = @{ ANTHROPIC_API_KEY = $script:Ctx8ApiKey }
+            $h = @{
+                ANTHROPIC_API_KEY = $script:Ctx8ApiKey
+                ANTHROPIC_MODEL   = $script:Ctx8StartupModel
+            }
             foreach ($n in $script:MustVars) { $h[$n] = "PARENT-SENTINEL-$n-KEEP" }
             foreach ($k in $Config.Keys) { $h[$k] = $Config[$k] }
             return $h
@@ -125,6 +128,17 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
             -Because 'blanking the key for VS Code must not blank it for the shell'
         $got = if ($script:Ctx8.Env.ContainsKey('ANTHROPIC_API_KEY')) { $script:Ctx8.Env['ANTHROPIC_API_KEY'] } else { $null }
         [string]::IsNullOrEmpty($got) | Should -BeTrue -Because "ANTHROPIC_API_KEY reached the child as '$got'"
+    }
+
+    It '8k. an inherited ANTHROPIC_MODEL survives in the shell but never reaches the child' {
+        # Same two-halves shape as 8d. ANTHROPIC_MODEL outranks the `model` setting
+        # in the user's settings.json, so letting one through would silently discard
+        # the tier chosen there -- and clearing it for VS Code must not clear it for
+        # the shell the developer is still working in.
+        $script:Ctx8.AfterEnv['ANTHROPIC_MODEL'] | Should -BeExactly $script:Ctx8StartupModel `
+            -Because 'clearing the startup model for VS Code must not clear it for the shell'
+        $got = if ($script:Ctx8.Env.ContainsKey('ANTHROPIC_MODEL')) { $script:Ctx8.Env['ANTHROPIC_MODEL'] } else { $null }
+        [string]::IsNullOrEmpty($got) | Should -BeTrue -Because "ANTHROPIC_MODEL reached the child as '$got'"
     }
 
     It '8e. the same launch still hands the computed values to the child' {
