@@ -190,7 +190,7 @@ Context '4. Model selection (unconditional LiteLLM routing keys)' {
         Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models: opus routing key'
         Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_SONNET_MODEL' 'lite-sonnet' 'models: sonnet routing key'
         Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-haiku' 'models: haiku routing key'
-        Assert-LauncherEnv $r 'ANTHROPIC_MODEL' 'lite-fable' 'models: startup model follows the fable tier'
+        Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' "models: the startup tier is settings.json's to choose, not the launcher's"
         Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' 'lite-fable' 'models: custom model option follows the fable tier'
         # Stated as an inequality too: a regression that collapses the tiers onto
         # one key would still satisfy each literal individually if all literals
@@ -211,7 +211,7 @@ Context '4. Model selection (unconditional LiteLLM routing keys)' {
 
     It '4c. the retired startup-model variable must change nothing at all' {
         $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ $script:RDefaultModel = 'laguna-s-2.1' }))
-        Assert-LauncherEnv $r 'ANTHROPIC_MODEL' 'lite-fable' 'models/retired-default: the retired startup-model variable must be ignored'
+        Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' 'models/retired-default: the retired startup-model variable must configure nothing'
         Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/retired-default: the tier map must be unaffected'
     }
 
@@ -256,7 +256,7 @@ Context '4. Model selection (unconditional LiteLLM routing keys)' {
         }
     }
 
-    It '4f. partial keys: the fable tier drives the startup vars, so its absence leaves them unset' {
+    It '4f. partial keys: the fable tier drives the picker entry, so its absence leaves it unset' {
         $r = Invoke-Launcher -Environment (New-Env @{
                 LITELLM_OPUS_MODEL   = 'lite-opus'
                 LITELLM_SONNET_MODEL = 'lite-sonnet'
@@ -267,5 +267,18 @@ Context '4. Model selection (unconditional LiteLLM routing keys)' {
         foreach ($v in $script:ActiveVars) {
             Assert-LauncherEnvUnset $r $v 'models/no-fable: the launcher must invent no model name of its own'
         }
+    }
+
+    # 4g. ANTHROPIC_MODEL must never reach the child, whatever the parent carried.
+    # It outranks settings.json's `model`, so any value silently discards the tier the
+    # user chose there. Asserted against a parent that already carries one: an inherited
+    # value takes a different route than a set one, so the launcher has to clear it
+    # rather than merely decline to set it.
+    It '4g. an inherited ANTHROPIC_MODEL is cleared, not passed through' {
+        $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ ANTHROPIC_MODEL = 'stale-from-parent' }))
+        $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
+        Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' 'models/inherited-startup-model: an inherited value must be cleared'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/inherited-startup-model: the tier map must be unaffected'
+        Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' 'lite-fable' 'models/inherited-startup-model: the picker entry must be unaffected'
     }
 }

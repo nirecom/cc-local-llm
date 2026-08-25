@@ -134,7 +134,7 @@ are set in `.env.example` and resolved at process startup.
 | `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
 | `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for the Sonnet tier. LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
 | `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
-| `LITELLM_OPUS_MODEL` | `laguna-s-2.1` | Model routing key for the Opus tier — Laguna S 2.1 on the Mac. The two Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches between them. |
+| `LITELLM_OPUS_MODEL` | `qwen3-next-80b-a3b-thinking` | Model routing key for the Opus tier — an `mlx_lm.server` backend on the Mac. `scripts/set-model.sh opus <key>` switches it among the Mac llama-swap entries and rewrites `litellm-server/config.yaml` to match, so no backend name is fixed here. The Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches tier. |
 | `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct CCGW Proxy route is retired, so the launcher exits when this is unset. |
 | `LITELLM_CLIENT_KEY` | (required for client) | Credential the launcher presents to the gateway. Same value as `LITELLM_MASTER_KEY`. `LITELLM_VIRTUAL_KEY` is accepted for one release as a deprecated alias, with a warning. |
 | `CCGW_SUBAGENT_MODEL` | (empty) | Pins every subagent to one routing key. Empty — the default — lets each agent's frontmatter decide. |
@@ -149,7 +149,7 @@ guess made client-side.
 | Tier | Backend |
 |---|---|
 | Fable | ds4 (`deepseek-v4-flash`), Mac |
-| Opus | Laguna S 2.1 (`laguna-s-2.1`), Mac |
+| Opus | the `.env`-selected Mac backend (`qwen3-next-80b-a3b-thinking`) |
 | Sonnet | Qwen3-Coder-30B-A3B, Windows llama-swap |
 | Haiku | Devstral-Small-2-24B, Windows llama-swap |
 
