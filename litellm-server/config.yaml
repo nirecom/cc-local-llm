@@ -63,16 +63,18 @@ model_list:
   # --- Opus tier: the selected mlx_lm.server backend via CCGW Proxy -> Mac swap layer ---
   # scripts/set-model.sh rewrites the model: line below and .env's LITELLM_OPUS_MODEL
   # together, so it names whichever llama-swap entry is selected, not a fixed backend.
-  # mlx_lm.server speaks only the OpenAI shape, so this route uses the same openai/
+  # Both MLX backends (mlx_lm.server, mlx_vlm.server) speak only the OpenAI shape, so this
+  # route uses the same openai/
   # provider pattern as haiku/sonnet: LiteLLM performs the Anthropic->OpenAI conversion
   # and reaches the backend at POST <api_base>/chat/completions. That is why api_base
   # here is the /v1 form (as LITELLM_LLAMASWAP_URL is) and not the bare origin the fable
   # tier uses: llama-swap serves /v1/chat/completions, so a bare origin yields the
   # backend's own "404 page not found" rather than any LiteLLM-level error. The body
-  # model rewrite mlx_lm.server needs is llama-swap's useModelName.
+  # model rewrite either MLX server needs is llama-swap's useModelName -- note the two want
+  # opposite values there; see docs/tuning.md#mtp-speculative-decoding-qwen3827b.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
-      model: openai/laguna-s-2.1
+      model: openai/qwen3.8-27b-8bit
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true

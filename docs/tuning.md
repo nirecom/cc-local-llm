@@ -44,6 +44,48 @@ section once that measurement exists rather than substituting an estimate.
 | `--prompt-cache-size` | `10` | mlx-lm's own default entry-count cap, so shorter conversations aren't evicted by count before the byte cap binds. |
 | `concurrencyLimit` (llama-swap) | `5` | The only real cap on *active* generation memory (not covered by the flag above). Raised from the emergency value of 4 — full KV-cost derivation and accepted worst-case risk in [history.md](history.md) (CONFIG, 2026-08-16). |
 
+## MTP speculative decoding (Qwen3.8-27B)
+
+The whole Qwen3.8-27B family runs on **`mlx_vlm.server`**, not `mlx_lm.server`. mlx-lm ships
+no `qwen3_5_mtp` module at all — pointing `--draft-model` at an MTP adapter there fails with
+`Model type qwen3_5_mtp not supported` — and its native-MTP PR ([ml-explore/mlx-lm#990]
+(https://github.com/ml-explore/mlx-lm/pull/990)) is still unmerged. mlx-vlm has the drafter
+(`mlx_vlm/speculative/drafters/qwen3_5_mtp/`), and Qwen3.8-27B is itself multimodal
+(`Qwen3_5ForConditionalGeneration`), so mlx-vlm is its proper home. Installed by
+[install/mac/mlx-vlm.sh](../install/mac/mlx-vlm.sh); the two packages coexist as separate
+uv tools, so Laguna and Qwen3-Next keep using mlx-lm untouched.
+
+The **non**-MTP entries stay on the same server on purpose: with only the drafter differing,
+the A/B below is controlled rather than a comparison of two different runtimes.
+
+Measured on this Mac, 8bit, 27-token prompt / 59-token completion, identical output text:
+
+| Entry | decode | prefill | peak mem | drafter |
+|---|---|---|---|---|
+| `qwen3.8-27b-8bit` | 17.9 tok/s | 183 tok/s | 29.8 GB | — |
+| `qwen3.8-27b-8bit-mtp` | **36.6 tok/s** | 211 tok/s | 30.8 GB | 36/44 accepted (82%) |
+
+**2.0x on generation for ~1 GB.** MTP does not help prefill — the target still does one full
+forward pass — so the prefill column differs only by run-to-run noise.
+
+Two behavioural differences from `mlx_lm.server` shape the flags in
+[llama-swap/config.yaml](../llama-swap/config.yaml):
+
+| Flag / key | Value | Why |
+|---|---|---|
+| `--draft-kind` | `mtp` | Auto-detection from the adapter's `model_type` exists, but `--help` documents `mtp` as the Gemma 4 family; pinning it explicitly keeps the pairing from silently falling back to `dflash`. |
+| `useModelName` (llama-swap) | the `--model` path | The **opposite** of the `laguna-s-2.1` quirk. mlx_vlm.server registers the loaded model under its `--model` path and resolves any other body `model` as an HF repo id (401). `${env.HOME}` does expand here. |
+| `--max-num-seqs` | `3` | Matches `concurrencyLimit`, bounding peak memory at the server as well as the swapper. |
+| *(no `--prompt-cache-*`)* | — | mlx-vlm does prefix caching automatically (APC); it has no equivalent flags. |
+
+`jinja2` is a missing dependency in mlx-vlm's `requirements.txt`, so the installer adds it with
+`--with jinja2`. Without it the server starts and passes `/health`, then fails **every**
+completion with `apply_chat_template requires jinja2 to be installed`.
+
+`qwen3.8-27b-uncensored-4bit` (orcarouter abliterated fine-tune) is deliberately unpaired: the
+drafter was split from the stock checkpoint, and that weight drift would depress its acceptance
+rate.
+
 ## Memory budget (Laguna S 2.1)
 
 Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_heads: 8` (GQA)

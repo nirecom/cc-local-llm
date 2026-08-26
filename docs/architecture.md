@@ -140,6 +140,12 @@ One llama-swap directive is needed for Laguna: `useModelName: default_model`.
 path and answers 401, so llama-swap rewrites the forwarded body while still matching on the
 `laguna-s-2.1` routing key. ds4-server accepts any model name, so its entry does not set it.
 
+The Qwen3.8-27B family runs on a second MLX server, `mlx_vlm.server` — the only one that can
+load its MTP speculative-decoding drafters. It speaks the same OpenAI shape, so nothing above
+changes, but it inverts the directive: it registers the loaded model under its `--model` path,
+so `useModelName` must carry that path rather than `default_model`. Rationale and the measured
+MTP speedup: [tuning.md](tuning.md#mtp-speculative-decoding-qwen3827b).
+
 ### Why ds4-server is no longer a launchd-managed always-on service
 
 Before Laguna, ds4-server ran as an always-on `launchd` `KeepAlive` service
