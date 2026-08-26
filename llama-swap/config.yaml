@@ -75,65 +75,57 @@ models:
     concurrencyLimit: 3
   # Qwen3.8-27B family -- dense 28B, not the 80B-A3B family above, so weights
   # (~29.5GB at 8bit, ~16GB at 4bit) leave far more headroom than
-  # qwen3-coder-next-80b-a3b/qwen3-next-80b-a3b-thinking. The
-  # prompt-cache/concurrencyLimit values below are copied from those two as a
-  # conservative starting point and are not tuned for this smaller footprint
-  # -- see docs/tuning.md before adjusting.
+  # qwen3-coder-next-80b-a3b/qwen3-next-80b-a3b-thinking.
   #
-  # The -mtp variants pair a target with its matching MTP speculative-decoding
-  # drafter. The adapter carries drafter weights only -- no token embeddings
-  # and no LM head, which it borrows from the target at runtime -- so it never
-  # runs standalone, and mlx-community publishes one adapter per quantization
-  # (4bit/8bit/bf16/mxfp4) precisely because adapter and target are expected to
-  # match. Every checkpoint here is therefore kept on the mlx-community
-  # conversion of Qwen/Qwen3.8-27B so target and adapter share one lineage.
-  # Flags are --draft-model/--num-draft-tokens, confirmed against
-  # `mlx_lm.server --help` -- not the --draft-model-path some web docs claim.
+  # This family runs on mlx_vlm.server, not mlx_lm.server. Rationale, the
+  # measured MTP A/B, and the two behavioural differences that shape the flags
+  # below: docs/tuning.md ("MTP speculative decoding (Qwen3.8-27B)"). In short:
+  # only mlx-vlm can load the qwen3_5_mtp drafters, and keeping the non-MTP
+  # entries on the same server is what makes the MTP A/B a controlled one.
+  # Installed by install/mac/mlx-vlm.sh.
   qwen3.8-27b-8bit:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
-      --prompt-cache-bytes 20GB
-      --prompt-cache-size 5
+      --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    # Same mlx_lm.server default-model-routing quirk as laguna-s-2.1 -- see
-    # that entry's comment. Applies to every entry in this family.
-    useModelName: default_model
+    # Opposite of the laguna-s-2.1 quirk: mlx_vlm.server registers the loaded
+    # model under its --model path and resolves any other body `model` as an HF
+    # repo id (401). So this must mirror --model exactly, not be default_model.
+    # Applies to every entry in this family.
+    useModelName: ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
     concurrencyLimit: 3
   qwen3.8-27b-8bit-mtp:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
       --draft-model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-MTP-8bit
-      --num-draft-tokens 3
-      --prompt-cache-bytes 20GB
-      --prompt-cache-size 5
+      --draft-kind mtp
+      --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    useModelName: default_model
+    useModelName: ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
     concurrencyLimit: 3
   qwen3.8-27b-4bit:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
-      --prompt-cache-bytes 20GB
-      --prompt-cache-size 5
+      --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    useModelName: default_model
+    useModelName: ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
     concurrencyLimit: 3
   qwen3.8-27b-4bit-mtp:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
       --draft-model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-MTP-4bit
-      --num-draft-tokens 3
-      --prompt-cache-bytes 20GB
-      --prompt-cache-size 5
+      --draft-kind mtp
+      --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    useModelName: default_model
+    useModelName: ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
     concurrencyLimit: 3
   qwen3.8-27b-uncensored-4bit:
     # Third-party abliterated fine-tune (orcarouter), ~15GB -- the one entry in
@@ -142,13 +134,12 @@ models:
     # adapter is paired with it: the drafter was split from stock Qwen3.8-27B
     # and the fine-tune's weight drift would depress its acceptance rate.
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/orcarouter/Qwen3.8-27B-Uncensored-MLX
-      --prompt-cache-bytes 20GB
-      --prompt-cache-size 5
+      --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    useModelName: default_model
+    useModelName: ${env.HOME}/.lmstudio/models/orcarouter/Qwen3.8-27B-Uncensored-MLX
     concurrencyLimit: 3
   qwen3-next-80b-a3b-thinking:
     # Same Qwen3-Next-80B-A3B base architecture as qwen3-coder-next-80b-a3b

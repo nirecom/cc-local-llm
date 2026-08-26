@@ -140,15 +140,25 @@ llama-swap owns the full start/stop lifecycle of both ds4-server and Laguna's
 `mlx_lm.server` (see [architecture.md](architecture.md#mac-backend-layer-llama-swap)); it must
 be installed before either backend can be reached through the proxy.
 
-Run the bundled installer, which installs llama-swap (via Homebrew) and `mlx-lm` from git
-`main` (Laguna architecture support is not yet in a PyPI release), then scaffolds `.env`:
+Run the bundled installer, which installs llama-swap (via Homebrew), then `mlx-lm` and
+`mlx-vlm` from git `main` (neither model family's support is in a PyPI release yet), then
+scaffolds `.env`:
 ```sh
 ~/git/cc-local-llm/install.sh
 ```
-It cannot download the Laguna model itself — confirm
+Both MLX packages are needed and coexist as separate uv tools: mlx-lm serves Laguna and the
+Qwen3-Next family, mlx-vlm serves the Qwen3.8-27B family including its MTP speculative-decoding
+variants — see [tuning.md](tuning.md#mtp-speculative-decoding-qwen3827b) for why.
+
+It cannot download model weights itself — confirm
 `~/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx` exists (via LM Studio or `huggingface-cli`)
 before starting llama-swap. The individual steps live under
-[install/mac/](../install/mac/) (`llama-swap.sh`, `mlx-lm.sh`) if you need to re-run just one.
+[install/mac/](../install/mac/) (`llama-swap.sh`, `mlx-lm.sh`, `mlx-vlm.sh`) if you need to
+re-run just one.
+
+A model directory that still holds a `downloading_*.safetensors.part` file is an **incomplete**
+download; mlx-vlm reports it as `Missing N parameters: ...` at startup and llama-swap surfaces
+only `upstream command exited prematurely`. Finish the download rather than debugging the config.
 
 `LLAMA_SWAP_HOST` / `LLAMA_SWAP_PORT` in `.env` default to `127.0.0.1:18080`, which matches
 `CCGW_PROXY_UPSTREAM` — leave them as-is unless you have a reason to change the port.

@@ -54,7 +54,7 @@ Edits $(_display_path "$LITELLM_CONFIG") (litellm_params.model, keeping the
 existing provider prefix) and $(_display_path "$DOTENV_FILE") (LITELLM_<TIER>_MODEL,
 bare key) together, then restarts litellm-server. Refuses a fable/opus switch
 whose target backend uses a different provider shape (e.g. ds4-server's
-anthropic/ vs mlx_lm.server's openai/) -- that needs a manual config edit
+anthropic/ vs mlx_lm.server / mlx_vlm.server's openai/) -- that needs a manual config edit
 (provider, api_base, and context_window all differ), not a same-shape swap.
 EOF
 }
@@ -105,8 +105,10 @@ _mac_model_shape() {
             sub(/:.*/, "", key)
             cur = (key == target)
         }
-        cur && /mlx_lm\.server/ { print "openai"; exit }
-        cur && /ds4-server/     { print "anthropic"; exit }
+        # mlx_vlm.server (Qwen3.8-27B family, incl. the MTP variants) serves the
+        # same OpenAI shape as mlx_lm.server, so the two are freely swappable.
+        cur && /mlx_(lm|vlm)\.server/ { print "openai"; exit }
+        cur && /ds4-server/           { print "anthropic"; exit }
     ' "$LLAMA_SWAP_CONFIG"
 }
 

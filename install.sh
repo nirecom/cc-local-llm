@@ -1,16 +1,11 @@
 #!/bin/bash
-# cc-local-llm installer for macOS and Linux.
-#
-# Two roles, independently installable:
-#   server  Mac backend stack (LiteLLM gateway + ds4-server + Laguna S 2.1 +
-#           the model-swap layer). macOS only -- the backends need Metal / MLX.
-#   client  Claude Code client prerequisites (mkcert, for TLS trust in the
-#           gateway certificate).
+# cc-local-llm installer for macOS and Linux (Windows uses install.ps1).
 #
 # Usage: ./install.sh [--server | --client | --all]
-#   macOS default: --all      (the Mac is both backend host and a usable client)
-#   Linux default: --client   (client only; the backend cannot run here)
-# Windows-side setup uses install.ps1 instead.
+#   server  Mac backend stack -- macOS only, the backends need Metal / MLX.
+#   client  Claude Code client prerequisites (mkcert, for gateway TLS trust).
+#   Defaults: --all on macOS (backend host and client), --client on Linux.
+# What each role installs, and why: docs/ops.md.
 
 set -euo pipefail
 
@@ -97,6 +92,10 @@ if [ "$ROLE" = "server" ] || [ "$ROLE" = "all" ]; then
     echo ""
     printf -- "${C_BOLD}--- Installing mlx-lm (git main, for Laguna S 2.1) ---${C_RESET}\n"
     "$REPO_ROOT/install/mac/mlx-lm.sh"
+
+    echo ""
+    printf -- "${C_BOLD}--- Installing mlx-vlm (git main, for the Qwen3.8-27B MTP variants) ---${C_RESET}\n"
+    "$REPO_ROOT/install/mac/mlx-vlm.sh"
 
     echo ""
     printf -- "${C_BOLD}--- Checking Laguna S 2.1 model files ---${C_RESET}\n"

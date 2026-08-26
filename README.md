@@ -44,7 +44,7 @@ Standard layout (mirrors the agents-repo convention):
 
 ## Quick start
 
-**Mac (server):** one-time install of llama-swap, the LiteLLM gateway and `mlx-lm`:
+**Mac (server):** one-time install of llama-swap, the LiteLLM gateway, `mlx-lm` and `mlx-vlm`:
 ```sh
 ~/git/cc-local-llm/install.sh
 ```
