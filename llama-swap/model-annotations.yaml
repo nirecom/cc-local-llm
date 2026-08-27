@@ -1,0 +1,71 @@
+# Model annotations for llama-swap/config.yaml (Mac backend).
+# Maintained alongside config.yaml -- see CLAUDE.md. Same format as the Windows
+# host's own llama-swap model-annotations.yaml, minus the `optimizer:` key:
+# llama-swap-optimizer tunes llama.cpp flags (-ngl, --n-cpu-moe) and has nothing
+# to tune on MLX. Sizing derivations live in docs/tuning.md, not here.
+
+deepseek-v4-flash:
+  role: fable-tier (Claude Code LiteLLM)
+  used_by:
+    - cc-local-llm (LiteLLM fable tier, model name deepseek-v4-flash)
+  notes: "ds4-server (antirez/ds4, not MLX), ctx 393216, --quality, 32GB KV disk cache, --batched-session 2, ~90.9GB resident, checkEndpoint /v1/models"
+  decision: "cmd wrapped in sh -c to pin the cwd: ds4-server resolves its model file and metal/ relative to cwd and aborts before binding under llama-swap's own cwd"
+
+laguna-s-2.1:
+  role: opus-tier candidate (Claude Code LiteLLM)
+  used_by: []
+  notes: "mlx_lm.server, NVFP4 4bit MLX, ~72-90GB, prompt-cache 40GB / 10 entries, concurrencyLimit 5, useModelName default_model"
+  decision: "2026-08-16: prompt-cache and concurrencyLimit sizing derived in docs/tuning.md. useModelName is required because mlx_lm.server resolves any body model other than default_model as an HF repo path and 401s"
+
+qwen3-coder-next-80b-a3b:
+  role: opus-tier candidate (coding)
+  used_by: []
+  notes: "mlx_lm.server, MoE 80B total / 3B active, 8bit, 84.67GB weights + ~4.92GB KV at 200k ctx = ~89.6GB, prompt-cache 20GB / 5, concurrencyLimit 3"
+  decision: "Hybrid attention (12 of 48 layers full-attention, the rest Gated DeltaNet with a fixed-size recurrent state) keeps KV growth far below a dense model, so 200k ctx fits under the ~116GB Metal wired ceiling"
+
+qwen3-next-80b-a3b-thinking:
+  role: opus-tier candidate (thinking)
+  used_by: []
+  notes: "mlx_lm.server, same base and same sizing as qwen3-coder-next-80b-a3b, Thinking variant"
+  decision: "A/B alternative for when Coder-Next's lack of a thinking mode is the bottleneck. Both are mlx_lm.server/openai shape, so scripts/set-model.sh opus <key> is a same-shape swap"
+
+qwen3.8-27b-8bit:
+  role: opus-tier (Claude Code LiteLLM)
+  used_by:
+    - cc-local-llm (LiteLLM opus tier, model name qwen3.8-27b-8bit)
+  notes: "mlx_vlm.server, dense 28B, 29.8GB, ctx 262144, --max-num-seqs 3, concurrencyLimit 3, useModelName mirrors the --model path (opposite of the mlx_lm.server convention)"
+  decision: "Non-MTP side of the MTP A/B: measured 17.9 tok/s decode, 183 tok/s prefill. Kept on the same server as the MTP entry so the comparison is controlled"
+
+qwen3.8-27b-8bit-mtp:
+  role: opus-tier candidate (MTP)
+  used_by: []
+  notes: "qwen3.8-27b-8bit plus --draft-model Qwen3.8-27B-MTP-8bit --draft-kind mtp, 30.8GB"
+  decision: "Measured 36.6 tok/s decode = 2.0x for ~1GB, 82% acceptance (36/44). Prefill is unaffected by MTP -- the target still runs one full forward pass"
+
+qwen3.8-27b-4bit:
+  role: opus-tier candidate (low memory)
+  used_by: []
+  notes: "4bit build of qwen3.8-27b-8bit, otherwise identical flags, ~16GB"
+
+qwen3.8-27b-4bit-mtp:
+  role: opus-tier candidate (low memory, MTP)
+  used_by: []
+  notes: "qwen3.8-27b-4bit plus --draft-model Qwen3.8-27B-MTP-4bit --draft-kind mtp"
+
+qwen3.8-27b-uncensored-4bit:
+  role: general (uncensored)
+  used_by: []
+  notes: "orcarouter abliterated fine-tune, ~15GB -- the only entry in this family not from mlx-community"
+  decision: "Deliberately unpaired with MTP: the drafter was split from the stock checkpoint, and the fine-tune's weight drift would depress its acceptance rate"
+
+qwen3.8-flash-next-3bit:
+  role: opus-tier candidate (long context, multimodal)
+  used_by: []
+  notes: "mlx_vlm.server, MoE 125B total / 6B active plus 51B hashed n-gram PLE, self-converted 3bit/group-32 (89.4GB, 4.032 bpw), ctx 262144 native / 1M YaRN, --max-num-seqs 1, concurrencyLimit 1"
+  decision: "No publisher with a track record ships an MLX build, so converted from the official BF16 via scripts/convert-mlx-model.sh. group-32 is mandatory: the n-gram PLE tables are 160 wide and 160 % 64 != 0, so group 64 leaves them in BF16 and the output exceeds 150GB"
+
+qwen3.8-flash-next-3bit-mtp:
+  role: opus-tier candidate (long context, MTP)
+  used_by: []
+  notes: "qwen3.8-flash-next-3bit plus --draft-model Qwen3.8-Flash-Next-MTP-3bit --draft-kind mtp, 1.3GB drafter, 94.05GB peak at 3k ctx"
+  decision: "Measured 771.8 tok/s prefill, 33.5 tok/s decode, 66.2% acceptance (102/154) = 1.66 tokens per forward pass. The drafter was not downloaded -- convert --mtp extracted the 31 mtp.* tensors from the source checkpoint. --max-num-seqs 1 because mlx-vlm's qwen4_exp README says the QSA cache path is not yet wired into continuous batching. Memory at 200k ctx is unverified"
