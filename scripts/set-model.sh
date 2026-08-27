@@ -5,7 +5,7 @@
 # litellm_params.model must move together or /model goes stale, so this script
 # writes both off one bare model-key and restarts litellm-server.
 #
-# Only fable/opus keys are enumerable here (llama-swap/config.yaml); haiku and
+# Only fable/opus keys are enumerable here (llama-swap/m5-max-128gb/config.yaml); haiku and
 # sonnet live on the Windows instance -- see docs/infrastructure.md.
 set -eu
 
@@ -75,7 +75,7 @@ _env_var_for_tier() {
     esac
 }
 
-# Mac-side model keys, from llama-swap/config.yaml's top-level `models:`
+# Mac-side model keys, from llama-swap/m5-max-128gb/config.yaml's top-level `models:`
 # block (2-space-indented `key:` lines, ending at the next 0-indent line).
 _mac_model_keys() {
     [ -f "$LLAMA_SWAP_CONFIG" ] || return 0

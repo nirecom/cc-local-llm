@@ -4,7 +4,7 @@
 # See scripts/serverctl.sh for the unified control command.
 #
 # llama-swap owns ds4-server's and Laguna's start/stop lifecycle exclusively
-# (see llama-swap/config.yaml) -- it is the sole spawner of both model
+# (see llama-swap/m5-max-128gb/config.yaml) -- it is the sole spawner of both model
 # processes, keeping them mutually exclusive on the Mac's 128 GB memory.
 set -eu
 

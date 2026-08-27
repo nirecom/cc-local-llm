@@ -69,7 +69,7 @@ Measured on this Mac, 8bit, 27-token prompt / 59-token completion, identical out
 forward pass — so the prefill column differs only by run-to-run noise.
 
 Two behavioural differences from `mlx_lm.server` shape the flags in
-[llama-swap/config.yaml](../llama-swap/config.yaml):
+[llama-swap/m5-max-128gb/config.yaml](../llama-swap/m5-max-128gb/config.yaml):
 
 | Flag / key | Value | Why |
 |---|---|---|

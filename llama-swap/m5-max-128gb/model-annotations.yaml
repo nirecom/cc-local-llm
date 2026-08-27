@@ -1,6 +1,6 @@
-# Model annotations for llama-swap/config.yaml (Mac backend).
-# Maintained alongside config.yaml -- see CLAUDE.md. Same format as the Windows
-# host's own llama-swap model-annotations.yaml, minus the `optimizer:` key:
+# Model annotations for the config.yaml in this directory (Mac backend).
+# Maintained alongside it -- see CLAUDE.md. Same format as the Windows
+# host's own llama-swap annotations, minus the `optimizer:` key:
 # llama-swap-optimizer tunes llama.cpp flags (-ngl, --n-cpu-moe) and has nothing
 # to tune on MLX. Sizing derivations live in docs/tuning.md, not here.
 

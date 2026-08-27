@@ -120,7 +120,7 @@ The Mac hosts two mutually-exclusive local models — ds4-server (DeepSeek V4 Fl
 Laguna S 2.1 (`mlx_lm.server`, 4-bit NVFP4 MLX). Together their resident weights (~90.9 GB +
 ~72-90 GB) exceed the Mac's 128 GB unified memory, so at most one may be loaded at a time.
 
-**Mac llama-swap** (`llama-swap/config.yaml`, listen `127.0.0.1:18080`) is the CCGW Proxy's
+**Mac llama-swap** (`llama-swap/m5-max-128gb/config.yaml`, listen `127.0.0.1:18080`) is the CCGW Proxy's
 sole upstream and the only service needed to manage this — it spawns and kills ds4-server /
 `mlx_lm.server` on demand, keyed by the requested model name. Its **default** behavior (no
 `groups:` block) already keeps exactly one model process loaded at a time, which is

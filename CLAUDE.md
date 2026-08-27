@@ -2,15 +2,15 @@
 
 ## Model Management Rules
 
-`llama-swap/config.yaml` holds values only — rationale goes to `docs/tuning.md`, decisions to `docs/history.md`.
+A `config.yaml` under `llama-swap/` holds values only — rationale goes to `docs/tuning.md`, decisions to `docs/history.md`.
 
 ## Docs Update Rules
 
-When `llama-swap/config.yaml` changes, also update in-repo `llama-swap/model-annotations.yaml`.
+When a `config.yaml` under `llama-swap/` changes, also update the `model-annotations.yaml` beside it.
 
 Adding or renaming a model key requires a matching entry with `role`; changing an entry's flags requires updating its `notes`.
 
-Format follows the Windows host's own llama-swap `model-annotations.yaml`, minus the llama.cpp-only `optimizer:` key.
+Host directories are named `<chip>-<memory>` — see [llama-swap/README.md](llama-swap/README.md).
 
 ## Design Docs
 
