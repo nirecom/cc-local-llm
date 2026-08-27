@@ -36,6 +36,7 @@ Standard layout (mirrors the agents-repo convention):
 | [scripts/llama-swap.sh](scripts/llama-swap.sh) | Foreground launcher for llama-swap (thin wrapper; used by launchd) — owns ds4-server's and Laguna's lifecycle |
 | [scripts/litellm.sh](scripts/litellm.sh) | Foreground launcher for the LiteLLM gateway (thin wrapper; used by launchd) |
 | [scripts/ds4-server.sh](scripts/ds4-server.sh) | Foreground launcher for ds4-server, manual debug only (llama-swap owns normal start/stop) |
+| [scripts/convert-mlx-model.sh](scripts/convert-mlx-model.sh) | Convert an HF checkpoint to MLX under `~/.lmstudio/models/<publisher>/` — the self-conversion path for models with no trustworthy prebuilt MLX repo. Not part of `install.sh`: it runs for hours |
 | [scripts/code-ccgw.ps1](scripts/code-ccgw.ps1) | Windows client launcher (pwsh) — loads `.env`, sets ccgw env, isolates the VS Code process, launches VS Code |
 | [scripts/code-ccgw.sh](scripts/code-ccgw.sh) | macOS/Linux client launcher — POSIX counterpart of `code-ccgw.ps1`; lets the backend Mac drive its own backend |
 | [litellm-server/](litellm-server/) | LiteLLM gateway config — model-tier routing and protocol conversion |
