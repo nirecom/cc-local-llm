@@ -141,6 +141,34 @@ models:
     ttl: 0
     useModelName: ${env.HOME}/.lmstudio/models/orcarouter/Qwen3.8-27B-Uncensored-MLX
     concurrencyLimit: 3
+  # Qwen3.8-Flash-Next -- 125B-A6B MoE plus 51B hashed n-gram PLE embeddings,
+  # self-converted to 3bit/group-32 MLX (89.4GB) because no publisher with a
+  # track record ships an MLX build of it. See scripts/convert-mlx-model.sh.
+  #
+  # --max-num-seqs 1, unlike the Qwen3.8-27B family above: mlx-vlm's qwen4_exp
+  # README says the QSA cache path is not yet wired into continuous batching.
+  qwen3.8-flash-next-3bit:
+    cmd: >-
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+      --max-num-seqs 1
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 0
+    # Same mlx_vlm.server path-as-model-name convention as the Qwen3.8-27B
+    # family -- see the qwen3.8-27b-8bit entry's comment.
+    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+    concurrencyLimit: 1
+  qwen3.8-flash-next-3bit-mtp:
+    cmd: >-
+      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+      --draft-model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-MTP-3bit
+      --draft-kind mtp
+      --max-num-seqs 1
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 0
+    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+    concurrencyLimit: 1
   qwen3-next-80b-a3b-thinking:
     # Same Qwen3-Next-80B-A3B base architecture as qwen3-coder-next-80b-a3b
     # above (hybrid Gated DeltaNet/Gated Attention, 80B/3B, 84.7GB in 8bit),
