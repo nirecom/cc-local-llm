@@ -1,5 +1,5 @@
 #!/bin/bash
-# mlx-lm.sh - Install mlx-lm from git main (the mlx_lm.server backends in llama-swap/config.yaml)
+# mlx-lm.sh - Install mlx-lm from git main (the mlx_lm.server backends in llama-swap/m5-max-128gb/config.yaml)
 # Laguna's architecture support is not yet in a PyPI release, so this installs from
 # the ml-explore/mlx-lm main branch as a uv-managed tool (user scope, no sudo).
 

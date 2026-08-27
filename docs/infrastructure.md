@@ -7,7 +7,7 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | Host | Role | Spec |
 |---|---|---|
 | Mac (this machine) | LiteLLM gateway + CCGW Proxy + ds4-server / Laguna S 2.1 (backend, mutually exclusive) + llama-swap | MacBook Pro M5 Max, 128 GB unified memory |
-| <windows-host> (Windows) | llama-swap (Haiku/Sonnet tiers) + Caddy TLS front | Windows 11 |
+| <windows-host> (Windows) | llama-swap (Haiku/Sonnet tiers) + Caddy TLS front | Windows 11, RTX 5070 Ti (16 GB VRAM), 128 GB system RAM |
 | windows-client | Claude Code client | Windows (same machine as <windows-host>) |
 
 ## Engine & model (on the Mac)
@@ -52,7 +52,7 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 | LiteLLM config | `~/git/cc-local-llm/litellm-server/config.yaml` |
 | LiteLLM TLS cert/key | `~/.config/litellm/cert.pem` / `key.pem` (mkcert-generated) |
 | LiteLLM CA cert (CCGW Proxy + Windows Caddy trust) | `<mkcert -CAROOT>/rootCA.pem` (`SSL_CERT_FILE`) |
-| Mac llama-swap config | `~/git/cc-local-llm/llama-swap/config.yaml` |
+| Mac llama-swap config | `~/git/cc-local-llm/llama-swap/m5-max-128gb/config.yaml` |
 | Proxy TLS cert/key | `~/.config/ccgw-proxy/cert.pem` / `key.pem` (mkcert-generated) |
 | Client launcher (POSIX) | `~/git/cc-local-llm/scripts/code-ccgw.sh` (macOS/Linux counterpart of `code-ccgw.ps1`) |
 | Client VS Code profile | `~/Library/Application Support/vscode-ccgw` (macOS), `${XDG_DATA_HOME:-~/.local/share}/vscode-ccgw` (Linux) |

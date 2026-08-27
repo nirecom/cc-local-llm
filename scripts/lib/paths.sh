@@ -5,7 +5,7 @@ set -eu
 
 : "${CCGW_OPS_ROOT:?paths.sh requires lib/root.sh to be sourced first}"
 DS4_SERVER_ROOT="$HOME/git/ds4"
-LLAMA_SWAP_ROOT="$CCGW_OPS_ROOT/llama-swap"
+LLAMA_SWAP_ROOT="$CCGW_OPS_ROOT/llama-swap/m5-max-128gb"
 LITELLM_ROOT="$CCGW_OPS_ROOT/litellm-server"
 CCGW_RUN_DIR="$HOME/Library/Application Support/cc-local-llm/run"
 

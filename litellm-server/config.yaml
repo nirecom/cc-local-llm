@@ -44,7 +44,7 @@ model_list:
       drop_params: true
 
   # --- Fable tier: DeepSeek V4 Flash via CCGW Proxy -> Mac swap layer ---
-  # The Mac backends are mutually exclusive (see llama-swap/config.yaml in this
+  # The Mac backends are mutually exclusive (see llama-swap/m5-max-128gb/config.yaml in this
   # repo) -- only one can be resident at once. They sit on separate Claude Code tiers
   # so /model switches between them: fable -> ds4, opus -> whichever llama-swap entry
   # .env's LITELLM_OPUS_MODEL currently names.
