@@ -1,7 +1,7 @@
 """Request-body normalization rules for the ds4 reverse proxy.
 
-Four pure normalization rules plus apply_all() that composes them in
-deterministic A->B->C->D order:
+Five pure normalization rules plus apply_all() that composes them in
+deterministic A->B->C->D->E order:
 
   A. move_dynamic_sections   - lift volatile system-prompt lines into the
                                first user message so the cached system prompt
@@ -10,6 +10,8 @@ deterministic A->B->C->D order:
                                a bare YYYY-MM-DD.
   C. strip_system_reminders  - drop <system-reminder>...</system-reminder>.
   D. sort_tools              - sort the tools array by name for determinism.
+  E. clamp_reasoning_effort  - rewrite reasoning_effort to a value the target
+                               model's chat template accepts.
 
 Every rule takes a mandatory keyword-only `shape` ("anthropic" | "openai")
 selecting which body layout to traverse: LiteLLM converts the opus route to
@@ -63,6 +65,15 @@ _SYSTEM_REMINDER = re.compile(
 # of a nested reminder (e.g. <system-reminder>a<system-reminder>b</system-reminder>
 # strips the inner pair, leaving </system-reminder> without a partner).
 _ORPHAN_CLOSE = re.compile(r'</system-reminder>')
+
+# Qwen3.8's chat template raises on any reasoning_effort outside
+# ('xhigh', 'medium', 'low'), so 'high' comes back as a 500 with no tokens.
+# Every other backend here ignores the field, hence the model-prefix key --
+# and the body's model name rather than the LiteLLM tier, since which model
+# sits on which tier changes with .env.
+_EFFORT_BY_MODEL_PREFIX = {
+    'qwen3.8': {'high': 'xhigh', 'max': 'xhigh', 'minimal': 'low'},
+}
 
 _TextFn = Callable[[str], str]
 
@@ -270,10 +281,34 @@ def sort_tools(body: dict, *, shape: str) -> dict:
     return body
 
 
+def clamp_reasoning_effort(body: dict, *, shape: str) -> dict:
+    """Clamp reasoning_effort to a value the target model's template accepts.
+
+    No-op unless the model matches a prefix in _EFFORT_BY_MODEL_PREFIX and the
+    requested effort is one that model rejects. Idempotent: every mapped value
+    maps to an accepted one, which is never itself a key.
+    """
+    body = copy.deepcopy(body)
+    if shape != OPENAI:
+        return body
+
+    model = body.get('model')
+    effort = body.get('reasoning_effort')
+    if not isinstance(model, str) or not isinstance(effort, str):
+        return body
+
+    for prefix, mapping in _EFFORT_BY_MODEL_PREFIX.items():
+        if model.startswith(prefix) and effort in mapping:
+            body['reasoning_effort'] = mapping[effort]
+            break
+    return body
+
+
 def apply_all(body: dict, *, shape: str) -> dict:
-    """Apply all normalization rules in order A->B->C->D."""
+    """Apply all normalization rules in order A->B->C->D->E."""
     body = move_dynamic_sections(body, shape=shape)
     body = normalize_date(body, shape=shape)
     body = strip_system_reminders(body, shape=shape)
     body = sort_tools(body, shape=shape)
+    body = clamp_reasoning_effort(body, shape=shape)
     return body
