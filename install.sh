@@ -51,7 +51,7 @@ case "${1:-}" in
 esac
 
 if [ "$ROLE" != "client" ] && [ "$PLATFORM" != "mac" ]; then
-    printf "${C_YELLOW}The backend (ds4-server / Laguna S 2.1) requires macOS with Metal -- '--server' is unavailable here.${C_RESET}\n" >&2
+    printf "${C_YELLOW}The backend (ds4-server and the MLX servers) requires macOS with Metal -- '--server' is unavailable here.${C_RESET}\n" >&2
     printf "${C_YELLOW}Run './install.sh --client' to set up this host as a client instead.${C_RESET}\n" >&2
     exit 1
 fi
@@ -90,11 +90,11 @@ if [ "$ROLE" = "server" ] || [ "$ROLE" = "all" ]; then
     "$REPO_ROOT/install/mac/litellm.sh"
 
     echo ""
-    printf -- "${C_BOLD}--- Installing mlx-lm (git main, for Laguna S 2.1) ---${C_RESET}\n"
+    printf -- "${C_BOLD}--- Installing mlx-lm (git main -- the mlx_lm.server backends) ---${C_RESET}\n"
     "$REPO_ROOT/install/mac/mlx-lm.sh"
 
     echo ""
-    printf -- "${C_BOLD}--- Installing mlx-vlm (git main, for the Qwen3.8-27B MTP variants) ---${C_RESET}\n"
+    printf -- "${C_BOLD}--- Installing mlx-vlm (git main -- the mlx_vlm.server backends and MLX conversion) ---${C_RESET}\n"
     "$REPO_ROOT/install/mac/mlx-vlm.sh"
 
     echo ""
