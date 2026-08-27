@@ -1,5 +1,5 @@
 #!/bin/bash
-# mlx-vlm.sh - Install mlx-vlm from git main (required for the Qwen3.8-27B MTP variants)
+# mlx-vlm.sh - Install mlx-vlm from git main (the mlx_vlm.server backends, and MLX model conversion)
 #
 # Why a second MLX server package alongside mlx-lm, and why git main rather than
 # PyPI: docs/tuning.md ("MTP speculative decoding (Qwen3.8-27B)").
