@@ -22,13 +22,17 @@ model_list:
       max_tokens: 8192
       context_window: 65536
       timeout: 60
-      # Claude Code sends reasoning_effort. chat/completions rejects it for a
-      # non-reasoning openai/ model with a 400, which reaches the client as an
-      # opaque "model may not exist". Local weights ignore the field anyway, so
-      # dropping it is lossless here. Set per route rather than globally: the
-      # anthropic/ fable tier maps its params on a different code path, and
-      # leaving its strict behaviour alone keeps a real 400 there visible.
+      # drop_params discards unsupported params instead of 400ing. reasoning_effort
+      # is not in the openai/ supported list for an unrecognised model name, so it
+      # needs re-admitting by name -- the client's /effort must reach the backend.
       drop_params: true
+      allowed_openai_params: ["reasoning_effort"]
+    # Without this, LiteLLM degrades the client's xhigh/max to high before the
+    # backend sees it. Qwen3.8 templates accept only xhigh/medium/low, and other
+    # backends ignore the field, so passing xhigh through is right either way.
+    # supports_max stays undeclared on purpose: max then degrades to xhigh, not high.
+    model_info:
+      supports_xhigh_reasoning_effort: true
 
   # --- Sonnet tier: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ the Windows PC ---
   - model_name: os.environ/LITELLM_SONNET_MODEL
@@ -42,6 +46,9 @@ model_list:
       timeout: 60
       # Same reason as the haiku tier above.
       drop_params: true
+      allowed_openai_params: ["reasoning_effort"]
+    model_info:
+      supports_xhigh_reasoning_effort: true
 
   # --- Fable tier: DeepSeek V4 Flash via CCGW Proxy -> Mac swap layer ---
   # The Mac backends are mutually exclusive (see llama-swap/m5-max-128gb/config.yaml in this
@@ -59,6 +66,12 @@ model_list:
       stream: true
       max_tokens: 8192
       context_window: 393216
+      # Inert on the anthropic/ passthrough; kept so every tier carries the line.
+      allowed_openai_params: ["reasoning_effort"]
+    # ds4 has a real max mode, so unlike the Qwen tiers it declares supports_max.
+    model_info:
+      supports_xhigh_reasoning_effort: true
+      supports_max_reasoning_effort: true
 
   # --- Opus tier: the selected mlx_lm.server backend via CCGW Proxy -> Mac swap layer ---
   # scripts/set-model.sh rewrites the model: line below and .env's LITELLM_OPUS_MODEL
@@ -74,7 +87,7 @@ model_list:
   # opposite values there; see docs/tuning.md#mtp-speculative-decoding-qwen3827b.
   - model_name: os.environ/LITELLM_OPUS_MODEL
     litellm_params:
-      model: openai/qwen3.8-27b-8bit
+      model: openai/qwen3.8-flash-next-3bit-mtp
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
@@ -82,6 +95,9 @@ model_list:
       context_window: 262144
       # Same reason as the haiku tier above.
       drop_params: true
+      allowed_openai_params: ["reasoning_effort"]
+    model_info:
+      supports_xhigh_reasoning_effort: true
 
 litellm_settings:
   # Stays false so an unsupported param is a visible 400 by default; the routes
