@@ -345,6 +345,10 @@ gateway certificate (if unset the wrapper warns and TLS will not be trusted). `.
 Subagent routing is opt-in: set `CCGW_SUBAGENT_MODEL` to a LiteLLM routing key to pin every
 subagent to one tier. Left empty — the default — each agent's own frontmatter decides.
 
+When the Mac switches a tier's backend with `scripts/set-model.sh`, this `.env` must be updated
+by hand to match — see "Mirroring a `set-model.sh` change to the Windows client" under
+"Client (macOS / Linux)".
+
 **Isolation from native (subscription) VS Code:** the wrapper passes
 `--user-data-dir "$env:LOCALAPPDATA\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
 shares one process — and thus one environment — across every window under the same
@@ -407,12 +411,34 @@ values in `.env`, matched against `model_name` entries in
 [litellm-server/config.yaml](../litellm-server/config.yaml). Each tier is a separate route, so
 `/model` is what switches between them:
 
-| Tier | Backend |
+| Tier | Where its backend runs |
 |---|---|
-| Fable | ds4 (`deepseek-v4-flash`), Mac |
-| Opus | the `.env`-selected Mac backend (`qwen3-next-80b-a3b-thinking`), Mac |
-| Sonnet | Qwen3-Coder-30B-A3B (`qwen3-coder-30b-a3b`), Windows llama-swap |
-| Haiku | Devstral-Small-2-24B (`devstral-small-2-24b`), Windows llama-swap |
+| Fable | Mac llama-swap |
+| Opus | Mac llama-swap |
+| Sonnet | Windows llama-swap |
+| Haiku | Windows llama-swap |
+
+Which model a tier currently points at is not fixed — it is `.env`'s `LITELLM_<TIER>_MODEL`,
+and `scripts/set-model.sh` rewrites it. Read the live value with `scripts/set-model.sh --list`
+(which also enumerates the choices for the two Mac tiers) rather than a name written here.
+
+**Mirroring a `set-model.sh` change to the Windows client.** `set-model.sh` edits two files on
+the Mac — `litellm-server/config.yaml` and the Mac's `.env` — and restarts litellm-server. It
+does not reach the Windows client, and nothing else does either: `.env` is gitignored, and the
+Windows box is a separate clone. So a tier switch on the Mac needs a manual mirror.
+
+It matters because `model_name` in the LiteLLM config is `os.environ/LITELLM_<TIER>_MODEL`. The
+name LiteLLM answers to is literally the Mac `.env` value, while the Windows wrapper builds
+`ANTHROPIC_DEFAULT_*_MODEL` from *its own* `.env`. Leave the two out of sync and the client asks
+for a model group the gateway no longer publishes — a 400, not a silent fallback.
+
+1. On the Mac, read the new value: `scripts/set-model.sh --list <tier>`.
+2. On Windows, set the same bare key in the repo-root `.env` as `LITELLM_<TIER>_MODEL=<key>`.
+3. Close *all* windows of the ccgw VS Code profile, then relaunch `.\scripts\code-ccgw.ps1 .` —
+   the wrapper captures its environment at process start, so closing one window is not enough
+   (same caveat as `LITELLM_ANTHROPIC_BASE_URL` under "Client (Windows)").
+
+Only the tier that changed needs mirroring; the other three keys keep working untouched.
 
 The two Mac backends are mutually exclusive: switching between Fable and Opus unloads the
 resident model and cold-starts the other, so expect a long first response after each switch.
