@@ -13,6 +13,14 @@ The memory belongs in the name because every value in these configs is derived f
 weights, context length, KV budget, `concurrencyLimit`. Replacing the hardware forces a
 rename, which is the intent: a changed ceiling should not pass silently.
 
-The Mac serves `m5-max-128gb/` only (`LLAMA_SWAP_ROOT` in
-[../scripts/lib/paths.sh](../scripts/lib/paths.sh)). The Windows directory is kept here
-for side-by-side review; that host runs its own llama-swap.
+Both directories are served from here, by different mechanisms. The Mac resolves
+`m5-max-128gb/` through `LLAMA_SWAP_ROOT` in
+[../scripts/lib/paths.sh](../scripts/lib/paths.sh). The Windows host's llama-swap service
+reads `rtx5070ti-128gb/config.yaml` directly, because NSSM burns the path into the
+service's `--config` argument at registration time; `install.ps1 -Server` is what registers
+it. Neither path is spelled out here — see [../docs/infrastructure.md](../docs/infrastructure.md).
+
+Windows carries 14 annotations against 11 models. Three keys that left `config.yaml` are kept
+with a `retained:` reason because the judgement behind them is still consulted. The Mac side
+is 1:1 not because a different rule applies to it, but because it happens to have no expired
+annotation worth keeping — the rule itself is in [../CLAUDE.md](../CLAUDE.md).
