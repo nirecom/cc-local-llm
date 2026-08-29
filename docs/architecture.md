@@ -78,7 +78,7 @@ be achieved by env-var wiring alone.
 
 ### Why prompt normalization
 
-Claude Code injects volatile content into every system prompt: working directory, git status, platform, OS version, shell, auto-memory path, and `<system-reminder>` blocks. This volatile prefix changes on every request and breaks KV cache prefix continuity — the model must re-prefill from scratch each turn. The proxy normalizes four properties before forwarding to ds4:
+Claude Code injects volatile content into every system prompt: working directory, git status, platform, OS version, shell, auto-memory path, and `<system-reminder>` blocks. This volatile prefix changes on every request and breaks KV cache prefix continuity — the model must re-prefill from scratch each turn. The proxy normalizes four properties before forwarding to ds4, and clamps a fifth field that is unrelated to caching:
 
 | Rule | What it does | Why |
 |---|---|---|
@@ -86,8 +86,11 @@ Claude Code injects volatile content into every system prompt: working directory
 | `normalize_date` | Collapses `Today's date is YYYY-MM-DDTHH:MM:SSZ` to `YYYY-MM-DD` | Time component changes every second; bare date is stable for one calendar day |
 | `strip_system_reminders` | Removes `<system-reminder>…</system-reminder>` blocks | Session-scoped injections differ across turns; stripping them stabilises the prefix |
 | `sort_tools` | Sorts the `tools` array by name | Tool order can vary; deterministic order gives the same prompt bytes across requests |
+| `clamp_reasoning_effort` | Rewrites `reasoning_effort` to a value the target model's chat template accepts (`qwen3.8`: `high`/`max`→`xhigh`, `minimal`→`low`) | Qwen3.8's template raises on any other value, turning the request into an HTTP 500 with zero tokens returned. Keyed on the body's model name, not the tier, since which model backs which tier lives in `.env` |
 
-Each rule is a pure function; all four are applied in order via `apply_all()`. The pipeline is transparent for unrecognized paths and non-JSON bodies.
+Each rule is a pure function; all five are applied in order via `apply_all()`. The pipeline is transparent for unrecognized paths and non-JSON bodies.
+
+The four cache rules only pay off where the backend actually keeps a prefix cache. That is true of ds4 (`--kv-disk-dir`) and **not** of the mlx-vlm-hosted tiers, whose prefix cache is off by default — see [tuning.md](tuning.md#prefix-caching-apc-is-off).
 
 Two body shapes reach the proxy, because the gateway in front of it converts the Opus tier to the OpenAI shape while the Fable tier stays Anthropic. The shape is decided from the request path alone (`/v1/messages` → Anthropic, `/v1/chat/completions` and `/chat/completions` → OpenAI) and passed to every rule as a mandatory argument — never sniffed from the body, which the client controls, and never defaulted, since a forgotten argument would then normalize the wrong field set silently.
 

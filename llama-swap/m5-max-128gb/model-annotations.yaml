@@ -61,11 +61,12 @@ qwen3.8-27b-uncensored-4bit:
 qwen3.8-flash-next-3bit:
   role: opus-tier candidate (long context, multimodal)
   used_by: []
-  notes: "mlx_vlm.server, MoE 125B total / 6B active plus 51B hashed n-gram PLE, self-converted 3bit/group-32 (89.4GB, 4.032 bpw), ctx 262144 native / 1M YaRN, --max-num-seqs 1, concurrencyLimit 1"
-  decision: "No publisher with a track record ships an MLX build, so converted from the official BF16 via scripts/convert-mlx-model.sh. group-32 is mandatory: the n-gram PLE tables are 160 wide and 160 % 64 != 0, so group 64 leaves them in BF16 and the output exceeds 150GB"
+  notes: "mlx_vlm.server, MoE 125B total / 6B active plus 51B hashed n-gram PLE, self-converted 3bit/group-32 (89.4GB, 4.032 bpw), ctx 262144 native / 1M YaRN, --prefill-step-size 1024, --max-num-seqs 1, concurrencyLimit 1, 99.6GB peak at 103k ctx"
+  decision: "No publisher with a track record ships an MLX build, so converted from the official BF16 via scripts/convert-mlx-model.sh. group-32 is mandatory: the n-gram PLE tables are 160 wide and 160 % 64 != 0, so group 64 leaves them in BF16 and the output exceeds 150GB. --prefill-step-size 1024 halves mlx-vlm's default because QSAIndexer.from_projected's fp32 scratch -- not the KV cache -- dominates the per-token memory cost: measured 134 -> 85.5 KB per token of context, which is what puts the native 262144 ctx under the Metal working-set limit. It costs -1.1% prefill at 103k and nothing at all in quality. Curve: docs/tuning.md"
 
 qwen3.8-flash-next-3bit-mtp:
   role: opus-tier candidate (long context, MTP)
   used_by: []
-  notes: "qwen3.8-flash-next-3bit plus --draft-model Qwen3.8-Flash-Next-MTP-3bit --draft-kind mtp, 1.3GB drafter, 94.05GB peak at 3k ctx"
-  decision: "Measured 771.8 tok/s prefill, 33.5 tok/s decode, 66.2% acceptance (102/154) = 1.66 tokens per forward pass. The drafter was not downloaded -- convert --mtp extracted the 31 mtp.* tensors from the source checkpoint. --max-num-seqs 1 because mlx-vlm's qwen4_exp README says the QSA cache path is not yet wired into continuous batching. Memory at 200k ctx is unverified"
+  notes: "qwen3.8-flash-next-3bit plus --draft-model Qwen3.8-Flash-Next-MTP-3bit --draft-kind mtp, 1.3GB drafter, 101.2GB peak at 103k ctx (inherits --prefill-step-size 1024)"
+  decision: "The drafter was not downloaded -- convert --mtp extracted the 31 mtp.* tensors from the source checkpoint. --max-num-seqs 1 because mlx-vlm's qwen4_exp README says the QSA cache path is not yet wired into continuous batching. The drafter costs 1.6GB against the 6.1GB --prefill-step-size 1024 frees, so the two compose: intercept 92.7GB, hard ceiling ~278k, which still covers the native 262144. A 112GB working budget stops at ~236k -- the one case the pair misses native, and the reason to try step 512 next. Acceptance is task-dependent (87% at 36k on a realistic prompt, 97% at 103k on consecutive-name listing); plan against the former"
+
