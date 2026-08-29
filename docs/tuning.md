@@ -92,6 +92,79 @@ Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_
 keeps a single request's KV cost to ~48 KB/token — even a maxed-out 262144-token request costs
 only ~12.9 GB of active KV memory. Full derivation and incident history: [history.md](history.md).
 
+## Windows host (RTX 5070 Ti 16 GB / 128 GB RAM)
+
+The Mac's problem is one huge model against 128 GB of unified memory. The Windows host's is the
+opposite: eleven models against **16 GB of VRAM**, with 128 GB of ordinary system RAM behind it.
+Every decision in [llama-swap/rtx5070ti-128gb/config.yaml](../llama-swap/rtx5070ti-128gb/config.yaml)
+falls out of that. Values live in that file; only the reasoning is here.
+
+**VRAM placement is four distinct patterns, not one.** Classify by what the entry actually does,
+not by parameter count:
+
+- **Full GPU residency** — no offload flag at all, `-ngl` set past the layer count:
+  `NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0`, `Qwen3.5-27B-IQ3_M`, `Qwen3-Coder-Next-Q4_K_M`,
+  `Qwen3.8-27B-UD-Q3_K_XL`. The two 27B-class members only reach this pattern because the quant
+  is pushed down to IQ3_M / UD-Q3_K_XL — at Q4 they would not fit at all.
+- **MoE expert layers pushed to host RAM** — `gpt-oss-120b-MXFP4` and
+  `Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL` via `--n-cpu-moe`, `gpt-oss-20b-MXFP4` via an
+  `--override-tensor` regex that sends the upper block range's `ffn_*_exps` to CPU (the 30B-A3B
+  entry carries both). These three are the reason 128 GB of system RAM matters, and the `128gb`
+  in the host directory's name refers to this class, not to the GPU.
+- **Partial offload** — `Devstral-Small-2-24B-Instruct-2512-IQ4_XS` keeps most layers on the GPU
+  and pays for its 64K context with quantized KV.
+- **Deliberately GPU-free** — `Qwen2.5-7B-Instruct-Q4_K_M` runs `-ngl 0 --device none`. It is the
+  always-resident judge in the `forever` group, so occupying **zero** GPU bytes outranks its own
+  throughput. The optimizer's 2026/04/05 run proposed a full-offload `-ngl` for it and measured a
+  large speedup; that suggestion was rejected outright and never deployed (figures and date in
+  [history.md](history.md)). The gap between what the optimizer suggested and what was deployed is
+  exactly the kind of reasoning this file exists to hold.
+
+`Llama-3-ELYZA-JP-8B-q4_k_m` and `Lumimaid-v0.2-12B.q4_k_m` (and the `Qwen2.5-7B` entry above)
+carry an `--override-tensor` `ffn_*_exps` regex despite being dense models with no `exps` tensors
+for it to match. This is **likely a no-op** left over from the optimizer applying the flag
+uniformly — unconfirmed: verifying it means reading `llama-server`'s startup tensor-allocation
+log and checking whether any tensor is redirected. Do not remove it on the strength of this
+paragraph alone.
+
+**KV quantization splits into three groups, and the split does not follow the group config.**
+Within the seven `heavy` members alone there are two different policies:
+
+- `-ctk q4_0 -ctv q4_0` — `Qwen3.5-27B-IQ3_M`, `Devstral`, `Qwen3-Coder-Next`,
+  `Qwen3-Coder-30B-A3B` and `Qwen3.8-27B` (five models), all running 32K or 64K context. At this
+  VRAM budget it is effectively the only lever that makes that much context fit.
+- `--cache-type-k q8_0 --cache-type-v q8_0` — `gpt-oss-120b-MXFP4` alone. It can afford the
+  larger KV type because its context is the smallest in the file.
+- **No KV quantization** (f16 default) — `gpt-oss-20b`, `Qwen2.5-7B`, `Nemotron`, `ELYZA` and
+  `Lumimaid` (five models), whose context is small or unset, so there is nothing to shrink.
+  `gpt-oss-20b` sits in `heavy` yet quantizes no KV: group membership and KV policy are
+  independent axes.
+
+How much this matters is visible in the IQ4_XS → UD-Q3_K_XL swap on `Qwen3.8-27B`: a few hundred
+MiB less spill out of VRAM bought a tens-of-percent throughput gain at the same 64K context.
+Exact spill figures, tok/s and dates are in [history.md](history.md).
+
+**Concurrency is explicit for only four entries.** `gpt-oss-120b`, `Nemotron` and `Qwen3.8-27B`
+pin `--parallel` to a single slot; `Qwen2.5-7B` is the one entry that raises it, which it can
+afford precisely because it is CPU-resident and never contends for the GPU. The remaining seven
+leave the flag unset and inherit llama.cpp's default of one.
+
+**Group roles** carry the exclusivity policy that the Mac side gets for free:
+
+| Group | Policy | Purpose |
+|---|---|---|
+| `heavy` | `swap: true`, `exclusive: true` (7 models) | Large models, one loaded at a time |
+| `light` | `swap: false`, `exclusive: true` (2 models) | Small models that need not evict each other on swap |
+| `forever` | `persistent: true`, `exclusive: false` (1 model) | Keeps the judge model loaded permanently |
+
+The Mac config has no `groups:` block at all and relies on llama-swap's default
+single-active-model behavior — with two mutually exclusive backends there is nothing to arbitrate.
+Eleven models contending for one 16 GB GPU is what forces the Windows side to state the policy.
+
+Everything above is a placement decision under a hard VRAM ceiling; the Mac side's equivalents
+are memory-budget decisions under a soft unified-memory ceiling. Benchmark numbers and the dates
+they were taken belong to [history.md](history.md) and are deliberately not repeated here.
+
 ## Thinking control
 
 - ds4 defaults **every** chat request to HIGH thinking.

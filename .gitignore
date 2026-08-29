@@ -13,3 +13,10 @@ __pycache__/
 # Local Claude Code / worktree state
 .claude/
 .worktree-backup/
+
+# Runtime-side artifacts that must never reach this repo: binaries live beside the
+# service on the host, certificates outside the checkout, and the timestamped
+# config backups a suffix-only *.bak rule cannot match.
+*.exe
+config.yaml.bak*
+certs/

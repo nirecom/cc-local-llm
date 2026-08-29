@@ -6,7 +6,9 @@
 # writes both off one bare model-key and restarts litellm-server.
 #
 # Only fable/opus keys are enumerable here (llama-swap/m5-max-128gb/config.yaml); haiku and
-# sonnet live on the Windows instance -- see docs/infrastructure.md.
+# sonnet run on the Windows llama-swap instance, whose config lives in this repo at
+# llama-swap/rtx5070ti-128gb/config.yaml but is not what this script edits -- this script
+# operates on the Mac-side tiers only. See docs/infrastructure.md.
 set -eu
 
 CCGW_SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -46,9 +48,10 @@ Tiers: haiku, sonnet, fable, opus
 
 --list with no tier shows all four; --list <tier> shows just that one.
 fable/opus choices are read live from $(_display_path "$LLAMA_SWAP_CONFIG").
-haiku/sonnet run on the Windows llama-swap instance, whose config.yaml is
-not in this repo -- only the currently-configured backend can be shown for
-those two, not the full choice list, and its provider shape isn't verified.
+haiku/sonnet run on the Windows llama-swap instance, whose config.yaml lives
+in this repo at llama-swap/rtx5070ti-128gb/config.yaml -- but this script only
+operates on the Mac-side tiers, so for those two it shows the currently-configured
+backend rather than the full choice list, and its provider shape isn't verified.
 
 Edits $(_display_path "$LITELLM_CONFIG") (litellm_params.model, keeping the
 existing provider prefix) and $(_display_path "$DOTENV_FILE") (LITELLM_<TIER>_MODEL,
@@ -129,7 +132,7 @@ _list_tier() {
     _lt_value="${_lt_line#*model: }"
     case "$_lt_tier" in
         haiku|sonnet)
-            echo "$_lt_tier   (Windows llama-swap; not enumerable from this repo -- check its config.yaml on the Windows PC, see docs/infrastructure.md)"
+            echo "$_lt_tier   (Windows llama-swap: llama-swap/rtx5070ti-128gb/config.yaml in this repo; not enumerated here -- this script edits the Mac-side tiers only, see docs/infrastructure.md)"
             echo "  current backend: ${_lt_value:-(unknown)}"
             ;;
         fable|opus)

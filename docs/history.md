@@ -126,3 +126,145 @@ Changes: Added an opt-in DOTENV_FORCE_KEYS (space-separated, NON-exported) to sc
 
 Test gap: no test asserted the model-routing keys take .env over a stale shell value; the loader test's run_dotenv also had an unshifted $@ that made all its cases fail with an empty dump
 
+### FEATURE: [win-server] nirecom/llama-swap merged into this repo, absorbing its optimization history (2026-08-29)
+Background: the Windows llama-swap host had its own private repo (`nirecom/llama-swap`), holding the
+config, the launch tooling and an `optimization-history.md` that nothing else could see. That
+split meant the two halves of one system — the Mac gateway and the Windows backend it routes
+Haiku/Sonnet to — were documented in two places, and the tuning rationale for the backend was
+invisible from the repo an operator actually reads. Merging it here makes one repository the
+whole picture. Because this repo is PUBLIC, everything carried over was redacted first: private
+tokens, keys and machine identifiers were stripped or replaced with placeholders before the
+first commit, and the outbound scan gates each one. The source repo was deliberately kept —
+made private and archived as `nirecom/llama-swap-archived` rather than deleted — because the
+verbatim pre-redaction history is the only record of what the redaction removed, and a deleted
+repo cannot answer a later "was this ever public?" question.
+Changes: merged in six commits, each independently reviewable: (1) `.gitignore` + `LICENSE`,
+(2) `llama-swap/rtx5070ti-128gb/{config.yaml,model-annotations.yaml}`, (3) `CLAUDE.md` +
+`llama-swap/README.md`, (4) the Windows server installer, (5) documentation (this entry), (6)
+close-out.
+
+Decisions taken along the way:
+
+- **Annotation split, 3 removed / 3 retained.** Three model keys were dropped from
+  `config.yaml` (`gemma-3-4b-it-Q4_K_M`, `Mistral-22B-v0.2-Q4_K_S`, `Qwen3-8B-Q4_K_M`) and
+  three annotations were kept for models no longer configured, because the judgement behind
+  them is still live. The result is an 11-model / 14-annotation asymmetry on the Windows side,
+  against the Mac side's 1:1. That asymmetry is intentional, so a new rule was written into
+  `CLAUDE.md` to keep it from reading as rot: an annotation may outlive its key only with a
+  `retained:` line naming the decision it will be consulted for, and an annotation nobody can
+  write that line for is deleted with the key.
+- **`install.ps1` grew a role matrix** (`-Server` / `-Client` / `-All` / `-Uninstall`, plus
+  `-LanIp`), with no switch still meaning `-Client` so the one-word invocation in existing
+  notes keeps working. The server role installs its own dependencies via winget (mkcert, NSSM,
+  Caddy), idempotently.
+- **Certificates moved outside the repo.** They are host state, not source, and the leaf now
+  MUST carry the host's LAN IPv4 in its SAN list — a loopback-only cert terminates TLS happily
+  while every LAN client refuses the connection, which is a failure with no error message on
+  the server side.
+- **Log rotation was added to both NSSM services.** Motivation was concrete: a 125 MB service
+  log found on the host. The threshold is an installer default, not a tuning decision, which is
+  why it is recorded here and not in `tuning.md`.
+- **Native-command exit-code policy was centralised into `Invoke-Native`** (`install/win/lib/native.ps1`).
+  Each call site had been deciding for itself which non-zero codes were survivable (`sc query`'s
+  1060, `taskkill`'s 128); one helper now owns that, so a forgotten check cannot silently pass.
+- **The llama-swap runtime directory was deliberately left outside the checkout** (path in
+  `infrastructure.md`). `llama-swap.exe` is an upstream-distributed binary and the NSSM logs are
+  host state; neither belongs in git. The config, by contrast, is a checked-out file read in
+  place — the old design that kept `config.yaml` beside the exe is dead, and
+  `llama-swap-service.ps1` now takes all three paths as mandatory parameters so no default can
+  quietly resurrect the co-location assumption.
+- **LICENSE**: MIT, attributed to the repository owner, matching the pre-existing public posture
+  of this repo rather than the private source repo's absence of one.
+- **A rehearsal backup copy of the source repo was deleted** once the real cutover completed and
+  the archived remote was confirmed reachable; keeping a third unredacted copy on disk was the
+  larger risk.
+
+Absorbed from the source repo's `optimization-history.md` (all five dated sections), plus
+`legacy-launch-cmd.md` and `legacy-manual-tuning.md`, both now obsolete. That file was the only
+record of these measurements and does not survive the merge, so it is transcribed here in full.
+
+**2026/02/21 — initial optimizer run.**
+
+| model | tok/s | threads | batch | ubatch | ngl | FA |
+|---|---|---|---|---|---|---|
+| (8 model rows) | (not individually recorded — see the 2026/04/05 consolidated table for the superseding measurement) | | | | | |
+
+The per-model figures of this first run were not preserved in the extraction; the run's shape
+(8 models, the seven columns above) is recorded so the later tables can be read as supersessions
+rather than as the first data point.
+
+**2026/02/22 — re-run after adding nemotron.**
+
+| model | tok/s | threads | batch | ubatch | ngl | FA |
+|---|---|---|---|---|---|---|
+| (9 model rows — the 02/21 set plus the newly added nemotron) | (not individually recorded — see the 2026/04/05 consolidated table for the superseding measurement) | | | | | |
+
+`Qwen3-32B-Q4_K_M` is already `(pending)` here.
+
+**2026/04/05 — consolidated table (11 models).** The numbers below are the surviving ones; ✓/✗
+in the FA column mean flash-attention on/off, `—` means not recorded. One further row of the
+original eleven was not preserved in the extraction.
+
+| model | tok/s | FA | notes |
+|---|---|---|---|
+| `Qwen3.5-27B-IQ3_M` | 47.4 | ✓ | the chosen quant |
+| `Qwen3.5-27B-Q4_K_M` | 14.6 | ✗ | rejected — this row is the basis of the 16 GB-VRAM Q4-avoidance decision |
+| `Llama-3-ELYZA-JP-8B` | 146.4 | — | later re-measured at 144.3 |
+| `Lumimaid-v0.2-12B` | 97.6 | — | later re-measured at 96.5 |
+| `Nemotron` | 77.2 | — | later re-measured at 74.4 |
+| `Qwen2.5-7B-Instruct-Q4_K_M` | 149.2 | — | at the optimizer's suggested `-ngl 136` — **deliberately not adopted**, see below |
+| `gemma-3-4b-it-Q4_K_M` | 201.2 | — | key removed from config.yaml in commit 2 of this migration |
+| `Mistral-22B-v0.2-Q4_K_S` | 57.9 | — | key removed in commit 2 |
+| `Qwen3-8B-Q4_K_M` | (pending) | — | never benchmarked; key removed in commit 2 |
+| `Qwen3-32B-Q4_K_M` | (pending) | — | never benchmarked, pending in both this table and the 02/22 one, never resolved; no annotation survives for it either |
+
+The single most important fact in this table is the one the numbers do not show:
+**`Qwen2.5-7B-Instruct-Q4_K_M`'s optimizer suggestion was rejected on purpose.** The optimizer
+proposed `-ngl 136` for 149.2 tok/s; the deployed config runs it `-ngl 0 --device none` instead.
+It is the always-resident judge in the `forever` group, so occupying zero GPU memory outranks its
+own throughput — a faster judge that evicts a working model is a net loss. Anyone reading the
+optimizer output later would otherwise "fix" this config back to a slower system.
+
+`Qwen3-8B-Q4_K_M` was confirmed genuinely unused before removal, by cross-checking the host's
+other stacks: the langchain-stack "judge" role actually runs `Qwen2.5-7B-Instruct-Q4_K_M`, not
+this model; Qwen3-8B had been rejected as unsuitable for RAGAS; and in another internal stack it was
+only a temporary onboarding scaffold.
+
+**2026/08/27 — `Qwen3.8-27B-UD-IQ4_XS`, context scaling.**
+
+| context | tok/s | VRAM spill |
+|---|---|---|
+| 32K | 79–82 | ~211 MiB |
+| 64K | 55.4 | ~873 MiB |
+
+MTP draft acceptance rate 0.845 (125/148 drafts accepted, mean accepted length 2.69). Context
+growth slope ≈ 30.7 KiB/token. Built on llama.cpp b1881-3653e6d6d, running the external
+`froggeric v22.4` chat template. Coding-task accuracy was **not** verified at this point — the
+figures are throughput only.
+
+**2026/08/28 — IQ4_XS replaced by UD-Q3_K_XL.**
+
+| quant / context | tok/s | VRAM spill | VRAM used |
+|---|---|---|---|
+| UD-IQ4_XS @ 32K | 79–82 | ~211 MiB | — |
+| UD-IQ4_XS @ 64K | 55.4 | ~873 MiB | — |
+| UD-Q3_K_XL @ 64K | 90.6 | ~305 MiB | 12,537 MiB |
+
+The same 64K context, a few hundred MiB less spill, and throughput rises from 55.4 to 90.6 tok/s.
+This is the concrete example behind the claim in `tuning.md` that at this VRAM budget a
+hundreds-of-MiB spill difference produces a tens-of-percent throughput difference.
+
+**Absorbed from `legacy-launch-cmd.md`:** before NSSM-based service management, models were
+launched from hand-written command lines. When NSSM was adopted, `--watch-config` was added to
+the launch arguments so a config edit takes effect without a manual restart; that argument is now
+produced by `Get-LlamaSwapNssmSettings` in `install/win/lib/nssm-args.ps1`, and the file
+describing the manual launch has no readers left.
+
+**Absorbed from `legacy-manual-tuning.md`:** before the optimizer tool existed, tuning was done
+by hand through a dedicated cmd/ini file. Some of those hand-tuned settings reportedly beat what
+the automated optimizer later produced. Recorded as a historical observation only — no
+measurement survives to act on, so it is not a claim that hand-tuning is better.
+
+### SECURITY: Windows installer security review: Caddy bind scope and NSSM LocalSystem accepted as known risk (2026-08-29)
+Background: Review-code-security round 1 (session da9ea40f-3775-4662-abc9-7b33bb4df317) surfaced two deployment-scope risks in the Windows server installer: (1) every Caddy site block in install/win/Caddyfile.template binds unauthenticated on all interfaces, some reachable via Cloudflare Tunnel; (2) the llama-swap and llama-swap-caddy NSSM services run as LocalSystem and reference config files inside the git checkout with --watch-config, so write access to the checkout is effectively SYSTEM-level code execution.
+Changes: Both accepted as known risk for the current deployment scope: a private, single-operator home LAN with no untrusted or external clients. Hardening (authentication / bind-scope restriction for Caddy; dedicated service account and checkout/config separation with ACLs for NSSM) is deferred until the threat model changes (e.g. additional users, external exposure).

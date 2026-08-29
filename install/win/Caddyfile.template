@@ -1,0 +1,28 @@
+:8443 {
+	tls {{CERT_DIR}}\cert.pem {{CERT_DIR}}\key.pem
+	reverse_proxy localhost:18080
+}
+
+# TLS reverse proxy for Open WebUI (external access via Cloudflare Tunnel)
+:3443 {
+	tls {{CERT_DIR}}\cert.pem {{CERT_DIR}}\key.pem
+	reverse_proxy localhost:3000
+}
+
+# TLS reverse proxy for JudgeClaw (external access via Cloudflare Tunnel)
+:18790 {
+	tls {{CERT_DIR}}\cert.pem {{CERT_DIR}}\key.pem
+	reverse_proxy localhost:18789
+}
+
+# TLS reverse proxy for LangChain API (LAN access)
+:8444 {
+	tls {{CERT_DIR}}\cert.pem {{CERT_DIR}}\key.pem
+	reverse_proxy localhost:8100
+}
+
+# TLS reverse proxy for Langfuse (external access via Cloudflare Tunnel)
+:13443 {
+	tls {{CERT_DIR}}\cert.pem {{CERT_DIR}}\key.pem
+	reverse_proxy localhost:13000
+}
