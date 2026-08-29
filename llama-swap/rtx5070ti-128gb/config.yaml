@@ -1,0 +1,127 @@
+healthCheckTimeout: 120
+logLevel: info
+models:
+  gpt-oss-120b-MXFP4:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\lmstudio-community\gpt-oss-120b-GGUF\gpt-oss-120b-MXFP4-00001-of-00002.gguf
+        --cache-type-k q8_0 --cache-type-v q8_0 --ctx-size 8192 --flash-attn on --jinja --n-cpu-moe 29
+        --no-mmap --parallel 1 --prio 2 -b 5728 -ngl 58 -t 20 -ub 3923
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 900
+  gpt-oss-20b-MXFP4:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\lmstudio-community\gpt-oss-20b-GGUF\gpt-oss-20b-MXFP4.gguf
+        --flash-attn on --override-tensor "blk\.(6[0-9]|7[0-9])\.ffn_.*_exps\.=CPU" -b 4976 -ngl 33 -t 18
+        -ub 6051
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Qwen2.5-7B-Instruct-Q4_K_M:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\lmstudio-community\Qwen2.5-7B-Instruct-GGUF\Qwen2.5-7B-Instruct-Q4_K_M.gguf
+        --ctx-size 16384 --flash-attn on --override-tensor "blk\.\d+\.ffn_.*_exps\.=CPU" --parallel 4
+        -b 9696 -ngl 0 -t 8 -ub 7915 --device none
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\mmnga-o\NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf\NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0.gguf
+        --ctx-size 16384 --flash-attn on --parallel 1
+        -ngl 99 -t 8
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Llama-3-ELYZA-JP-8B-q4_k_m:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\elyza\Llama-3-ELYZA-JP-8B-GGUF\Llama-3-ELYZA-JP-8B-q4_k_m.gguf
+        --flash-attn on --override-tensor "blk\.\d+\.ffn_down_exps\.=CPU" -b 9571 -ngl 145 -t 3 -ub 4643
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Lumimaid-v0.2-12B.q4_k_m:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\NeverSleep\Lumimaid-v0.2-12B-GGUF\Lumimaid-v0.2-12B.q4_k_m.gguf
+        --flash-attn on --override-tensor "blk\.(6|7|8|9|[1-9][0-9]+)\.ffn_.*_exps\.=CPU" -b 10105
+        -ngl 125 -t 17 -ub 2715
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Qwen3.5-27B-IQ3_M:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\bartowski\Qwen_Qwen3.5-27B-GGUF\Qwen_Qwen3.5-27B-IQ3_M.gguf
+        --ctx-size 32768 --flash-attn on --jinja -ctk q4_0 -ctv q4_0 -ngl 121 -t 10
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Devstral-Small-2-24B-Instruct-2512-IQ4_XS:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\unsloth\Devstral-Small-2-24B-Instruct-2512-GGUF\Devstral-Small-2-24B-Instruct-2512-IQ4_XS.gguf
+        --ctx-size 65536 --flash-attn on --jinja -b 7687 -ctk q4_0 -ctv q4_0 -ngl 95 -t 15 -ub 617
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Qwen3-Coder-Next-Q4_K_M:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\lmstudio-community\Qwen3-Coder-Next-GGUF\Qwen3-Coder-Next-Q4_K_M.gguf
+        --ctx-size 32768 -b 12340 -ctk q4_0 -ctv q4_0 -ngl 127 -t 17 -ub 1333
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\unsloth\Qwen3-Coder-30B-A3B-Instruct-GGUF\Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf
+        --ctx-size 65536 --flash-attn on --jinja --n-cpu-moe 20
+        --override-tensor "blk\.(6[0-9]|7[0-9])\.ffn_.*_exps\.=CPU" -b 2500 -ctk q4_0 -ctv q4_0 -ngl 147
+        -t 13 -ub 3138
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+  Qwen3.8-27B-UD-Q3_K_XL:
+    cmd: |-
+      C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
+        --host 127.0.0.1 --port ${PORT}
+        --model C:\LLM\models\unsloth\Qwen3.8-27B-GGUF\Qwen3.8-27B-UD-Q3_K_XL.gguf
+        --ctx-size 65536 --flash-attn on --parallel 1 --no-mmproj
+        --spec-type draft-mtp --spec-draft-n-max 2
+        --jinja --chat-template-file C:\LLM\models\unsloth\Qwen3.8-27B-GGUF\chat_template.jinja
+        --reasoning-format deepseek --reasoning-preserve
+        --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0
+        -ctk q4_0 -ctv q4_0 -ngl 999 -t 10
+    proxy: http://127.0.0.1:${PORT}
+    ttl: 600
+groups:
+  heavy:
+    swap: true
+    exclusive: true
+    members:
+    - gpt-oss-120b-MXFP4
+    - gpt-oss-20b-MXFP4
+    - Qwen3.5-27B-IQ3_M
+    - Qwen3-Coder-Next-Q4_K_M
+    - Devstral-Small-2-24B-Instruct-2512-IQ4_XS
+    - Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL
+    - Qwen3.8-27B-UD-Q3_K_XL
+  light:
+    swap: false
+    exclusive: true
+    members:
+    - Llama-3-ELYZA-JP-8B-q4_k_m
+    - Lumimaid-v0.2-12B.q4_k_m
+  forever:
+    persistent: true
+    swap: false
+    exclusive: false
+    members:
+    - Qwen2.5-7B-Instruct-Q4_K_M

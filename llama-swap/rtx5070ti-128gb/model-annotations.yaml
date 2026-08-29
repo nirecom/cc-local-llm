@@ -1,0 +1,100 @@
+# Model annotations for the config.yaml in this directory (Windows backend).
+# Maintained alongside it -- see CLAUDE.md. Same format as the Mac host's own
+# llama-swap annotations, plus the `optimizer:` key: llama-swap-optimizer tunes
+# llama.cpp flags (-ngl, --n-cpu-moe) and needs to be told which entries to leave
+# alone. Sizing derivations live in docs/tuning.md and the measured numbers in
+# docs/history.md, not here.
+
+gpt-oss-120b-MXFP4:
+  role: general
+  used_by: []
+  notes: "largest model, ctx 8192, KV cache Q8"
+
+gpt-oss-20b-MXFP4:
+  role: general
+  used_by: []
+  notes: ""
+
+Qwen2.5-7B-Instruct-Q4_K_M:
+  role: judge
+  used_by:
+    - langchain-stack (judge)
+    - judgeclaw (judge)
+  notes: "CPU resident (-ngl 0, --device none), forever group, ctx 16384"
+  decision: "CPU-resident to avoid VRAM contention. Rejected the optimizer's result (ngl 136, 149 tok/s)."
+  optimizer: skip
+
+NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0:
+  role: general
+  used_by: []
+  notes: "ctx 16384"
+  decision: "Was a candidate agent model for <private-agent-project>, but rejected due to the <SPECIAL_12> issue."
+  optimizer: lock
+
+Llama-3-ELYZA-JP-8B-q4_k_m:
+  role: general
+  used_by: []
+  notes: "Japanese specialized"
+
+Lumimaid-v0.2-12B.q4_k_m:
+  role: general
+  used_by: []
+  notes: ""
+
+Devstral-Small-2-24B-Instruct-2512-IQ4_XS:
+  role: haiku-tier (Claude Code LiteLLM)
+  used_by:
+    - cc-local-llm (LiteLLM haiku tier, model name Devstral-Small-2-24B-Instruct-2512-IQ4_XS)
+  notes: "dense 24B, ctx 65536, KV cache Q4, heavy group, --jinja required (works around the Llama 3.1 template's role-alternation check)"
+  decision: "2026-08: ctx 32768 -> 65536, light -> heavy group. Migrated the haiku/sonnet tiers from the Mac to this PC's llama-swap as part of moving the gateway's local LLM off Mac; extended to 64K ctx since that's now a hard requirement. Re-search of ngl via the optimizer planned. 2026-08-08: added --jinja (fixes a bug where, after LiteLLM's conversion, consecutive user messages in tool conversations tripped the role-alternation check and returned 500). The optimizer keeps --jinja under BOOLEAN_FLAGS -- do not remove it manually."
+
+Qwen3-Coder-Next-Q4_K_M:
+  role: general (reasoner, dense 46B)
+  used_by: []
+  notes: "ctx 32768, KV cache Q4, heavy group. Dense 46B doesn't fit in 16GB VRAM, so it's slow (CPU bound)."
+  decision: "2026-08: handed off the sonnet-tier role to Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL (MoE). Reason: dense 46B can't hold a 64K ctx in 16GB VRAM without slowing down, so switched to a similarly-capable MoE model that fits in VRAM."
+
+Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL:
+  role: sonnet-tier (Claude Code LiteLLM)
+  used_by:
+    - cc-local-llm (LiteLLM sonnet tier, model name Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL)
+  notes: "MoE 30B total / 3B active, ctx 65536, KV cache Q4 (4 KV heads x 128 head_dim x 48 layers ≈ 1.5GB @ 64K), --n-cpu-moe 20 offloads 20/48 expert layers to CPU, heavy group"
+  decision: "2026-08: built the sonnet-tier fresh on this PC's llama-swap ahead of removing the local LLM on the Mac (M4 Pro). 64K ctx is a hard requirement; using the unsloth GGUF source (UD-Q4_K_XL, per-tensor dynamic quant, 17.67GB). -ngl / --n-cpu-moe are initial values pending re-search by the optimizer (--n-cpu-moe is outside the optimizer's scope, so it may need manual tuning)."
+
+Qwen3.8-27B-UD-Q3_K_XL:
+  role: coding agent (Claude Code backend) — evaluation
+  used_by: []
+  notes: "dense 27B, ctx 65536, KV cache Q4, flash-attn, heavy group. Uses native MTP (--spec-type draft-mtp --spec-draft-n-max 2, no external draft model needed); coding-only, so --no-mmproj drops the vision projector from GPU (--mmproj-auto defaults ON). Chat template is supplied externally rather than the one embedded in the GGUF (froggeric v22.4, same directory as the model)."
+  decision: "2026-08: added as a coding-agent candidate for the RTX 5070 Ti 16GB. Worked around the mid-conversation system-message 500 error in Claude Code (a chat-template bug independent of quant) with an external chat template. Initially used UD-IQ4_XS (13,593 MiB), but at 64K it was short about 426 MiB of VRAM and spilled into system RAM, causing a 30% slowdown (32K 79-82 tok/s -> 64K 55.4 tok/s), so it was pinned to 32K. 2026-08-28: since 64K is now a hard requirement, replaced it with the 1,056 MiB lighter UD-Q3_K_XL (12,537 MiB). At 64K the spill dropped from 873 to 305 MiB and throughput reached 90.6 tok/s, beating even IQ4_XS's own 32K number, so IQ4_XS was retired. MTP draft acceptance rate (0.845, 125/148) matches IQ4_XS, so no draft-quality degradation was observed from the drop to 3-bit. Coding-task accuracy itself is still unverified, though. Locked because every parameter is set manually (the optimizer doesn't recognize --spec-type / --chat-template-file)."
+  optimizer: lock
+
+Qwen3.5-27B-IQ3_M:
+  role: reasoner / agent
+  used_by:
+    - langchain-stack (reasoner)
+    - <private-agent-project> (agent)
+    - judgeclaw (agent)
+  notes: "ctx 32768, KV cache Q4, flash-attn"
+  decision: "Gave up on Nemotron-Nano -> standardized on this model (2026-03)"
+  optimizer: lock
+
+Qwen3.5-27B-Q4_K_M:
+  role: reasoner (evaluation)
+  used_by: []
+  notes: "ctx 16384, KV cache Q8, ngl 57 (half CPU offload)"
+  decision: "IQ3_M (47.4 tok/s) -> Q4_K_M (14.6 tok/s) is 3x slower. Q4 isn't worth it on 16GB VRAM -- rejected. Sticking with IQ3_M."
+  retained: "This is the reason the active IQ3_M was chosen. Consulted every time a decision comes up to replace IQ3_M with a different quant."
+
+gemma-4-26B-A4B-it-IQ4_XS:
+  role: reasoner (evaluation)
+  used_by: []
+  notes: "MoE 25.2B total / 3.8B active, ctx 16384, thinking mode"
+  decision: "llama-bench reports 165.8 tok/s but real-world use is 18.5 tok/s (11% of benchmark). Waiting on llama.cpp's Gemma 4 optimization."
+  retained: "Re-evaluate once llama.cpp's Gemma 4 optimization lands. This is the measured baseline that decision will start from."
+
+gemma-4-26B-A4B-it-Q4_K_M:
+  role: reasoner (evaluation)
+  used_by: []
+  notes: "MoE 25.2B total / 3.8B active, ctx 16384, thinking mode"
+  decision: "optimizer reports 58.4 tok/s, but real-world use is expected to be slow too. Waiting on llama.cpp optimization, same as IQ4_XS."
+  retained: "Re-evaluate together with IQ4_XS. Kept as the comparison material for deciding between the two."

@@ -63,6 +63,17 @@ SSOT for hosts, network, ports, and paths. Other docs reference this — do not 
 
 | Item | Value |
 |---|---|
-| Client launcher | `C:\git\cc-local-llm\scripts\code-ccgw.ps1` |
+| Client launcher | `C:\LLM\cc-local-llm\scripts\code-ccgw.ps1` |
 | Client root CA (gateway trust) | `<mkcert -CAROOT>\rootCA.pem` (the Mac's CA, imported here; `CCGW_CA_CERT`) |
-| llama-swap config | `C:\LLM\llama-swap\config.yaml` (not in this repo) |
+| llama-swap config | `C:\LLM\cc-local-llm\llama-swap\rtx5070ti-128gb\config.yaml` — a checked-out file, read in place <!-- synced-from: install.ps1 --> |
+| llama-swap runtime (exe + NSSM logs) | `C:\LLM\llama-swap\` — deliberately not under git: `llama-swap.exe` is an upstream-distributed binary, not a llama.cpp build artifact, so it is not under `C:\LLM\llama.cpp\build\bin\Release\` either <!-- synced-from: install.ps1 --> |
+| llama-swap TLS cert/key | `C:\LLM\certs\llama-swap\cert.pem` / `key.pem` — mkcert-issued; the SAN list must carry this host's LAN IPv4 <!-- synced-from: install.ps1 --> |
+| Caddyfile (generated) | `C:\LLM\llama-swap\Caddyfile`, rendered by the installer from `install/win/Caddyfile.template` in this repo <!-- synced-from: install.ps1 --> |
+| NSSM services | `llama-swap` / `llama-swap-caddy` |
+| llama-swap-optimizer config pointer | the `CONFIG_YAML` variable in the optimizer's own `.env` (its install directory sits beside the runtime directory above) — point it at the llama-swap config row above |
+
+`install.ps1` is where the marked values are defined (`$CertDir`, `$RuntimeDir`, `$ConfigPath`);
+the rows carrying `<!-- synced-from: install.ps1 -->` only mirror them, and no other document
+restates them. Change the installer first, then re-sync this table —
+`tests/feature-86-win-llama-swap-server/test-infrastructure-paths-sync.sh` compares the two and
+fails on drift.

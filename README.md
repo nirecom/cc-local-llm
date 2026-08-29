@@ -17,7 +17,7 @@ backends**, plus smaller local models (Devstral, Qwen3-Coder) for lighter tiers.
 
 > This repo holds only the **ops / config / decisions** for using these engines as Claude
 > Code backends. Both the GitHub repo and the local clone are named `cc-local-llm`
-> (`~/git/cc-local-llm` on the Mac, `C:\git\cc-local-llm` on Windows).
+> (`~/git/cc-local-llm` on the Mac, `C:\LLM\cc-local-llm` on Windows).
 > The ds4 engine itself is the public upstream `antirez/ds4`, a separate and unrelated
 > repo, cloned on its own at `~/git/ds4`.
 
@@ -40,7 +40,7 @@ Standard layout (mirrors the agents-repo convention):
 | [scripts/code-ccgw.ps1](scripts/code-ccgw.ps1) | Windows client launcher (pwsh) — loads `.env`, sets ccgw env, isolates the VS Code process, launches VS Code |
 | [scripts/code-ccgw.sh](scripts/code-ccgw.sh) | macOS/Linux client launcher — POSIX counterpart of `code-ccgw.ps1`; lets the backend Mac drive its own backend |
 | [litellm-server/](litellm-server/) | LiteLLM gateway config — model-tier routing and protocol conversion |
-| [install.sh](install.sh) / [install.ps1](install.ps1) | One-time prereq installers — `install.sh [--server\|--client\|--all]` (macOS/Linux), `install.ps1` (Windows) |
+| [install.sh](install.sh) / [install.ps1](install.ps1) | One-time prereq installers — `install.sh [--server\|--client\|--all]` (macOS/Linux), `install.ps1 [-Server\|-Client\|-All]` (Windows) |
 | [.env.example](.env.example) | Template for the gitignored `.env` |
 
 ## Quick start
@@ -57,7 +57,27 @@ git -C ~/git/ds4 pull                            # update the antirez/ds4 build 
 ~/git/cc-local-llm/scripts/serverctl.sh start all    # proxy + llama-swap + litellm; or 'install all' for auto-start at login
 ```
 
-**Windows (client):** one-time install of mkcert and `.env` scaffolding:
+**Windows (server):** one-time registration of the llama-swap backend that serves the
+Haiku/Sonnet tiers, from an **elevated** pwsh:
+```powershell
+.\install.ps1 -Server
+```
+It installs mkcert, NSSM and Caddy (all via winget, all idempotent — re-running is safe),
+creates the certificate directory and the certificate, renders the Caddyfile, and registers and
+starts the two NSSM services `llama-swap` and `llama-swap-caddy`.
+
+Three things it assumes are already in place and does **not** install:
+- `llama-swap.exe` in the runtime directory — an upstream-distributed binary, placed by hand
+- a CUDA-built llama.cpp, plus the `.gguf` weights that `llama-swap/rtx5070ti-128gb/config.yaml` names
+- the Mac's **full** mkcert CA directory — `rootCA.pem` *and* `rootCA-key.pem` — copied here with
+  `$env:CAROOT` pointed at it. Importing `rootCA.pem` into the Windows trust store is not enough:
+  mkcert needs the private key to issue a leaf signed by the same CA the gateway already trusts.
+
+Paths live in [docs/infrastructure.md](docs/infrastructure.md); the procedure, the verification
+checklist, and the blast radius of the Caddy service are in [docs/ops.md](docs/ops.md#server-windows).
+
+**Windows (client):** one-time install of mkcert and `.env` scaffolding (no switch means
+`-Client`, so this is equivalent to `.\install.ps1 -Client`):
 ```powershell
 .\install.ps1
 ```
@@ -96,3 +116,7 @@ See [docs/ops.md](docs/ops.md#client-macos--linux).
 
 See [docs/tuning.md](docs/tuning.md) for the full reference, [docs/infrastructure.md](docs/infrastructure.md)
 for hosts/ports/paths, and [docs/history.md](docs/history.md) for why each value is what it is.
+
+## License
+
+[MIT](LICENSE)

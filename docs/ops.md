@@ -134,6 +134,14 @@ two commands force a model swap between them; expect a cold start on each switch
 | `401 Unauthorized` from the gateway | `LITELLM_CLIENT_KEY` on the client must equal `LITELLM_MASTER_KEY` on the Mac |
 | `401` from the CCGW Proxy | `LITELLM_CCGW_PROXY_API_KEY` must equal `CCGW_PROXY_AUTH_TOKEN` |
 
+Two properties of the Windows Caddy certificate that a "TLS error" never spells out:
+
+- Its SAN list must include the host's **LAN IPv4 address**, not just `localhost` / `127.0.0.1`.
+  A cert that covers only loopback still terminates TLS, so the service looks healthy from the
+  host — LAN clients simply refuse the connection, with no matching entry in Caddy's log.
+- That assumes the LAN IP is **static or DHCP-reserved**. A roaming address invalidates the
+  certificate the moment the lease changes; re-issue it (`install.ps1 -Server`) after any move.
+
 ## Install llama-swap and Laguna S 2.1 (Mac, one-time)
 
 llama-swap owns the full start/stop lifecycle of both ds4-server and Laguna's
@@ -309,11 +317,78 @@ colored `[service]` prefix (magenta proxy, blue llama-swap, green litellm) so th
 source stays legible regardless of which service is currently the noisiest; piped or
 redirected output gets the same prefix without ANSI.
 
+## Server (Windows)
+
+This host serves the Haiku and Sonnet tiers: llama-swap holds the models, Caddy terminates TLS
+in front of it, and both run as NSSM services. One-time install, from an **elevated** pwsh in
+the checkout:
+
+```powershell
+.\install.ps1 -Server
+```
+
+The installer is the source of truth for the exact commands, so they are not restated here: it
+installs mkcert, NSSM and Caddy, issues the certificate, renders the Caddyfile from
+[install/win/Caddyfile.template](../install/win/Caddyfile.template), and registers and starts
+both services. The three prerequisites it assumes rather than installs — the `llama-swap.exe`
+binary in the runtime directory, a CUDA-built llama.cpp plus the `.gguf` weights the config
+names, and the Mac's *full* mkcert CA directory (`rootCA.pem` **and** `rootCA-key.pem`) copied
+here with `$env:CAROOT` pointed at it — are listed under **Windows (server)** in
+[README.md](../README.md#quick-start). A trust-store import of `rootCA.pem` alone does not cover
+that last one: mkcert signs the leaf with the CA private key, so without `rootCA-key.pem` it
+issues from a *different*, locally generated CA and the gateway rejects the result. Every path is
+in [infrastructure.md](infrastructure.md#paths-windows).
+
+**Reissuing the certificate after this host's LAN IP changes:** the SAN list is fixed when the
+certificate is issued, and [install/win/certs.ps1](../install/win/certs.ps1) leaves an existing
+pair untouched so a re-run never invalidates a certificate LAN clients already trust. Re-running
+the installer alone therefore keeps serving the old address. Delete both PEMs first, then re-run
+from an **elevated** pwsh — `<cert-dir>` is the llama-swap TLS cert/key directory in
+[infrastructure.md](infrastructure.md#paths-windows), the only place that path is written down:
+
+```powershell
+Remove-Item <cert-dir>\cert.pem, <cert-dir>\key.pem
+.\install.ps1 -Server
+```
+
+Deleting only one of the two is refused rather than completed, so remove both. LAN clients keep
+trusting the new certificate without any client-side change: it is issued by the same root CA.
+
+Verification — the installer asserts all of this itself, so a clean run has already proved it;
+re-check it by hand after any manual service surgery:
+
+- `Get-Service llama-swap, llama-swap-caddy` reports **Running** for both.
+- Every port is actually accepting connections within 30 s of the start: llama-swap's internal
+  listen port plus one port per front-end block in the generated Caddyfile. Check with
+  `Get-NetTCPConnection -State Listen`. A service that reports Running while nothing is bound is
+  the failure NSSM hides — the process is crash-looping.
+- A request survives the TLS hop end to end:
+  `curl.exe -sk https://<windows-lan-ip>:8443/v1/models`.
+
+**Blast radius of `llama-swap-caddy`:** it is a single Caddy process serving *every* front-end
+block in the generated Caddyfile, not only llama-swap's `:8443`. Four unrelated local services
+share it — Open WebUI (`:3443`), JudgeClaw (`:18790`), the LangChain API (`:8444`) and Langfuse
+(`:13443`). Stopping or removing this one service therefore drops external reachability for all
+five at once, so "just restart Caddy" is never a llama-swap-local action.
+
+**Native command exit-code policy (`install/win/lib/native.ps1`):** `$ErrorActionPreference =
+'Stop'` does not turn a native executable's non-zero exit into a PowerShell exception, so every
+native call the installer makes (nssm, sc.exe, taskkill, winget, mkcert, certutil) goes through
+`Invoke-Native`, which closes that gap once for the class instead of once per call site. Exit 0
+is the only automatic success; a caller must enumerate any other code it wants treated as benign
+(e.g. "already absent"), since the same code is benign at one call site and a real failure at
+another. When extending an allow list: PowerShell reports the full Win32 exit code, but bash
+observing the same run truncates it to 8 bits — `sc.exe` on a missing service is Win32 `1060`,
+which shows as `36` (`1060 & 0xFF`) from bash. Always write the Win32 value. The file holds only
+function definitions: the Pester suites dot-source it, so a stray top-level statement would make
+the test run itself destructive.
+
 ## Client (Windows)
 
 Run `install.ps1` first (once) to install mkcert and scaffold `.env` — see
-[README.md](../README.md#quick-start). Windows is a client only now; the gateway lives on the
-Mac.
+[README.md](../README.md#quick-start). This host is a client, and also serves as the llama-swap
+backend for the Haiku/Sonnet tier (see "Server (Windows)" above); the gateway itself still runs
+on the Mac.
 
 Then edit the repo-root `.env` (gitignored, so the LAN IP and the key are never committed):
 ```powershell
