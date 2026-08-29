@@ -151,6 +151,7 @@ models:
     cmd: >-
       mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+      --prefill-step-size 1024
       --max-num-seqs 1
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
@@ -164,6 +165,7 @@ models:
       --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
       --draft-model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-MTP-3bit
       --draft-kind mtp
+      --prefill-step-size 1024
       --max-num-seqs 1
     proxy: http://127.0.0.1:${PORT}
     ttl: 0

@@ -76,7 +76,7 @@ Two behavioural differences from `mlx_lm.server` shape the flags in
 | `--draft-kind` | `mtp` | Auto-detection from the adapter's `model_type` exists, but `--help` documents `mtp` as the Gemma 4 family; pinning it explicitly keeps the pairing from silently falling back to `dflash`. |
 | `useModelName` (llama-swap) | the `--model` path | The **opposite** of the `laguna-s-2.1` quirk. mlx_vlm.server registers the loaded model under its `--model` path and resolves any other body `model` as an HF repo id (401). `${env.HOME}` does expand here. |
 | `--max-num-seqs` | `3` | Matches `concurrencyLimit`, bounding peak memory at the server as well as the swapper. |
-| *(no `--prompt-cache-*`)* | — | mlx-vlm does prefix caching automatically (APC); it has no equivalent flags. |
+| *(no `--prompt-cache-*`)* | — | mlx-vlm has no equivalent flags — its prefix cache is a different mechanism (APC), and it is **off**. See "Prefix caching (APC)" below before assuming any prompt reuse happens on this server. |
 
 `jinja2` is a missing dependency in mlx-vlm's `requirements.txt`, so the installer adds it with
 `--with jinja2`. Without it the server starts and passes `/health`, then fails **every**
@@ -85,6 +85,158 @@ completion with `apply_chat_template requires jinja2 to be installed`.
 `qwen3.8-27b-uncensored-4bit` (orcarouter abliterated fine-tune) is deliberately unpaired: the
 drafter was split from the stock checkpoint, and that weight drift would depress its acceptance
 rate.
+
+## Qwen3.8-Flash-Next (3bit)
+
+All numbers below come from `mlx_vlm.server`'s llama.cpp-shaped `timings` block, which is
+attached **only to non-streaming responses** — a streaming client sees none of it, so every
+measurement here has to be taken with `stream: false`.
+
+### Baseline, and where MTP stops paying
+
+Same server, same 3bit checkpoint, identical output text; the only difference is the drafter:
+
+| Entry | prompt | prefill | decode | peak mem | drafter |
+|---|---|---|---|---|---|
+| `qwen3.8-flash-next-3bit` | 27 tok | 298 tok/s | 36.6 tok/s | 89.7 GB | — |
+| `qwen3.8-flash-next-3bit-mtp` | 27 tok | 299 tok/s | **52.9 tok/s** | 91.2 GB | 21/21 (100%) |
+| `qwen3.8-flash-next-3bit` | 35,797 tok | 1098 tok/s | 30.2 tok/s | 96.5 GB | — |
+| `qwen3.8-flash-next-3bit-mtp` | 35,797 tok | 1069 tok/s | **35.0 tok/s** | 98.1 GB | 186/214 (87%) |
+
+**1.44x at a short prompt, 1.16x at 36k.** The variable is context length, and nobody sets it:
+a Claude Code session accumulates history on its own, so it drifts from the first row to the
+second without anyone touching a flag. What decays along the way is acceptance (100% → 87%) —
+the drafter guesses less well the more history conditions it. The ~1.5 GB still pays at both
+ends, but the number to size expectations from is the 36k row, since that is where a working
+session spends its time.
+
+### Peak memory vs context
+
+`peak_memory` is a **process-lifetime high-water mark** — no `reset_peak_memory` call exists
+anywhere in mlx-vlm — so a curve is only valid if the cases run in ascending context order on a
+single model load. Measured that way, non-MTP entry:
+
+| prompt_n | peak mem | prefill | decode |
+|---|---|---|---|
+| 10,434 | 93.3 GB | 1406 tok/s | 32.9 tok/s |
+| 36,319 | 96.5 GB | 1083 tok/s | 29.7 tok/s |
+| 72,434 | 101.5 GB | 788 tok/s | 25.7 tok/s |
+| 103,434 | 105.7 GB | 605 tok/s | 23.0 tok/s |
+
+The four points are a straight line, so the whole tier reduces to two numbers:
+`peak = intercept + per-token cost × context`. Least squares gives **134 KB per token of
+context, on an intercept of 91.8 GB** — the intercept being what is resident regardless of
+context length (weights, mostly), the per-token cost being what each further token adds.
+
+Those two numbers are the entire ceiling story, because the reachable context is
+`(limit − intercept) ÷ per-token cost` and nothing else. Metal reports
+`recommendedMaxWorkingSetSize` = 115.45 GB, so the hard ceiling is ~176k tokens and a practical
+112 GB budget stops at ~151k — **well short of the checkpoint's native 262,144**. Raising it
+means lowering one of the two, and only the per-token cost is movable by a flag.
+
+Same actor, same non-action: a session on this tier arrives at ~151k by running long enough, and
+nothing on the client side knows it should stop there. The checkpoint advertises 262,144, and
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` ([below](#client-env-vars-claude-code)) is a single global
+value — so the ceiling that has to be honoured is the smallest one across the tiers actually in
+use, not ds4's.
+
+Only about a fifth of that per-token cost is cache. `config.json` gives `full_attention_interval: 4`
+over `num_hidden_layers: 48` → 12 full-attention layers; at `num_key_value_heads: 2` ×
+`head_dim: 256` × (K,V) × 2 bytes that is 24.6 KB/token, plus ~3.1 KB/token of QSA `index_keys`,
+which `QSAKVCache` carries alongside K and V. The remaining ~106 KB/token is **prefill scratch**:
+`QSAIndexer.from_projected` builds its block scores in float32 across the whole key length for
+every chunk, so that term scales with `--prefill-step-size` (2048 by default, unset here) rather
+than with the model.
+
+That split is what decides which lever moves the ceiling. Halving the prefill step attacks the
+dominant term; `--kv-bits 4` reaches only the 24.6 KB portion, because `QSAKVCache.to_quantized`
+passes `index_keys` through unquantized. Same 4-point curve, same ascending order, one flag
+changed:
+
+| Setting | per token | intercept | hard ceiling | at 112 GB | peak at 103k |
+|---|---|---|---|---|---|
+| `--prefill-step-size 2048` *(mlx-vlm default)* | 134 KB/tok | 91.8 GB | ~176k | ~151k | 105.7 GB |
+| `--prefill-step-size 1024` | **85.5 KB/tok** | 91.1 GB | **~298k** | ~256k | 99.6 GB |
+| `--kv-bits 4` *(estimate, unmeasured)* | ~116 KB/tok | — | ~204k | ~174k | — |
+
+The prediction from the code reading was ~85 KB/token and the measurement is 85.5, which is the
+confirmation that the fp32 indexer scratch — not the cache — is what fills the machine. **The
+native 262,144 clears outright at the hard ceiling**, and a 112 GB budget lands within ~6k of it.
+
+What it costs is prefill throughput, and less than the halved step suggests:
+
+| prompt_n | 2048 | 1024 | delta |
+|---|---|---|---|
+| 10,434 | 1406 tok/s | 1282 tok/s | −8.8% |
+| 36,319 | 1083 tok/s | 1006 tok/s | −7.1% |
+| 72,434 | 788 tok/s | 761 tok/s | −3.4% |
+| 103,434 | 605 tok/s | 599 tok/s | −1.1% |
+
+The penalty **shrinks as the context grows** — it is largest where memory was never the problem
+and nearly free at the lengths that motivated the change. Decode is unchanged within run-to-run
+noise at all four points. `--kv-bits` stays unmeasured and unattractive by comparison: it buys
+less ceiling, and it would stack quantization error on already-3bit weights.
+
+The remaining question was whether the drafter gives that headroom back. Three conditions at the
+same 103,434-token prompt — byte-identical, so the only variables are the two flags:
+
+| Condition | peak | prefill | decode | drafter |
+|---|---|---|---|---|
+| step 2048, no drafter | 105.7 GB | 605 tok/s | 23.0 tok/s | — |
+| step 1024, no drafter | 99.6 GB | 599 tok/s | 23.6 tok/s | — |
+| step 1024, MTP | 101.2 GB | 653 tok/s | **28.2 tok/s** | 31/32 |
+
+**The drafter costs 1.6 GB against the 6.1 GB the flag freed**, so the two compose. Intercept
+92.7 GB puts the MTP hard ceiling at ~278k — native 262,144 still fits — while a 112 GB budget
+stops at ~236k, the one place the pair falls short of native. Halving the step again is the
+obvious next candidate there, and unmeasured.
+
+Two cautions on that last row. The prefill figure is *higher* than the no-drafter run, which MTP
+cannot cause — the target still does one full forward pass — so read it as run-to-run noise, not
+an effect. And 31/32 acceptance does not generalise: the task was listing consecutive shard
+names, which is about the friendliest thing a drafter can be asked to predict, over only 32 draft
+tokens. The 87% at 36k is the more honest number to plan against.
+
+### Prefix caching (APC) is off
+
+Not a tuning decision — a default nobody has overridden. `RuntimeConfig.apc_enabled` defaults to
+`False`, its env override `APC_ENABLED` defaults to `"0"`, and `mlx_vlm/server/cli.py` exposes no
+flag at all, so nothing currently in [llama-swap/m5-max-128gb/config.yaml](../llama-swap/m5-max-128gb/config.yaml)
+can turn it on.
+
+Measured on `qwen3.8-flash-next-3bit` against a 93,040-token corpus, in the four request shapes a
+Claude Code session actually produces:
+
+| Case | cache_n / prompt_n | wall |
+|---|---|---|
+| cold | 0 / 93,040 | 130.5 s |
+| byte-identical resend | 0 / 93,040 | 142.3 s |
+| same corpus, new question | 0 / 93,040 | 159.8 s |
+| multi-turn continuation | 0 / 93,079 | 164.1 s |
+
+0% every time — and the identical resend ran *slower* than the cold one, which rules out a
+`cache_n` reporting gap and leaves genuine non-reuse. **Every turn pays a full prefill**: at ~100k
+tokens that is 130–170 s before the first token, on every tier mlx-vlm hosts.
+
+`PATCH /v1/settings` looks like a way in and is not. It answers `applied: {apc_enabled: true}`,
+`rejected: []`, `reload_kinds: ["text_generation"]`, but `/health` still reports
+`apc_enabled=false` after the reload completes and the resends still miss. `apc.from_env` does
+honour `overrides["enabled"]`, so the model-load path simply never re-runs — treat `apc_enabled`
+as **startup-only** and set `APC_ENABLED=1` in the process environment.
+
+Two things to get right before enabling it:
+
+- **Pool size.** `apc_num_blocks × apc_block_size` = 2048 × 16 = **32,768 tokens** by default,
+  which a 100k context misses on capacity alone. At 27.7 KB/token of cacheable state, a
+  131,072-token pool (`APC_NUM_BLOCKS=8192`) costs ~3.6 GB.
+- **Block eligibility.** `apc_adapters.apc_block_eligible` matches on exact type, not
+  `isinstance`, and `QSAKVCache` is a *subclass* of `KVCache` — so block-level reuse is not
+  eligible as it stands. `--kv-bits` changes that: `QSAQuantizedKVCache` inherits
+  `dequantize_for_apc`, which the same check accepts.
+
+Until APC is on, the proxy's prompt normalization ([architecture.md](architecture.md#why-prompt-normalization))
+buys nothing on these tiers — there is no prefix cache for a stable prefix to hit. It pays off
+only on the ds4 tier, which keeps its own KV cache via `--kv-disk-dir`.
 
 ## Memory budget (Laguna S 2.1)
 
