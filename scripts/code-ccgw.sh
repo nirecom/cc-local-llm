@@ -151,8 +151,11 @@ export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
 export CLAUDE_STREAM_IDLE_TIMEOUT_MS=600000
 
 # Align auto-compaction with the tightest backend ceiling. A single env var cannot
-# differentiate per-tier -- 64K is the safe floor (see code-ccgw.ps1 for the same note).
-export CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536
+# differentiate per-tier, so this is the floor over every routed tier -- measured, not
+# assumed: 100k runs on the Windows sonnet/haiku backend at 1335 tok/s prefill and
+# 22.7 decode, and the Mac opus tier reaches ~115k with APC on. The 75% below is what
+# actually reaches a backend, so 76,800 (see code-ccgw.ps1 for the same note).
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=102400
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 
 # Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate

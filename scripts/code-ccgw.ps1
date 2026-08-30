@@ -247,10 +247,12 @@ Set-ChildEnv 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' '1'
 Set-ChildEnv 'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK' '1'
 Set-ChildEnv 'CLAUDE_STREAM_IDLE_TIMEOUT_MS' '600000'
 
-# Align auto-compaction with the tightest backend ceiling (64K for Qwen on this PC).
-# The Mac backends compact earlier than necessary but do not error. A single env var
-# cannot differentiate per-tier -- 64K is the safe floor.
-Set-ChildEnv 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' '65536'
+# Align auto-compaction with the tightest backend ceiling. A single env var cannot
+# differentiate per-tier, so this is the floor over every routed tier -- measured, not
+# assumed: 100k runs on the Windows sonnet/haiku backend at 1335 tok/s prefill and
+# 22.7 decode, and the Mac opus tier reaches ~115k with APC on. The 75% below is what
+# actually reaches a backend, so 76,800.
+Set-ChildEnv 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' '102400'
 Set-ChildEnv 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE' '75'
 
 # Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate
