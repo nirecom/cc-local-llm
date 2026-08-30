@@ -172,10 +172,12 @@ models:
     # One entry keeps the full-length snapshot, which is the one a continuation turn
     # matches; a second would only add the identical-resend case, at another full copy
     # of the KV. Halves the reachable context -- see docs/tuning.md before routing a
-    # tier here.
+    # tier here. The token-queue timeout is raised because its 600s default is
+    # what a long prefill hits first: 206,819 tokens took 717s and fit in memory.
     env:
       - APC_ENABLED=1
       - APC_EXACT_CACHE_ENTRIES=1
+      - MLX_VLM_TOKEN_QUEUE_TIMEOUT=3600
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
     useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
