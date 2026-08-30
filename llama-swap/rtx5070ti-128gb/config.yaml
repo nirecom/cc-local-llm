@@ -83,7 +83,7 @@ models:
       C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
         --host 127.0.0.1 --port ${PORT}
         --model C:\LLM\models\unsloth\Qwen3-Coder-30B-A3B-Instruct-GGUF\Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf
-        --ctx-size 65536 --flash-attn on --jinja --n-cpu-moe 20
+        --ctx-size 102400 --flash-attn on --jinja --n-cpu-moe 20
         --override-tensor "blk\.(6[0-9]|7[0-9])\.ffn_.*_exps\.=CPU" -b 2500 -ctk q4_0 -ctv q4_0 -ngl 147
         -t 13 -ub 3138
     proxy: http://127.0.0.1:${PORT}

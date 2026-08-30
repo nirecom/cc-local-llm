@@ -214,6 +214,14 @@ already costs 317 s. So the clock stops somewhere between 155k and 200k while me
 room to ~230k, and no flag in this file moves that — only not re-prefilling the prefix does,
 which is the next section.
 
+That 600s is a fixed default rather than a real limit, so the entry now sets
+`MLX_VLM_TOKEN_QUEUE_TIMEOUT=3600` and the prompt completes: 206,819 tokens at 288.6 tok/s of
+prefill, 717 s, peak 109.7 GB against the 115.45 GB ceiling — 0.3 GB off the 109.4 the memory
+line predicts. Native 262,144 would take past 1,100 s at that rate. Note this measurement needs
+APC off, since its second copy of the KV puts 200k at 126.5 GB. The two are mutually exclusive:
+~230k at roughly twelve minutes a turn, or ~115k at 1.3 s. Only the latter is a usable tier, and
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` keeps prompts to 76,800 in either case.
+
 Two cautions on that last row. The prefill figure is *higher* than the no-drafter run, which MTP
 cannot cause — the target still does one full forward pass — so read it as run-to-run noise, not
 an effect. And 31/32 acceptance does not generalise: the task was listing consecutive shard
@@ -272,8 +280,8 @@ accepted. `APC_DISK_PATH` adds an SSD tier holding exact snapshots too
 (`_DiskExactCacheSnapshot`), but it is a second tier rather than a replacement, so it does not by
 itself lower the resident cost.
 
-The trade is worth taking on this model — the context it gives up was not reachable in practice
-anyway, since a 200k prompt already exceeded `MLX_VLM_TOKEN_QUEUE_TIMEOUT` in prefill — but it
+The trade is worth taking on this model — the context it gives up costs twelve minutes a turn to
+use, which no interactive tier can spend — but it
 changes the failure mode, which is why it is on the `used_by: []` candidate entry and not yet on a
 routed tier. Without APC an over-long prompt is slow; with it, a prompt past ~115k returns HTTP
 500 with no tokens at all. A routed tier needs that bound enforced upstream first.
@@ -330,8 +338,9 @@ paragraph alone.
 Within the seven `heavy` members alone there are two different policies:
 
 - `-ctk q4_0 -ctv q4_0` — `Qwen3.5-27B-IQ3_M`, `Devstral`, `Qwen3-Coder-Next`,
-  `Qwen3-Coder-30B-A3B` and `Qwen3.8-27B` (five models), all running 32K or 64K context. At this
-  VRAM budget it is effectively the only lever that makes that much context fit.
+  `Qwen3-Coder-30B-A3B` and `Qwen3.8-27B` (five models), running 32K to 100K context. At this
+  VRAM budget it is effectively the only lever that makes that much context fit, and `q4_0` is
+  as far as llama.cpp goes — there is no deeper setting to fall back on.
 - `--cache-type-k q8_0 --cache-type-v q8_0` — `gpt-oss-120b-MXFP4` alone. It can afford the
   larger KV type because its context is the smallest in the file.
 - **No KV quantization** (f16 default) — `gpt-oss-20b`, `Qwen2.5-7B`, `Nemotron`, `ELYZA` and
@@ -342,6 +351,38 @@ Within the seven `heavy` members alone there are two different policies:
 How much this matters is visible in the IQ4_XS → UD-Q3_K_XL swap on `Qwen3.8-27B`: a few hundred
 MiB less spill out of VRAM bought a tens-of-percent throughput gain at the same 64K context.
 Exact spill figures, tok/s and dates are in [history.md](history.md).
+
+### Why the context window is 102400, and why the floor is here
+
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` is one global value, so it is the *smallest* routed tier that
+sets it. That floor lives on this host, not the Mac: the opus tier reaches ~115k with APC on, and
+the fable tier runs `--ctx 393216`. The number is measured on both ends rather than inferred —
+llama.cpp preallocates the KV for `--ctx-size` at load, but on Windows the driver falls back to
+host RAM instead of failing, so a backend can start at a context it cannot actually serve. Only a
+real prompt of the target length tells the two apart.
+
+| entry | 100k prefill | 100k decode | peak VRAM (of 16,303 MiB) | verdict |
+|---|---|---|---|---|
+| `Qwen3-Coder-30B-A3B` | 1334.63 tok/s | 22.71 tok/s | 14,545 | routed (sonnet + haiku) |
+| `Qwen3.8-27B` | 908.10 tok/s | 51.78 tok/s | 15,916 | passes 100k, fails 128k |
+| `Devstral-Small-2-24B` | 6.50 tok/s, aborted | — | — | fails |
+
+Both failures are the same mechanism at different severities. `Devstral` is dense 24B and leaves
+no VRAM for a 96k KV; `Qwen3.8-27B` clears 100k flat at 908 tok/s but at 128k starts at 435 and
+decays geometrically to 33 over the prompt, with peak VRAM pinned at 15,946 MiB — the KV crosses
+the ceiling as it fills and every further block pages over PCIe. A dense model at this VRAM has
+one place to take the memory from, and `-ctk/-ctv q4_0` is already spent; dropping `-ngl 95` to
+70 on `Devstral` bought 12% against the two orders of magnitude needed.
+
+`Qwen3-Coder-30B-A3B` is the routed choice because it is the only entry that also clears 128k
+(1080.70 tok/s, 15,289 MiB), leaving room to raise the window again without moving models. It
+serves haiku as well as sonnet: the `heavy` group is `exclusive`, so a second model there would
+be swapped in and out on every haiku call — with an exclusive group, two backends are strictly
+worse than one.
+
+75% of 102400 is 76,800, which is what a backend actually receives. That is also why the LiteLLM
+`timeout` on this route is no longer 60s: a cold 76,800-token prefill is 58s at 1335 tok/s, so
+the old value would have expired on the first turn after every compaction.
 
 **Concurrency is explicit for only four entries.** `gpt-oss-120b`, `Nemotron` and `Qwen3.8-27B`
 pin `--parallel` to a single slot; `Qwen2.5-7B` is the one entry that raises it, which it can

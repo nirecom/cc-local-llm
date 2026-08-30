@@ -403,7 +403,7 @@ Then launch VS Code with the ccgw backend via the bundled wrapper:
 ```
 The wrapper loads `.env`, then sets the ccgw env (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
 the per-tier model aliases (the tier table under "Client (macOS / Linux)" applies here too),
-`NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=65536` /
+`NODE_EXTRA_CA_CERTS` from `CCGW_CA_CERT`, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW=102400` /
 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75`), then launches VS Code. There is exactly one route: the
 direct CCGW Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
 `LITELLM_CLIENT_KEY` is an error and the wrapper exits rather than falling back to a placeholder
@@ -449,7 +449,7 @@ Optional per-tier thinking split: also set the `ANTHROPIC_DEFAULT_*_MODEL` vars 
 [tuning.md](tuning.md#per-tier-thinking-split-without-a-router-optional).
 
 **Verify connectivity:** after launch, run `/context` and confirm CC reports the local window
-(65536, the floor the launcher sets) rather than a cloud 200K / 1M. Grow the conversation and
+(102400, the floor the launcher sets) rather than a cloud 200K / 1M. Grow the conversation and
 confirm auto-compaction fires *before* the backend returns `400 context_length_exceeded`.
 
 ## Client (macOS / Linux)
