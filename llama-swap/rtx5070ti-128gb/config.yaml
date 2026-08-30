@@ -93,7 +93,7 @@ models:
       C:\LLM\llama.cpp\build\bin\Release\llama-server.exe
         --host 127.0.0.1 --port ${PORT}
         --model C:\LLM\models\unsloth\Qwen3.8-27B-GGUF\Qwen3.8-27B-UD-Q3_K_XL.gguf
-        --ctx-size 65536 --flash-attn on --parallel 1 --no-mmproj
+        --ctx-size 102400 --flash-attn on --parallel 1 --no-mmproj
         --spec-type draft-mtp --spec-draft-n-max 2
         --jinja --chat-template-file C:\LLM\models\unsloth\Qwen3.8-27B-GGUF\chat_template.jinja
         --reasoning-format deepseek --reasoning-preserve

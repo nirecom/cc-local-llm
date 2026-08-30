@@ -338,7 +338,8 @@ paragraph alone.
 Within the seven `heavy` members alone there are two different policies:
 
 - `-ctk q4_0 -ctv q4_0` — `Qwen3.5-27B-IQ3_M`, `Devstral`, `Qwen3-Coder-Next`,
-  `Qwen3-Coder-30B-A3B` and `Qwen3.8-27B` (five models), running 32K to 100K context. At this
+  `Qwen3-Coder-30B-A3B` and `Qwen3.8-27B` (five models), running 32K to 100K context — the last
+  two both at 100K. At this
   VRAM budget it is effectively the only lever that makes that much context fit, and `q4_0` is
   as far as llama.cpp goes — there is no deeper setting to fall back on.
 - `--cache-type-k q8_0 --cache-type-v q8_0` — `gpt-oss-120b-MXFP4` alone. It can afford the
@@ -363,8 +364,8 @@ real prompt of the target length tells the two apart.
 
 | entry | 100k prefill | 100k decode | peak VRAM (of 16,303 MiB) | verdict |
 |---|---|---|---|---|
-| `Qwen3-Coder-30B-A3B` | 1334.63 tok/s | 22.71 tok/s | 14,545 | routed (sonnet + haiku) |
-| `Qwen3.8-27B` | 908.10 tok/s | 51.78 tok/s | 15,916 | passes 100k, fails 128k |
+| `Qwen3-Coder-30B-A3B` | 1334.63 tok/s | 22.71 tok/s | 14,545 | clears 128k too; unrouted fallback |
+| `Qwen3.8-27B` | 908.10 tok/s | 51.78 tok/s | 15,916 | routed (haiku + sonnet + subagent); fails 128k |
 | `Devstral-Small-2-24B` | 6.50 tok/s, aborted | — | — | fails |
 
 Both failures are the same mechanism at different severities. `Devstral` is dense 24B and leaves
@@ -374,15 +375,22 @@ the ceiling as it fills and every further block pages over PCIe. A dense model a
 one place to take the memory from, and `-ctk/-ctv q4_0` is already spent; dropping `-ngl 95` to
 70 on `Devstral` bought 12% against the two orders of magnitude needed.
 
-`Qwen3-Coder-30B-A3B` is the routed choice because it is the only entry that also clears 128k
-(1080.70 tok/s, 15,289 MiB), leaving room to raise the window again without moving models. It
-serves haiku as well as sonnet: the `heavy` group is `exclusive`, so a second model there would
-be swapped in and out on every haiku call — with an exclusive group, two backends are strictly
-worse than one.
+Between the two that clear 100k the table cannot decide, because it measures throughput and the
+tier is chosen on coding accuracy, which is unmeasured on both. `Qwen3.8-27B` is routed so that
+gap closes on real work: it is the newer generation and 2.3× the decode, against 1.5× less
+prefill and — the real cost — 387 MiB of headroom instead of 1,758. That margin is why it is the
+routed model and not the safe one. `Qwen3-Coder-30B-A3B` stays configured and unrouted as what
+the evaluation falls back to; it is also the only entry that clears 128k (1080.70 tok/s, 15,289
+MiB), so raising the window again means moving back to it first.
+
+One entry serves haiku, sonnet and the subagent route alike. The `heavy` group is `exclusive`, so
+a second model there would be swapped in and out on every call that named it — with an exclusive
+group, two backends are strictly worse than one, and that holds for the subagent route as much as
+for haiku.
 
 75% of 102400 is 76,800, which is what a backend actually receives. That is also why the LiteLLM
-`timeout` on this route is no longer 60s: a cold 76,800-token prefill is 58s at 1335 tok/s, so
-the old value would have expired on the first turn after every compaction.
+`timeout` on this route is no longer 60s: a cold 76,800-token prefill is 85s at 908 tok/s, so the
+old value expired on the first turn after every compaction.
 
 **Concurrency is explicit for only four entries.** `gpt-oss-120b`, `Nemotron` and `Qwen3.8-27B`
 pin `--parallel` to a single slot; `Qwen2.5-7B` is the one entry that raises it, which it can
@@ -486,13 +494,13 @@ are set in `.env.example` and resolved at process startup.
 | `LITELLM_CCGW_PROXY_OPENAI_URL` | `https://<mac-lan-ip>:8443/v1` | The same proxy endpoint with a `/v1` suffix, for the Opus tier. The `openai/` provider appends only `/chat/completions`, so without the suffix the request lands on llama-swap's unrouted `/chat/completions` and comes back as a bare `404 page not found`. Same host and port as `LITELLM_CCGW_PROXY_URL` — only the suffix differs. |
 | `LITELLM_CCGW_PROXY_API_KEY` | (required) | Credential the gateway presents to the CCGW Proxy. Must match `CCGW_PROXY_AUTH_TOKEN`. |
 | `LITELLM_LLAMASWAP_URL` | `https://<windows-lan-ip>:8443/v1` | Windows PC endpoint shared by the Haiku and Sonnet tiers: the host's Caddy TLS front, which reverse-proxies to llama-swap's loopback-only `:18080`. Sole backend for these tiers — no fallback. Its certificate is verified against `SSL_CERT_FILE`; the hop carries no auth key. Carries a `/v1` suffix for the same reason `LITELLM_CCGW_PROXY_OPENAI_URL` does — an `openai/`-provider route — and is the only endpoint here addressing a host directly rather than through the CCGW Proxy. |
-| `LITELLM_HAIKU_MODEL` | `devstral-small-2-24b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml, which routes to Devstral-Small-2-24B via llama-swap. |
-| `LITELLM_SONNET_MODEL` | `qwen3-coder-30b-a3b` | Model routing key for the Sonnet tier. LiteLLM routes it to Qwen3-Coder-30B-A3B via llama-swap. |
+| `LITELLM_HAIKU_MODEL` | `qwen3.8-27b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml. Holds the same value as `LITELLM_SONNET_MODEL`: the Windows `heavy` group is exclusive, so a haiku on its own model would be swapped in and out on every call. |
+| `LITELLM_SONNET_MODEL` | `qwen3.8-27b` | Model routing key for the Sonnet tier, and the one entry the config actually keys on. LiteLLM routes it to Qwen3.8-27B-UD-Q3_K_XL via llama-swap. |
 | `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
-| `LITELLM_OPUS_MODEL` | `qwen3-next-80b-a3b-thinking` | Model routing key for the Opus tier — an `mlx_lm.server` backend on the Mac. `scripts/set-model.sh opus <key>` switches it among the Mac llama-swap entries and rewrites `litellm-server/config.yaml` to match, so no backend name is fixed here. The Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches tier. |
+| `LITELLM_OPUS_MODEL` | `qwen3.8-flash-next-3bit-mtp` | Model routing key for the Opus tier — an `mlx_lm.server` backend on the Mac. `scripts/set-model.sh opus <key>` switches it among the Mac llama-swap entries and rewrites `litellm-server/config.yaml` to match, so no backend name is fixed here. The Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches tier. |
 | `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct CCGW Proxy route is retired, so the launcher exits when this is unset. |
 | `LITELLM_CLIENT_KEY` | (required for client) | Credential the launcher presents to the gateway. Same value as `LITELLM_MASTER_KEY`. `LITELLM_VIRTUAL_KEY` is accepted for one release as a deprecated alias, with a warning. |
-| `CCGW_SUBAGENT_MODEL` | (empty) | Pins every subagent to one routing key. Empty — the default — lets each agent's frontmatter decide. |
+| `CCGW_SUBAGENT_MODEL` | `qwen3.8-27b` | Pins every subagent to one routing key; empty lets each agent's frontmatter decide. It holds the sonnet key for the same exclusivity reason haiku does — a subagent route naming a second Windows model would thrash against the tier it runs beside. |
 
 ### Client env vars
 
@@ -504,9 +512,9 @@ guess made client-side.
 | Tier | Backend |
 |---|---|
 | Fable | ds4 (`deepseek-v4-flash`), Mac |
-| Opus | the `.env`-selected Mac backend (`qwen3-next-80b-a3b-thinking`) |
-| Sonnet | Qwen3-Coder-30B-A3B, Windows llama-swap |
-| Haiku | Devstral-Small-2-24B, Windows llama-swap |
+| Opus | the `.env`-selected Mac backend (`qwen3.8-flash-next-3bit-mtp`) |
+| Sonnet | Qwen3.8-27B, Windows llama-swap |
+| Haiku | Qwen3.8-27B, Windows llama-swap (the same entry as Sonnet) |
 
 `CLAUDE_CODE_SUBAGENT_MODEL` is no longer set unconditionally. The gateway multiplexes across
 four backends, so pinning subagents to the resident Mac model bought nothing and silently

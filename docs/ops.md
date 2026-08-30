@@ -105,11 +105,11 @@ curl -sk https://127.0.0.1:8445/health/
 ### Verify routing
 
 Send a test request per tier through the **Anthropic /v1/messages** endpoint (the format Claude
-Code sends), which also exercises the Anthropic-to-OpenAI conversion:
+Code sends), which also exercises the Anthropic-to-OpenAI conversion. Three requests cover four
+tiers: haiku and sonnet share one routing key, so the first line exercises both.
 
 ```sh
-curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"devstral-small-2-24b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
-curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3-coder-30b-a3b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
+curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"qwen3.8-27b","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"deepseek-v4-flash","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 curl -sk -X POST https://127.0.0.1:8445/v1/messages -H 'Content-Type: application/json' -H "x-api-key: $LITELLM_MASTER_KEY" -H 'anthropic-version: 2023-06-01' -d '{"model":"laguna-s-2.1","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}'
 ```
