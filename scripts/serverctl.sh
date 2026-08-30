@@ -27,7 +27,7 @@ Usage: serverctl <command> [proxy|llama-swap|litellm|server|all]
 Commands:
   start     Start service(s) in the background (nohup + PID)
   stop      Stop service(s)
-  restart   Stop then start service(s)
+  restart   Restart service(s) -- launchd-managed ones are re-exec'd in place
   status    Show running status
   logs      Tail log file(s) (requires CCGW_LOG=on)
   install   Install launchd LaunchAgent for auto-start
