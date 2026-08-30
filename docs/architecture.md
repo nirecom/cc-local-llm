@@ -180,10 +180,10 @@ backends:
 
 | Tier | Model name (routing key) | Backend | Protocol conversion |
 |------|--------------------------|---------|---------------------|
-| Haiku | `devstral-small-2-24b` | Devstral-Small-2-24B-Instruct-2512-IQ4_XS via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
-| Sonnet | `qwen3-coder-30b-a3b` | Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
+| Haiku | `qwen3.8-27b` | the Sonnet entry, shared — that host's swap group is exclusive, so a second model would evict this one on every call | Anthropic to OpenAI |
+| Sonnet | `qwen3.8-27b` | Qwen3.8-27B-UD-Q3_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Fable | `deepseek-v4-flash` | CCGW Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `qwen3-next-80b-a3b-thinking` (`.env`-selected) | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+| Opus | `qwen3.8-flash-next-3bit-mtp` (`.env`-selected) | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
 
 ### Why the gateway moved off Windows/Docker
 

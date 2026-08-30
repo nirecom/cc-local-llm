@@ -12,20 +12,21 @@
 # hardcoded backend model name after the provider prefix.
 
 model_list:
-  # --- Haiku and sonnet tiers: Qwen3-Coder-30B-A3B-Instruct via llama-swap @ the Windows PC ---
+  # --- Haiku and sonnet tiers: Qwen3.8-27B via llama-swap @ the Windows PC ---
   # One entry, two tiers: llama-swap's heavy group on that PC is exclusive, so a haiku
   # on its own model would evict the sonnet one on every call and reload it on the next.
-  # .env therefore points LITELLM_HAIKU_MODEL and LITELLM_SONNET_MODEL at this same key.
+  # .env points LITELLM_HAIKU_MODEL, LITELLM_SONNET_MODEL and CCGW_SUBAGENT_MODEL at this
+  # one key for that reason -- a subagent route naming anything else would thrash too.
   - model_name: os.environ/LITELLM_SONNET_MODEL
     litellm_params:
-      model: openai/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL
+      model: openai/Qwen3.8-27B-UD-Q3_K_XL
       api_base: os.environ/LITELLM_LLAMASWAP_URL
       api_key: none
       stream: true
       max_tokens: 8192
       context_window: 102400
-      # A cold 76,800-token prefill is 58s at the measured 1335 tok/s, so the former
-      # 60s timeout would have expired on the first turn after every compaction.
+      # A cold 76,800-token prefill is 85s at this backend's measured 908 tok/s, so
+      # the former 60s timeout expired on the first turn after every compaction.
       timeout: 600
       # drop_params discards unsupported params instead of 400ing. reasoning_effort
       # is not in the openai/ supported list for an unrecognised model name, so it
