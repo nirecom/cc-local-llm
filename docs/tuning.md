@@ -76,7 +76,7 @@ Two behavioural differences from `mlx_lm.server` shape the flags in
 | `--draft-kind` | `mtp` | Auto-detection from the adapter's `model_type` exists, but `--help` documents `mtp` as the Gemma 4 family; pinning it explicitly keeps the pairing from silently falling back to `dflash`. |
 | `useModelName` (llama-swap) | the `--model` path | The **opposite** of the `laguna-s-2.1` quirk. mlx_vlm.server registers the loaded model under its `--model` path and resolves any other body `model` as an HF repo id (401). `${env.HOME}` does expand here. |
 | `--max-num-seqs` | `3` | Matches `concurrencyLimit`, bounding peak memory at the server as well as the swapper. |
-| *(no `--prompt-cache-*`)* | — | mlx-vlm has no equivalent flags — its prefix cache is a different mechanism (APC), and it is **off**. See "Prefix caching (APC)" below before assuming any prompt reuse happens on this server. |
+| *(no `--prompt-cache-*`)* | — | mlx-vlm has no equivalent flags — its prefix cache is a different mechanism (APC), enabled per entry through `env:` rather than a flag. See "Prefix caching (APC)" below: it turns a continuation turn from minutes into ~1 s, and halves the reachable context. |
 
 `jinja2` is a missing dependency in mlx-vlm's `requirements.txt`, so the installer adds it with
 `--with jinja2`. Without it the server starts and passes `/health`, then fails **every**
@@ -186,10 +186,33 @@ same 103,434-token prompt — byte-identical, so the only variables are the two 
 | step 1024, no drafter | 99.6 GB | 599 tok/s | 23.6 tok/s | — |
 | step 1024, MTP | 101.2 GB | 653 tok/s | **28.2 tok/s** | 31/32 |
 
-**The drafter costs 1.6 GB against the 6.1 GB the flag freed**, so the two compose. Intercept
-92.7 GB puts the MTP hard ceiling at ~278k — native 262,144 still fits — while a 112 GB budget
-stops at ~236k, the one place the pair falls short of native. Halving the step again is the
-obvious next candidate there, and unmeasured.
+**The drafter costs 1.6 GB against the 6.1 GB the flag freed**, so the two compose. A fifth
+point closes the extrapolation instead of leaving it as one:
+
+| prompt_n | peak mem | prefill | decode | drafter |
+|---|---|---|---|---|
+| 103,434 | 101.2 GB | 627 tok/s | 27.8 tok/s | 31/32 |
+| 155,049 | 105.6 GB | 489 tok/s | 22.6 tok/s | 31/32 |
+
+85.3 KB per token between those two against the 85.5 fitted below 103k — the line does not bend.
+Intercept 92.4 GB, so the ceilings are measured rather than guessed: **~270k hard, ~230k on a
+112 GB budget**. Native 262,144 clears the hard ceiling by about 0.8 GB, which is not margin
+worth relying on; plan against ~230k, and halving the step again is the obvious next candidate.
+
+That fifth point had to be measured twice. The first attempt read 109.6 GB and made the line look
+like it bent upward — but it ran on the process that had just timed out on a 200k prompt, and
+`peak_memory` is a **process-lifetime** high-water mark, so it had inherited that partial
+prefill's peak. This is the ascending-order rule above, restated: any earlier allocation in the
+process contaminates the reading, and whether the request that caused it succeeded makes no
+difference. Evicting the model first — any request to another llama-swap entry does it — and
+re-measuring gave 105.6 GB.
+
+The ceiling that binds first is no longer memory, though. A 200,000-token prompt came back with
+`Timed out waiting for 600s for the next generated token` — `MLX_VLM_TOKEN_QUEUE_TIMEOUT`, not an
+allocation failure. Prefill falls from 1,406 tok/s at 10k to 489 at 155k, where a single turn
+already costs 317 s. So the clock stops somewhere between 155k and 200k while memory still has
+room to ~230k, and no flag in this file moves that — only not re-prefilling the prefix does,
+which is the next section.
 
 Two cautions on that last row. The prefill figure is *higher* than the no-drafter run, which MTP
 cannot cause — the target still does one full forward pass — so read it as run-to-run noise, not
@@ -197,46 +220,70 @@ an effect. And 31/32 acceptance does not generalise: the task was listing consec
 names, which is about the friendliest thing a drafter can be asked to predict, over only 32 draft
 tokens. The 87% at 36k is the more honest number to plan against.
 
-### Prefix caching (APC) is off
+### Prefix caching (APC)
 
-Not a tuning decision — a default nobody has overridden. `RuntimeConfig.apc_enabled` defaults to
-`False`, its env override `APC_ENABLED` defaults to `"0"`, and `mlx_vlm/server/cli.py` exposes no
-flag at all, so nothing currently in [llama-swap/m5-max-128gb/config.yaml](../llama-swap/m5-max-128gb/config.yaml)
-can turn it on.
+Off by default and not reachable by flag: `RuntimeConfig.apc_enabled` defaults to `False`, its env
+override `APC_ENABLED` defaults to `"0"`, and `mlx_vlm/server/cli.py` exposes nothing. `PATCH
+/v1/settings` looks like a way in and is not — it answers `applied: {apc_enabled: true}`,
+`rejected: []`, `reload_kinds: ["text_generation"]`, and `/health` still reports
+`apc_enabled=false` once the reload finishes. `apc.from_env` does honour `overrides["enabled"]`,
+so the model-load path simply never re-runs. Treat it as **startup-only** and set it through the
+entry's `env:` block in [llama-swap/m5-max-128gb/config.yaml](../llama-swap/m5-max-128gb/config.yaml),
+which llama-swap does pass to the model process.
 
-Measured on `qwen3.8-flash-next-3bit` against a 93,040-token corpus, in the four request shapes a
-Claude Code session actually produces:
+Turned on, against a 96,140-token corpus on `qwen3.8-flash-next-3bit-mtp`:
 
-| Case | cache_n / prompt_n | wall |
-|---|---|---|
-| cold | 0 / 93,040 | 130.5 s |
-| byte-identical resend | 0 / 93,040 | 142.3 s |
-| same corpus, new question | 0 / 93,040 | 159.8 s |
-| multi-turn continuation | 0 / 93,079 | 164.1 s |
+| Case | cache_n / uncached | peak | wall |
+|---|---|---|---|
+| cold | 0 / 96,140 | 102.6 GB | 145.1 s |
+| continuation (prior turn + new question) | 96,140 / 39 | 110.7 GB | **1.3 s** |
+| cold, 134,425 tokens | 0 / 134,425 | 115.2 GB | 338.9 s |
+| continuation of that | — | — | **Metal OOM, HTTP 500** |
 
-0% every time — and the identical resend ran *slower* than the cold one, which rules out a
-`cache_n` reporting gap and leaves genuine non-reuse. **Every turn pays a full prefill**: at ~100k
-tokens that is 130–170 s before the first token, on every tier mlx-vlm hosts.
+Three things decide whether this helps or hurts.
 
-`PATCH /v1/settings` looks like a way in and is not. It answers `applied: {apc_enabled: true}`,
-`rejected: []`, `reload_kinds: ["text_generation"]`, but `/health` still reports
-`apc_enabled=false` after the reload completes and the resends still miss. `apc.from_env` does
-honour `overrides["enabled"]`, so the model-load path simply never re-runs — treat `apc_enabled`
-as **startup-only** and set `APC_ENABLED=1` in the process environment.
+**The mode is `exact`, not `block` — on both mlx-vlm tiers.** `apc_adapters.apc_block_eligible`
+matches on exact type (`type(cache) in {KVCache}`), so Flash-Next's `QSAKVCache` fails it by being
+a *subclass*, and the 27B fails it too because its `make_cache` mixes `ArraysCache` into the
+linear layers. `PrefixCachePlan.strategy` returns `"block"` only when **every** layer is
+block-eligible, so both models fall to `"checkpoint"`, which `legacy_mode` maps to `"exact"`: a
+whole-prefix snapshot, restored only on a full prefix match. That makes `APC_NUM_BLOCKS` the wrong
+knob; the ones that apply are `APC_EXACT_CACHE_ENTRIES` and `APC_EXACT_MIN_TOKENS` (default 16).
+`--kv-bits` does not open the block path either — `generate/common.py` skips any cache setting
+`preserve_auxiliary_kv_state`, which `QSAKVCache` sets precisely so the quantizers cannot drop its
+`index_keys`.
 
-Two things to get right before enabling it:
+**One entry is enough, and it is not the obvious one.** Each request stores *two* snapshots: a
+checkpoint at `n-1` tokens during prefill, then the full `n` at the end. Lookup caps candidates at
+`len(prompt) - 1`, so the two are not interchangeable — the `n-1` entry can only ever serve a
+byte-identical resend, and the full-length one can only ever serve a *longer* prompt, i.e. a
+continuation. The full-length store lands last, so at `APC_EXACT_CACHE_ENTRIES=1` it is the one
+that survives eviction, which is exactly the entry an append-only conversation needs. A second
+entry buys only the identical-resend case and tolerance for one interleaved unrelated request
+(a parallel session or a subagent) — at the price below, per entry.
 
-- **Pool size.** `apc_num_blocks × apc_block_size` = 2048 × 16 = **32,768 tokens** by default,
-  which a 100k context misses on capacity alone. At 27.7 KB/token of cacheable state, a
-  131,072-token pool (`APC_NUM_BLOCKS=8192`) costs ~3.6 GB.
-- **Block eligibility.** `apc_adapters.apc_block_eligible` matches on exact type, not
-  `isinstance`, and `QSAKVCache` is a *subclass* of `KVCache` — so block-level reuse is not
-  eligible as it stands. `--kv-bits` changes that: `QSAQuantizedKVCache` inherits
-  `dequantize_for_apc`, which the same check accepts.
+**The price is a second copy of the KV cache.** An exact snapshot is a clone of the live cache, so
+it costs what the cache costs: 8.1 GB measured over 96,140 tokens, 84 KB/token against the KV's
+own 85.3. That doubles the slope of the memory line — `peak ≈ 92.4 GB + 170.6 KB/token` instead of
+85.3 — and so **halves the reachable context: ~135k hard, ~115k on a 112 GB budget**, against the
+~270k/~230k of the same entry with APC off. The 134,425-token continuation above is that ceiling
+being hit: `kIOGPUCommandBufferCallbackErrorOutOfMemory`, mid-request, after the prompt was
+accepted. `APC_DISK_PATH` adds an SSD tier holding exact snapshots too
+(`_DiskExactCacheSnapshot`), but it is a second tier rather than a replacement, so it does not by
+itself lower the resident cost.
 
-Until APC is on, the proxy's prompt normalization ([architecture.md](architecture.md#why-prompt-normalization))
-buys nothing on these tiers — there is no prefix cache for a stable prefix to hit. It pays off
-only on the ds4 tier, which keeps its own KV cache via `--kv-disk-dir`.
+The trade is worth taking on this model — the context it gives up was not reachable in practice
+anyway, since a 200k prompt already exceeded `MLX_VLM_TOKEN_QUEUE_TIMEOUT` in prefill — but it
+changes the failure mode, which is why it is on the `used_by: []` candidate entry and not yet on a
+routed tier. Without APC an over-long prompt is slow; with it, a prompt past ~115k returns HTTP
+500 with no tokens at all. A routed tier needs that bound enforced upstream first.
+
+APC is also what makes the proxy's prompt normalization
+([architecture.md](architecture.md#why-prompt-normalization)) pay off here: an exact-mode hit needs
+the prefix to match token-for-token, so a timestamp or a git line that moves between turns costs
+the whole 145 s. Before APC there was no prefix cache for a stable prefix to hit, and the
+normalization only earned its keep on the ds4 tier, which keeps its own KV cache via
+`--kv-disk-dir`.
 
 ## Memory budget (Laguna S 2.1)
 

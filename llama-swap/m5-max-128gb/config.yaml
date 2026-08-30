@@ -167,6 +167,15 @@ models:
       --draft-kind mtp
       --prefill-step-size 1024
       --max-num-seqs 1
+    # APC has no CLI flag and PATCH /v1/settings does not reach it -- startup env only.
+    # This layout resolves to exact mode, not block, so the block knobs do not apply.
+    # One entry keeps the full-length snapshot, which is the one a continuation turn
+    # matches; a second would only add the identical-resend case, at another full copy
+    # of the KV. Halves the reachable context -- see docs/tuning.md before routing a
+    # tier here.
+    env:
+      - APC_ENABLED=1
+      - APC_EXACT_CACHE_ENTRIES=1
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
     useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
