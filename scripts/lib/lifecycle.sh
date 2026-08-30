@@ -230,8 +230,25 @@ ds4_stop() {
 }
 
 ds4_restart() {
-    ds4_stop "$1"
-    ds4_start "$1"
+    _svc="$1"
+    # Under launchd the stop/start pair cannot work: KeepAlive revives the job
+    # the moment stop kills it, and start refuses outright. Re-exec the job in
+    # place instead -- the service re-reads its config at startup, which is the
+    # whole point of a restart.
+    if _ds4_launchd_active "$_svc"; then
+        _label="$(_ds4_plist_label "$_svc")"
+        for _domain in "gui/$(id -u)" "user/$(id -u)"; do
+            if launchctl kickstart -k "$_domain/$_label" >/dev/null 2>&1; then
+                echo "[serverctl] restarted $_label (launchd $_domain)"
+                return 0
+            fi
+        done
+        echo "[serverctl] kickstart unavailable for $_label; reloading instead" >&2
+        ds4_install "$_svc"
+        return $?
+    fi
+    ds4_stop "$_svc"
+    ds4_start "$_svc"
 }
 
 ds4_status() {
