@@ -39,7 +39,7 @@ models:
     ttl: 0
   laguna-s-2.1:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_lm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/poolside/Laguna-S-2.1-NVFP4-mlx
       --prompt-cache-bytes 40GB
       --prompt-cache-size 10
@@ -56,7 +56,7 @@ models:
     concurrencyLimit: 5
   qwen3-coder-next-80b-a3b:
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_lm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3-Coder-Next-8bit
       --prompt-cache-bytes 20GB
       --prompt-cache-size 5
@@ -85,7 +85,7 @@ models:
   # Installed by install/mac/mlx-vlm.sh.
   qwen3.8-27b-8bit:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
       --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
@@ -98,7 +98,7 @@ models:
     concurrencyLimit: 3
   qwen3.8-27b-8bit-mtp:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-8bit
       --draft-model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-MTP-8bit
       --draft-kind mtp
@@ -109,7 +109,7 @@ models:
     concurrencyLimit: 3
   qwen3.8-27b-4bit:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
       --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
@@ -118,7 +118,7 @@ models:
     concurrencyLimit: 3
   qwen3.8-27b-4bit-mtp:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-4bit
       --draft-model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3.8-27B-MTP-4bit
       --draft-kind mtp
@@ -134,7 +134,7 @@ models:
     # adapter is paired with it: the drafter was split from stock Qwen3.8-27B
     # and the fine-tune's weight drift would depress its acceptance rate.
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/orcarouter/Qwen3.8-27B-Uncensored-MLX
       --max-num-seqs 3
     proxy: http://127.0.0.1:${PORT}
@@ -149,7 +149,7 @@ models:
   # README says the QSA cache path is not yet wired into continuous batching.
   qwen3.8-flash-next-3bit:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
       --prefill-step-size 1024
       --max-num-seqs 1
@@ -161,7 +161,7 @@ models:
     concurrencyLimit: 1
   qwen3.8-flash-next-3bit-mtp:
     cmd: >-
-      mlx_vlm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
       --draft-model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-MTP-3bit
       --draft-kind mtp
@@ -191,7 +191,7 @@ models:
     # mlx_lm.server/openai-shape, so it's a same-shape swap needing no manual
     # litellm-server/config.yaml edit.
     cmd: >-
-      mlx_lm.server --host 127.0.0.1 --port ${PORT}
+      caffeinate -ism mlx_lm.server --host 127.0.0.1 --port ${PORT}
       --model ${env.HOME}/.lmstudio/models/mlx-community/Qwen3-Next-80B-A3B-Thinking-8bit
       --prompt-cache-bytes 20GB
       --prompt-cache-size 5
