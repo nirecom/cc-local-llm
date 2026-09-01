@@ -3,6 +3,12 @@
 # host's own llama-swap annotations, minus the `optimizer:` key:
 # llama-swap-optimizer tunes llama.cpp flags (-ngl, --n-cpu-moe) and has nothing
 # to tune on MLX. Sizing derivations live in docs/tuning.md, not here.
+#
+# Every cmd below is wrapped in `caffeinate -ism` (2026-09-01): the fix for the
+# 2026-07-07 sleep freeze (docs/history.md) was applied only to ds4-server at
+# the time. macOS idle sleep during an active mlx_lm.server/mlx_vlm.server
+# request is the same class of failure, so the wrap now applies to every
+# entry, not just the one it was first caught on.
 
 deepseek-v4-flash:
   role: fable-tier (Claude Code LiteLLM)

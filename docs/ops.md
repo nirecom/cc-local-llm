@@ -578,7 +578,7 @@ diff /tmp/before.txt /tmp/after.txt
 |---|---|
 | `400 context_length_exceeded` | Client conversation grew past ctx. `/compact`, or `/clear`, or raise `--ctx` and restart (the running conversation then fits). |
 | `error during compaction` | The compaction request itself exceeds ctx. Ensure `CLAUDE_CODE_AUTO_COMPACT_WINDOW` + `PCT_OVERRIDE` are set so compaction fires *before* the ceiling; otherwise `/clear` or restart the server at higher ctx so the current conversation fits, then compact. |
-| Server unresponsive / client API errors after idle | Check `pmset -g log` for a sleep window. caffeinate should prevent it; confirm the process is still wrapped. |
+| Server unresponsive / client API errors after idle | Check `pmset -g log` for a sleep window. Every llama-swap entry (see [llama-swap/m5-max-128gb/config.yaml](../llama-swap/m5-max-128gb/config.yaml)) and ds4-server are `caffeinate -ism`-wrapped to prevent it; confirm the backend that was serving is still wrapped. |
 | `kv cache evicted reason=disk-cache-full` | Normal capacity management — not an error. Ignore. |
 | Switching between ds4/Laguna is slow every time | Expected — llama-swap fully unloads the previous model before loading the next (`ttl: 0`, no idle auto-unload; see [architecture.md](architecture.md#mac-backend-layer-llama-swap)). Both together exceed 128 GB, so there is no way to keep both warm. |
 | `502 Bad Gateway` from the proxy right after a model switch | llama-swap is still loading the newly-requested model. Retry after the load completes (`serverctl logs llama-swap` shows progress). |

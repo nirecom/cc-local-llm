@@ -83,6 +83,13 @@ model_list:
       stream: true
       max_tokens: 8192
       context_window: 262144
+      # This route had no explicit timeout, so it ran on LiteLLM's shorter default --
+      # fine for a normal turn, but a long prefill on this backend (206,819 tokens
+      # measured at 717s; see the MLX_VLM_TOKEN_QUEUE_TIMEOUT note on the
+      # qwen3.8-flash-next-3bit-mtp entry in llama-swap/m5-max-128gb/config.yaml)
+      # timed out client-side well before the backend itself gave up. Matches that
+      # backend ceiling so LiteLLM never cuts the connection first.
+      timeout: 3600
       # Same reason as the haiku tier above.
       drop_params: true
       allowed_openai_params: ["reasoning_effort"]
