@@ -85,10 +85,10 @@ model_list:
   # backend's own "404 page not found" rather than any LiteLLM-level error. The body
   # model rewrite either MLX server needs is llama-swap's useModelName -- note the two want
   # opposite values there; see docs/tuning.md#mtp-speculative-decoding-qwen3827b.
-  - model_name: qwen3.8-flash-next-3bit-mtp
+  - model_name: qwen3.8-flash-next-3bit
     litellm_params:
       ccgw_tiers: [opus]
-      model: openai/qwen3.8-flash-next-3bit-mtp
+      model: openai/qwen3.8-flash-next-3bit
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
