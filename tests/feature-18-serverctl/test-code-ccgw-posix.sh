@@ -1,48 +1,35 @@
 #!/usr/bin/env bash
-# Tests: scripts/code-ccgw.sh
+# Tests: scripts/code-ccgw.sh, litellm-server/config.yaml
 # Tags: lifecycle, client-launcher, scope:issue-specific
-#
-# Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
-# retired, so the POSIX client launcher (macOS/Linux counterpart of
-# scripts/code-ccgw.ps1) has exactly ONE path — through the Mac LiteLLM.
-#
-# Why the precedence chains had to go, rather than merely being re-pointed:
-# keeping a direct fallback would split the credential a client holds into two
-# systems (a LiteLLM key and a proxy token), which defeats the TLS termination
-# this change consolidates. With a single source there is nothing to fall back
-# to, so an unconfigured base URL / key is an error, never a dummy default —
-# a dummy default is what turns a misconfiguration into a confusing 401 much
-# later, at request time.
-#
-# What this covers: the single-source base URL and its exit-1 on absence, the
-# LITELLM_CLIENT_KEY credential with LITELLM_VIRTUAL_KEY accepted for one
-# deprecation cycle (with a warning), the retained CCGW_CA_CERT + mkcert
-# derivation, the unconditional LITELLM_*_MODEL tier assignment, the new
-# subagent contract, per-OS VS Code --user-data-dir isolation, and the
-# missing-`code` error.
-#
-# Method: `code` is stubbed on PATH with a script that dumps its inherited env
-# and argv to files, so every assertion is made against the environment the
-# launcher actually hands to Claude Code — none of the launcher's branching is
-# re-implemented here. `mkcert` and `uname` are stubbed the same way. The child
-# runs under `env -i`, so an ambient LITELLM_*/CCGW_*/DS4_* value in the
-# developer's shell can never satisfy an assertion by accident.
-#
-# TL3 gap: real VS Code startup and profile creation under the derived
-#   --user-data-dir; a real mkcert CA actually being trusted by Node's TLS
-#   stack; genuine end-to-end routing of the selected routing key through
-#   LiteLLM to a loaded backend.
 set -u
 
+# Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
+# retired, so this launcher (macOS/Linux counterpart of code-ccgw.ps1) has
+# exactly ONE path -- through the Mac LiteLLM. A retained fallback would split
+# the client credential across two systems and defeat the TLS termination that
+# consolidation buys, so an unconfigured base URL or key is a hard error rather
+# than a dummy default, which only surfaces as a confusing 401 at request time.
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 LAUNCHER="$REPO/scripts/code-ccgw.sh"
 
 [ -f "$LAUNCHER" ] || { echo "SKIP: $LAUNCHER not found (implementation pending)"; exit 77; }
 
+# Covered here: the single-source base URL and its exit-1 on absence, the
+# LITELLM_CLIENT_KEY credential (LITELLM_VIRTUAL_KEY accepted for one
+# deprecation cycle, with a warning) and the sweeps proving neither is echoed
+# back, the CCGW_CA_CERT + mkcert derivation, per-OS VS Code --user-data-dir
+# isolation and the missing-`code` error. Tier selection moved to
+# test-code-ccgw-config-tiers.sh and the pre-launch pull to
+# test-code-ccgw-auto-pull.sh when config.yaml took ownership (issue #89).
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+# TL3 gap: real VS Code startup and profile creation under the derived
+#   --user-data-dir; a real mkcert CA actually being trusted by Node's TLS
+#   stack; genuine end-to-end routing of the selected routing key through
+#   LiteLLM to a loaded backend.
 WORK="$(mktemp -d)"
+
 # Pin DOTENV_FILE into this test's tmpdir so the real repo dotenv is never
 # read; scripts/lib/root.sh would otherwise default it to <repo>/.env, which
 # holds the developer's actual base URL and API keys.
@@ -55,7 +42,40 @@ trap 'rm -rf "$WORK"' EXIT
 DUMP="$WORK/env.dump"
 ARGV="$WORK/argv.dump"
 
+# --- the config.yaml the launcher derives its tiers from ---------------------
+# Routing keys live here now (issue #89), so even the cases below that assert
+# nothing about tiers need a readable one: without it the launcher has nothing
+# to put on the /model tiers and would fail for a reason none of them is about.
+OPS="$WORK/ops"
+mkdir -p "$OPS/litellm-server"
+cat > "$OPS/litellm-server/config.yaml" <<'EOF'
+model_list:
+  # --- Haiku, sonnet and the subagent route share one backend ---
+  - model_name: lite-shared
+    litellm_params:
+      model: openai/Qwen3.8-27B
+      ccgw_tiers: [haiku, sonnet, subagent]
+
+  # --- Fable tier ---
+  - model_name: lite-fable
+    litellm_params:
+      model: anthropic/deepseek-v4-flash
+      ccgw_tiers: [fable]
+
+  # --- Opus tier ---
+  - model_name: lite-opus
+    litellm_params:
+      model: openai/qwen3.8-flash-next-3bit-mtp
+      ccgw_tiers: [opus]
+EOF
+
 # --- stubs -------------------------------------------------------------------
+# Method: `code` is stubbed on PATH with a script that dumps its inherited env
+# and argv to files, so every assertion is made against the environment the
+# launcher actually hands to Claude Code -- none of its branching is
+# re-implemented here. `mkcert` and `uname` are stubbed the same way. The child
+# runs under `env -i`, so an ambient LITELLM_*/CCGW_*/DS4_* value in the
+# developer's shell can never satisfy an assertion by accident.
 STUB="$WORK/stub"
 mkdir -p "$STUB"
 cat > "$STUB/code" <<'EOF'
@@ -93,8 +113,12 @@ run_launcher() { # run_launcher [KEY=VAL ...] [-- <argv for code>]
         if [ "$seen" -eq 0 ]; then envs+=("$a"); else args+=("$a"); fi
     done
     rm -f "$DUMP" "$ARGV"
+    # CCGW_AUTO_PULL defaults to on: left alone, every case here would reach
+    # for a git remote before launching. Pinned off -- the pull is
+    # test-code-ccgw-auto-pull.sh's subject, not a side effect of these cases.
     env -i \
         HOME="$HOME" PATH="$STUB_PATH" DOTENV_FILE="$DOTENV_FILE" \
+        CCGW_OPS_ROOT="$OPS" CCGW_AUTO_PULL=off \
         CCGW_TEST_DUMP="$DUMP" CCGW_TEST_ARGV="$ARGV" \
         ${envs[@]+"${envs[@]}"} \
         bash "$LAUNCHER" ${args[@]+"${args[@]}"} >"$WORK/out" 2>"$WORK/err"
@@ -110,14 +134,14 @@ assert_env() { # assert_env <var> <expected> <context>
     [ "$got" = "$2" ] || fail "$3: $1='$got', expected '$2'"
 }
 
+# The dump's own existence is checked first, the same way the sibling copies in
+# test-code-ccgw-config-guards.sh and code-ccgw-config-tiers/fixture.sh do
+# (CPR-ORTH). grep over a file that was never written reports "no match" too, so
+# a launcher that died before ever reaching the stub 'code' would otherwise
+# satisfy every "must not be set" row here for the wrong reason.
 assert_unset() { # assert_unset <var> <context>
+    [ -f "$DUMP" ] || fail "$2: stub 'code' was never reached (no env dump); stderr: $(cat "$WORK/err" 2>/dev/null)"
     ! grep -q "^$1=" "$DUMP" || fail "$2: $1 was exported as '$(dump_get "$1")' but must not be set at all"
-}
-
-assert_env_differs() { # assert_env_differs <var-a> <var-b> <context>
-    local a b
-    a="$(dump_get "$1")"; b="$(dump_get "$2")"
-    [ "$a" != "$b" ] || fail "$3: $1 and $2 both resolved to '$a'; the two backends must stay on separate tiers"
 }
 
 assert_stderr() { # assert_stderr <pattern> <context>
@@ -127,15 +151,6 @@ assert_stderr() { # assert_stderr <pattern> <context>
 assert_no_ca_warning() { # assert_no_ca_warning <context>
     ! grep -q 'CCGW_CA_CERT not set' "$WORK/err" || fail "$1: unexpected CA warning: $(cat "$WORK/err")"
 }
-
-# The four /model tiers Claude Code switches between.
-TIER_VARS="ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL"
-# The var that offers the fable tier as a selectable /model entry. Two names are
-# deliberately NOT here any more: CLAUDE_CODE_SUBAGENT_MODEL, which is now opt-in
-# (section 4d), and ANTHROPIC_MODEL, which the launcher must never export at all
-# (section 4g) -- it outranks the user's own settings.json `model`.
-ACTIVE_VARS="ANTHROPIC_CUSTOM_MODEL_OPTION"
-MODEL_VARS="$TIER_VARS $ACTIVE_VARS ANTHROPIC_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
 
 # --- Retired variable names --------------------------------------------------
 # The cases that prove a retired variable no longer configures anything need
@@ -150,7 +165,6 @@ R_BASE_CCGW="CCGW_ANTHROPIC""_BASE_URL"
 R_KEY_DS4="DS4_API""_KEY"
 R_KEY_CCGW="CCGW_API""_KEY"
 R_CA_DS4="DS4_CA""_CERT"
-R_DEFAULT_MODEL="CCGW_DEFAULT""_MODEL"
 
 # --- 1. Base URL: single source, hard failure when absent --------------------
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
@@ -204,6 +218,59 @@ assert_stderr 'LITELLM_CLIENT_KEY' "auth/unset: the error must name the variable
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck ANTHROPIC_API_KEY=cloud-key-must-not-survive
 assert_env ANTHROPIC_API_KEY "" "auth: a pre-existing ANTHROPIC_API_KEY must be cleared so the local backend is used"
 
+# --- 2a. The credential must not come back out -------------------------------
+# Section 2 proves the key reaches the child; nothing yet proves it reaches
+# nowhere else. It is the LiteLLM master key itself -- there are no virtual keys
+# without a database -- and every failure path above prints variable names into
+# the terminal the operator screenshots. The Windows half of this contract is
+# context-15's `15b` (CPR-ORTH). The deprecated alias is swept the same way
+# because its whole purpose is to WARN, and a warning that quotes the value it
+# is deprecating is how this leak actually happens.
+assert_no_secret_in_tree() { # assert_no_secret_in_tree <dir> <secret> <context>
+    local hits
+    hits="$(grep -rlaF -- "$2" "$1" 2>/dev/null)"
+    [ -z "$hits" ] || fail "$3: the credential was written into: $hits"
+    hits="$(find "$1" -name "*$2*" 2>/dev/null)"
+    [ -z "$hits" ] || fail "$3: the credential appears in the NAME of: $hits"
+}
+
+# A negative sweep over a directory that is usually empty passes while testing
+# nothing, so it is made to fail on a tree that plainly holds a secret first.
+mkdir -p "$WORK/leak-selftest"
+printf 'ANTHROPIC_AUTH_TOKEN=%s\n' 'leak-probe-value' > "$WORK/leak-selftest/probe.log"
+( assert_no_secret_in_tree "$WORK/leak-selftest" 'leak-probe-value' "harness self-test" ) >/dev/null 2>&1 \
+    && fail "harness self-test: assert_no_secret_in_tree passed a tree that plainly contains the secret; both sweeps below assert nothing"
+rm -rf "$WORK/leak-selftest"
+
+# TMPDIR is each pass's own and created empty, so anything found in it after the
+# run was written during it -- by the launcher or by what it invoked. All three
+# spellings are handed over: macOS and Git-for-Windows bash read different ones.
+while IFS='|' read -r name var warn; do
+    [[ -z "$name" || "$name" =~ ^[[:space:]]*# ]] && continue
+    name="${name//[[:space:]]/}"; var="${var//[[:space:]]/}"; warn="${warn//[[:space:]]/}"
+    SECRET="n0t-a-real-client-key-$name-7f2b"
+    LEAK_TMP="$WORK/leak-tmp-$name"
+    rm -rf "$LEAK_TMP"
+    mkdir -p "$LEAK_TMP"
+    run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 "$var=$SECRET" \
+        TMPDIR="$LEAK_TMP" TEMP="$LEAK_TMP" TMP="$LEAK_TMP"
+    [ "$RC" -eq 0 ] || fail "leak/$name: exited $RC: $(cat "$WORK/err")"
+    assert_env ANTHROPIC_AUTH_TOKEN "$SECRET" \
+        "leak/$name: the credential must still reach the child verbatim; dropping it to stay quiet is not the fix"
+    case "$(cat "$WORK/out" "$WORK/err")" in
+        *"$SECRET"*) fail "leak/$name: the gateway credential was echoed back into the terminal: $(cat "$WORK/out" "$WORK/err")" ;;
+    esac
+    assert_no_secret_in_tree "$LEAK_TMP" "$SECRET" \
+        "leak/$name: the credential landed in a file, which outlives the terminal it was kept out of"
+    if [ "$warn" = warns ]; then
+        assert_stderr 'LITELLM_CLIENT_KEY' \
+            "leak/$name: redacting the value must not silence the deprecation warning, which still has to name the replacement"
+    fi
+done <<'TABLE'
+current | LITELLM_CLIENT_KEY  | quiet
+alias   | LITELLM_VIRTUAL_KEY | warns
+TABLE
+
 # --- 3. TLS CA (retained: LiteLLM terminates TLS with the mkcert leaf) -------
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck CCGW_CA_CERT=/ca/ccgw.pem
 assert_env NODE_EXTRA_CA_CERTS /ca/ccgw.pem "ca: CCGW_CA_CERT is honored"
@@ -254,115 +321,11 @@ run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 assert_unset NODE_EXTRA_CA_CERTS "ca/no-mkcert: nothing to derive from"
 assert_stderr 'CCGW_CA_CERT not set' "ca/no-mkcert: must warn"
 
-# --- 4. Model selection (unconditional LiteLLM routing keys) ----------------
-# With the direct path gone there is no branch left: each LITELLM_*_MODEL is a
-# LiteLLM routing key and goes onto its own /model tier verbatim. The launcher
-# owns no backend names of its own — inventing one would route to a model the
-# gateway has no entry for, and the error would surface as a 400 from LiteLLM
-# rather than as a launcher message.
-
-# 4a. All four keys present.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-[ "$RC" -eq 0 ] || fail "models/all-keys: exited $RC: $(cat "$WORK/err")"
-assert_env ANTHROPIC_DEFAULT_FABLE_MODEL lite-fable "models: fable routing key"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models: opus routing key"
-assert_env ANTHROPIC_DEFAULT_SONNET_MODEL lite-sonnet "models: sonnet routing key"
-assert_env ANTHROPIC_DEFAULT_HAIKU_MODEL lite-haiku "models: haiku routing key"
-assert_unset ANTHROPIC_MODEL "models: the startup tier is settings.json's to choose, not the launcher's"
-assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "models: custom model option follows the fable tier"
-# Stated as an inequality too: a regression that collapses the tiers onto one
-# key would still satisfy each literal individually if all literals moved.
-assert_env_differs ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
-    "models: fable and opus must address different routing keys or /model cannot switch"
-
-# 4b. The retired direct-path backend names must never appear. The launcher is
-# not allowed to know them any more.
-for v in $MODEL_VARS; do
-    val="$(dump_get "$v")"
-    case "$(printf '%s' "$val" | tr 'A-Z' 'a-z')" in
-        *deepseek*|*laguna*) fail "models: $v='$val' is a backend name, not a LiteLLM routing key; the launcher must carry no backend literals" ;;
-    esac
-done
-
-# 4c. The retired startup-model variable goes with the direct path: setting it
-# must change nothing at all.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
-    "$R_DEFAULT_MODEL=laguna-s-2.1"
-assert_unset ANTHROPIC_MODEL "models/ccgw-default: the retired startup-model variable must configure nothing"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/ccgw-default: the tier map must be unaffected"
-
-# 4d. Subagent contract (three cases).
-#
-# Why it changed: the old launcher pinned CLAUDE_CODE_SUBAGENT_MODEL to the
-# fable tier so a subagent could not evict the resident backend. Routing now
-# goes through LiteLLM, which multiplexes, so the pin is no longer needed — and
-# it actively harms, because it silently overrides the model an agent
-# definition's frontmatter declares. Default is therefore "say nothing";
-# CCGW_SUBAGENT_MODEL exists only for the case where a user deliberately wants
-# every subagent confined to one route.
-
-# (i) Default: not set at all, so agent frontmatter decides.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-assert_unset CLAUDE_CODE_SUBAGENT_MODEL "subagent/default: must not be exported — an unconditional value overrides agent frontmatter"
-
-# (ii) Opt-in: CCGW_SUBAGENT_MODEL is exported verbatim.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
-    CCGW_SUBAGENT_MODEL=lite-haiku
-assert_env CLAUDE_CODE_SUBAGENT_MODEL lite-haiku "subagent/opt-in: CCGW_SUBAGENT_MODEL must be exported as given"
-
-# (iii) Value domain is a routing key, passed through untranslated: an
-# arbitrary key the launcher has never heard of must survive intact, and a tier
-# name must NOT be mapped to a tier's value.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
-    CCGW_SUBAGENT_MODEL=some-other-routing-key
-assert_env CLAUDE_CODE_SUBAGENT_MODEL some-other-routing-key "subagent/domain: the value is a LiteLLM routing key and must not be translated"
-
-# A defined-but-empty value counts as unset — exporting an empty model name
-# would make Claude Code request "" and fail at the gateway.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable CCGW_SUBAGENT_MODEL=
-assert_unset CLAUDE_CODE_SUBAGENT_MODEL "subagent/empty: an empty CCGW_SUBAGENT_MODEL must be treated as unset"
-
-# 4e. No routing keys at all: nothing may be invented.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
-for v in $MODEL_VARS; do
-    assert_unset "$v" "models/no-keys: the launcher must substitute no model name of its own"
-done
-
-# 4f. Partial keys: each tier is independent, and the fable tier drives the
-# /model picker entry, so with LITELLM_FABLE_MODEL absent it stays unset rather
-# than borrowing another tier's key.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_OPUS_MODEL=lite-opus LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/no-fable: opus routing key still applies"
-assert_unset ANTHROPIC_DEFAULT_FABLE_MODEL "models/no-fable: no fable key means no fable tier"
-for v in $ACTIVE_VARS; do
-    assert_unset "$v" "models/no-fable: the launcher must invent no model name of its own"
-done
-
-# 4g. ANTHROPIC_MODEL must never reach the child, whatever the parent carried.
-# It outranks settings.json's `model`, so any value silently discards the tier the
-# user chose there. Asserted against a parent that already carries one: an inherited
-# value takes a different route than an exported one, so the launcher has to clear it
-# rather than merely decline to set it.
-run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck \
-    LITELLM_FABLE_MODEL=lite-fable LITELLM_OPUS_MODEL=lite-opus \
-    LITELLM_SONNET_MODEL=lite-sonnet LITELLM_HAIKU_MODEL=lite-haiku \
-    ANTHROPIC_MODEL=stale-from-parent
-[ "$RC" -eq 0 ] || fail "models/inherited-startup-model: exited $RC: $(cat "$WORK/err")"
-assert_unset ANTHROPIC_MODEL "models/inherited-startup-model: an inherited value must be cleared, not passed through"
-assert_env ANTHROPIC_DEFAULT_OPUS_MODEL lite-opus "models/inherited-startup-model: the tier map must be unaffected"
-assert_env ANTHROPIC_CUSTOM_MODEL_OPTION lite-fable "models/inherited-startup-model: the picker entry must be unaffected"
+# --- 4. Model selection ------------------------------------------------------
+# Moved to test-code-ccgw-config-tiers.sh (issue #89): the tier map is derived
+# from config.yaml's ccgw_tiers annotations now, so it needs a fixture matrix of
+# its own -- one config per case -- rather than the flat env sweep that lived
+# here. This file keeps the concerns that a single fixture config serves.
 
 # --- 5. VS Code profile isolation and argv passthrough ----------------------
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck -- /some/project --new-window

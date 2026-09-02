@@ -45,18 +45,6 @@ _dotenv_filter_os_blocks() {
     ' "$1"
 }
 
-# Return 0 if $1 names a key in $DOTENV_FORCE_KEYS (a space-separated list the
-# caller may set, NON-exported, to make .env always win for those keys). This is
-# the opt-in escape hatch for keys that must come from .env regardless of a
-# stale shell value -- e.g. the ccgw model-routing keys. Loaders that never set
-# it keep the default "shell value wins" behavior unchanged.
-_dotenv_force_key() {
-    case " ${DOTENV_FORCE_KEYS:-} " in
-        *" $1 "*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
 # Return 0 if the environment variable named by $1 is already set (matches the
 # "shell value wins" semantics: an exported value is what the child would see).
 _dotenv_is_set() {
@@ -76,10 +64,9 @@ if [ -f "$DOTENV_FILE" ]; then
         if [ -z "$_dotenv_key" ] || [ "$_dotenv_key" = "$_dotenv_line" ]; then
             continue
         fi
-        # Export only when the variable is not already set in the environment,
-        # UNLESS it is a forced key (DOTENV_FORCE_KEYS) -- those always take the
-        # .env value so a stale shell value cannot override the repo's intent.
-        if _dotenv_force_key "$_dotenv_key" || ! _dotenv_is_set "$_dotenv_key"; then
+        # Export only when the variable is not already set in the environment:
+        # one rule for every key, so what the shell hands over always wins.
+        if ! _dotenv_is_set "$_dotenv_key"; then
             export "$_dotenv_key=$_dotenv_val"
         fi
     done <<EOF

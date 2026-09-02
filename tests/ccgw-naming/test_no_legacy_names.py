@@ -1,4 +1,4 @@
-# Tests: litellm-server/config.yaml, scripts/code-ccgw.*, .env.example, docs/*.md
+# Tests: litellm-server/config.yaml, scripts/code-ccgw.sh, scripts/code-ccgw.ps1, .env.example, docs/history.md
 # Tags: scope:issue-specific, layer:TL1
 #
 # TL1 gap (not covered here — needs live services or host-state checks; TL3):
@@ -119,11 +119,14 @@ CONFIG_ENV_VARS_TEST_PATH = "tests/litellm-config/test_config_env_vars.py"
 EXCLUDED_PATHS = {HISTORY_PATH, SELF_PATH, CONFIG_ENV_VARS_TEST_PATH}
 
 # New env var names that must appear in the gateway source files after the move.
+# Connection endpoints only. The four LITELLM_*_MODEL routing keys were here
+# until issue #89 moved routing into config.yaml's `ccgw_tiers` annotations:
+# this list demands an `os.environ/<NAME>` reference, which is exactly what the
+# migration removes. They are deliberately NOT moved to LEGACY_TOKENS either --
+# migration warnings and docs must still be able to write the names, and their
+# real contract (gone from the config AND from .env.example) is pinned by
+# tests/litellm-config/test_config_env_vars.py.
 NEW_GATEWAY_ENV_VARS = [
-    "LITELLM_HAIKU_MODEL",
-    "LITELLM_SONNET_MODEL",
-    "LITELLM_FABLE_MODEL",
-    "LITELLM_OPUS_MODEL",
     "LITELLM_CCGW_PROXY_URL",
     "LITELLM_CCGW_PROXY_OPENAI_URL",
     "LITELLM_CCGW_PROXY_API_KEY",

@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
-# Tests: scripts/code-ccgw.ps1
-# Tags: lifecycle, client-launcher, windows, scope:issue-specific
+# Tests: scripts/code-ccgw.ps1, litellm-server/config.yaml
+# Tags: lifecycle, client-launcher, windows, config, scope:issue-specific
 #
 # Entry point for the Windows client-launcher suite. The cases themselves live in
 # the sibling folder code-ccgw-windows/ and are dot-sourced below, so
@@ -15,8 +15,8 @@
 #     context-NN-*.ps1            one file per group of Contexts
 #
 # Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
-# retired, so the Windows client launcher (pwsh counterpart of
-# scripts/code-ccgw.sh) has exactly ONE path — through the Mac LiteLLM.
+# retired, so the launcher has exactly ONE path — the Mac LiteLLM — and since
+# issue #89 its tier map comes from that server's config.yaml (Contexts 4/13/16/17).
 #
 # Why the precedence chains had to go, rather than merely being re-pointed:
 # keeping a direct fallback would split the credential a client holds into two
@@ -50,9 +50,9 @@
 # statement in the source writes the environment at all, on any path, reachable by
 # these tests or not), Context 12 (the argument shapes an explicit launch loses
 # silently: empty, non-ASCII, over-long — and the safely-sized ones it must not
-# refuse), Context 13 (the five model-routing keys, where ".env wins over the
-# inherited value" and "the shell keeps its own value" have to hold at once, per
-# key), Context 14 (the launcher hands over and returns instead of waiting for the
+# refuse), Context 13 (the five model tiers, where "config.yaml outranks both the
+# .env and the inherited value" and "the shell keeps its own value" have to hold
+# at once, per tier), Context 14 (the launcher hands over and returns instead of waiting for the
 # editor — invisible to every fast-exiting stub) and Context 15 (the same
 # metacharacter contract for the values the launcher READS, which reach the child
 # through the environment block rather than through the command line).
@@ -130,6 +130,8 @@ Describe 'code-ccgw.ps1' {
         . (Join-Path $suite 'helpers-runners-latency.ps1')
         . (Join-Path $suite 'helpers-assertions.ps1')
         . (Join-Path $suite 'setup.ps1')
+        # Last: its builders read the $script: fixtures setup.ps1 defines.
+        . (Join-Path $suite 'helpers-autopull.ps1')
     }
 
     AfterAll {
@@ -154,6 +156,11 @@ Describe 'code-ccgw.ps1' {
             'context-13-routing-precedence.ps1'
             'context-14-launch-responsiveness.ps1'
             'context-15-config-value-injection.ps1'
+            'context-16-config-ssot.ps1'
+            'context-16-grammar-matrix.ps1'
+            'context-17-auto-pull.ps1'
+            'context-18-auto-pull-safety.ps1'
+            'context-19-config-file-shape.ps1'
         )) {
         . (Join-Path (Join-Path $PSScriptRoot 'code-ccgw-windows') $contextFile)
     }

@@ -19,14 +19,103 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CCGW_SCRIPT_DIR="$SCRIPT_DIR"
 # shellcheck source=scripts/lib/root.sh
 . "$SCRIPT_DIR/lib/root.sh"
-# The model-routing keys must ALWAYS come from .env: a stale inherited shell
-# value (e.g. an old LITELLM_OPUS_MODEL left over from a previous launch) must
-# never override the repo's .env intent. DOTENV_FORCE_KEYS is deliberately
-# NON-exported -- it is consumed only by lib/load-dotenv.sh, and leaking it into
-# the child (VS Code) environment would be noise.
-DOTENV_FORCE_KEYS="LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL LITELLM_OPUS_MODEL CCGW_SUBAGENT_MODEL"
 # shellcheck source=scripts/lib/load-dotenv.sh
 . "$SCRIPT_DIR/lib/load-dotenv.sh"
+# shellcheck source=scripts/lib/git-remote.sh
+. "$SCRIPT_DIR/lib/git-remote.sh"
+
+CCGW_CONFIG_FILE="$CCGW_OPS_ROOT/litellm-server/config.yaml"
+_ccgw_warn() { printf '[code-ccgw] WARNING: %s\n' "$1" >&2; }
+
+# --- Pre-launch update -----------------------------------------------------
+# config.yaml is the routing map every host shares, so a backend swapped on one
+# machine reaches this one only once the checkout does. This runs before every
+# export below on purpose: git inherits this process's environment, and the
+# gateway credential has not been copied into it yet.
+#
+# Absent from both the shell and .env means on -- a host that never opts in is
+# the stale host this exists to prevent. Only `off` turns it off silently; any
+# other spelling is named back, since the operator believes it took effect.
+_ccgw_pull_enabled() {
+    if [ -z "${CCGW_AUTO_PULL+x}" ]; then
+        return 0
+    fi
+    case "$CCGW_AUTO_PULL" in
+        on) return 0 ;;
+        off|'') return 1 ;;
+        *)
+            _ccgw_warn "CCGW_AUTO_PULL='$CCGW_AUTO_PULL' is neither on nor off, so the pre-launch update stays off."
+            return 1
+            ;;
+    esac
+}
+
+# Bounded because it sits on an interactive command's critical path: 12 seconds
+# is long enough for a small fetch and short enough that an unreachable remote
+# is a pause rather than a hang. Every failure returns 0 -- a pull problem must
+# never cost the operator their client.
+_ccgw_pull_now() {
+    if ! _cp_target="$(cd "$CCGW_OPS_ROOT" && _git_publish_target)"; then
+        _ccgw_warn "the pre-launch pull found nowhere to pull from; continuing with the checkout as it stands."
+        return 0
+    fi
+    _cp_remote="$(printf '%s\n' "$_cp_target" | sed -n 's/^REMOTE=//p')"
+    _cp_ref="$(printf '%s\n' "$_cp_target" | sed -n 's/^MERGE_REF=//p')"
+
+    # Asked of the tree, not of the merge: `git merge --ff-only` succeeds over
+    # staged, modified and untracked work that has nothing to do with the file
+    # it rewrites, and walking over that is the worst outcome available here.
+    _cp_status="$(git -C "$CCGW_OPS_ROOT" status --porcelain 2>/dev/null || true)"
+    if [ -n "$_cp_status" ]; then
+        _ccgw_warn "the checkout has uncommitted changes, so the pull was skipped and this host may be stale."
+        return 0
+    fi
+
+    # git's own output is discarded: a remote URL can carry userinfo, and its
+    # failure message is exactly where that would reach the terminal.
+    if ! git -C "$CCGW_OPS_ROOT" fetch --quiet "$_cp_remote" "$_cp_ref" >/dev/null 2>&1; then
+        _ccgw_warn "the pre-launch pull could not fetch from '$_cp_remote'; continuing with the checkout as it stands."
+        return 0
+    fi
+
+    _cp_head="$(git -C "$CCGW_OPS_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    _cp_upstream="$(git -C "$CCGW_OPS_ROOT" rev-parse FETCH_HEAD 2>/dev/null || true)"
+    if [ -z "$_cp_head" ] || [ -z "$_cp_upstream" ]; then
+        _ccgw_warn "the pre-launch pull could not read what the remote is holding; continuing with the checkout as it stands."
+        return 0
+    fi
+    # Already current, or merely holding commits nobody has published yet: both
+    # are the ordinary shape of a working checkout, so both are silent.
+    if [ "$_cp_head" = "$_cp_upstream" ]; then
+        return 0
+    fi
+    if git -C "$CCGW_OPS_ROOT" merge-base --is-ancestor "$_cp_upstream" "$_cp_head" 2>/dev/null; then
+        return 0
+    fi
+    if ! git -C "$CCGW_OPS_ROOT" merge-base --is-ancestor "$_cp_head" "$_cp_upstream" 2>/dev/null; then
+        _ccgw_warn "the local and upstream histories have diverged, so nothing was merged; resolve it when convenient."
+        return 0
+    fi
+    if ! git -C "$CCGW_OPS_ROOT" merge --ff-only --quiet FETCH_HEAD >/dev/null 2>&1; then
+        _ccgw_warn "the pre-launch pull fetched but could not merge; continuing with the checkout as it stands."
+        return 0
+    fi
+    printf '[code-ccgw] The checkout was brought up to date with %s.\n' "$_cp_remote" >&2
+    return 0
+}
+
+# `.git` is asked for by name rather than through `rev-parse`, which walks UP:
+# a copied litellm-server/ sitting inside some unrelated repository would
+# otherwise fast-forward a checkout that is not the gateway's.
+if _ccgw_pull_enabled; then
+    if [ ! -e "$CCGW_OPS_ROOT/.git" ]; then
+        _ccgw_warn "$CCGW_OPS_ROOT is not a git checkout of its own, so the pre-launch update was skipped."
+    elif ! command -v git >/dev/null 2>&1; then
+        _ccgw_warn "git was not found on PATH, so the pre-launch update was skipped."
+    elif ! _git_run_deadline 12 _ccgw_pull_now; then
+        _ccgw_warn "the pre-launch pull ran out of time; continuing with the checkout as it stands."
+    fi
+fi
 
 # Clear any real Anthropic API key so the local backend is used instead. Exported
 # defined-but-empty rather than unset: every consumer reads an empty value as "no key",
@@ -91,57 +180,144 @@ else
 fi
 
 # --- Model aliases ---------------------------------------------------------
-# Each LITELLM_*_MODEL is a LiteLLM routing key and goes onto its own /model
-# tier verbatim. The launcher owns no backend names: inventing one would address
-# a model the gateway has no entry for, and the error would surface as a 400
-# from LiteLLM rather than as a message from here.
-#
-# Absence of a source key means "the child must not have the derived variable at all",
-# never "keep whatever the invoking shell happened to carry": a leftover
-# ANTHROPIC_DEFAULT_OPUS_MODEL would otherwise pin a tier the repo's .env no longer
-# names. Hence every conditional export has an explicit unsetting else branch.
-if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
-    export ANTHROPIC_DEFAULT_FABLE_MODEL="$LITELLM_FABLE_MODEL"
-else
-    unset ANTHROPIC_DEFAULT_FABLE_MODEL
+# The five keys below used to name the routing keys per host, which is how each
+# machine ended up addressing whatever it was told about last. They configure
+# nothing now, so a stale one is named back rather than ignored: an .env that
+# reads as if it sets routing, and does not, is the same silence again.
+for _ccgw_retired in \
+    LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL \
+    LITELLM_OPUS_MODEL CCGW_SUBAGENT_MODEL; do
+    if [ -n "${!_ccgw_retired:-}" ]; then
+        printf '[code-ccgw] WARNING: %s no longer configures anything; the tier map moved into litellm-server/config.yaml.\n' \
+            "$_ccgw_retired" >&2
+    fi
+done
+unset _ccgw_retired
+
+# config.yaml is the single source of truth for which tier reaches which route:
+# each route's annotation names the tiers it serves, and that route's model_name
+# is the key those tiers address. The launcher owns no backend names of its own,
+# and there is nothing to fall back to -- a client started with no tier map at
+# all hands Claude Code an empty /model list, which reads as a puzzle much later.
+if [ ! -f "$CCGW_CONFIG_FILE" ] || [ ! -r "$CCGW_CONFIG_FILE" ]; then
+    echo "[code-ccgw] ERROR: cannot read $CCGW_CONFIG_FILE." >&2
+    echo "[code-ccgw] It is the only source of the /model tier map; see docs/ops.md." >&2
+    exit 1
 fi
-if [ -n "${LITELLM_OPUS_MODEL:-}" ]; then
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="$LITELLM_OPUS_MODEL"
-else
-    unset ANTHROPIC_DEFAULT_OPUS_MODEL
+
+# Line-oriented rather than YAML-aware, so that this reader, the PowerShell one
+# and the Python schema check can be held to the same two spellings byte for
+# byte. Any `- model_name:` line closes the block above it, well-formed or not:
+# a name outside the contract must take its own annotation out of play, never
+# hand it to the route before it.
+_ccgw_map="$(awk '
+function emit(payload, sep,   n, parts, i, tok) {
+    if (sep == "P") n = split(payload, parts, ",")
+    else n = split(payload, parts, /[ \t]+/)
+    for (i = 1; i <= n; i++) {
+        tok = parts[i]
+        gsub(/^[ \t]+/, "", tok); gsub(/[ \t]+$/, "", tok)
+        if (tok == "") continue
+        if (tok != "haiku" && tok != "sonnet" && tok != "fable" && tok != "opus" && tok != "subagent") {
+            print "warn config.yaml: \"" tok "\" is not a Claude Code tier (haiku, sonnet, fable, opus, subagent); ignored."
+            continue
+        }
+        if (tok in owner) {
+            if (owner[tok] != current)
+                print "warn config.yaml: the " tok " tier is claimed by both \"" owner[tok] "\" and \"" current "\"; the first one wins."
+            continue
+        }
+        owner[tok] = current
+        print "map " tok " " current
+        mapped++
+    }
+}
+BEGIN { open = 0; startline = -1; mapped = 0 }
+{
+    line = $0
+    sub(/\r$/, "", line)
+    if (line ~ /^  - model_name:/) {
+        open = 0
+        rest = substr(line, 16)
+        name = rest
+        gsub(/^[ \t]+/, "", name); gsub(/[ \t]+$/, "", name)
+        if (rest ~ /^[ ]+[^ \t]+[ ]*$/ && name ~ /^[A-Za-z0-9._-]+$/) {
+            open = 1; current = name; startline = NR
+        } else {
+            print "warn config.yaml: model_name \"" name "\" is outside the routing-name contract, so that route claims no tier."
+        }
+        next
+    }
+    if (line != "" && line !~ /^[ \t]/) { open = 0; next }
+    if (open == 0) next
+    if (line ~ /^      ccgw_tiers:[ ]*\[[^]]*\][ ]*$/) {
+        payload = line
+        sub(/^      ccgw_tiers:[ ]*\[/, "", payload)
+        sub(/\][ ]*$/, "", payload)
+        emit(payload, "P")
+        next
+    }
+    if (NR == startline + 1 && line ~ /^    # ccgw-tiers:[ ]+.+$/) {
+        payload = line
+        sub(/^    # ccgw-tiers:[ ]+/, "", payload)
+        emit(payload, "F")
+    }
+}
+END { if (mapped == 0) print "empty" }
+' "$CCGW_CONFIG_FILE")"
+
+_ccgw_haiku=""; _ccgw_sonnet=""; _ccgw_fable=""; _ccgw_opus=""; _ccgw_subagent=""
+_ccgw_empty=0
+# Read through a process substitution, never a here-document: a here-document
+# re-expands what it is given, and a model_name carrying `$(...)` would run.
+while IFS= read -r _ccgw_line; do
+    case "$_ccgw_line" in
+        'map '*)
+            _ccgw_rest="${_ccgw_line#map }"
+            _ccgw_name="${_ccgw_rest#* }"
+            case "${_ccgw_rest%% *}" in
+                haiku)    _ccgw_haiku="$_ccgw_name" ;;
+                sonnet)   _ccgw_sonnet="$_ccgw_name" ;;
+                fable)    _ccgw_fable="$_ccgw_name" ;;
+                opus)     _ccgw_opus="$_ccgw_name" ;;
+                subagent) _ccgw_subagent="$_ccgw_name" ;;
+            esac
+            ;;
+        'warn '*) _ccgw_warn "${_ccgw_line#warn }" ;;
+        empty)    _ccgw_empty=1 ;;
+    esac
+done < <(printf '%s\n' "$_ccgw_map")
+
+if [ "$_ccgw_empty" -eq 1 ]; then
+    echo "[code-ccgw] ERROR: no route in $CCGW_CONFIG_FILE carries a ccgw_tiers annotation." >&2
+    echo "[code-ccgw] There is no /model tier map to launch with; see docs/ops.md." >&2
+    exit 1
 fi
-if [ -n "${LITELLM_SONNET_MODEL:-}" ]; then
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="$LITELLM_SONNET_MODEL"
-else
-    unset ANTHROPIC_DEFAULT_SONNET_MODEL
-fi
-if [ -n "${LITELLM_HAIKU_MODEL:-}" ]; then
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LITELLM_HAIKU_MODEL"
-else
-    unset ANTHROPIC_DEFAULT_HAIKU_MODEL
-fi
+
+# An unmapped tier means "the child must not have the variable at all", never
+# "keep whatever the invoking shell carried": a leftover value would pin a tier
+# config.yaml no longer names, and an empty one hands Claude Code a /model entry
+# that resolves nowhere.
+_ccgw_route() { # _ccgw_route <child-variable> <routing-key-or-empty>
+    if [ -n "$2" ]; then
+        export "$1=$2"
+    else
+        unset "$1"
+    fi
+}
+_ccgw_route ANTHROPIC_DEFAULT_HAIKU_MODEL  "$_ccgw_haiku"
+_ccgw_route ANTHROPIC_DEFAULT_SONNET_MODEL "$_ccgw_sonnet"
+_ccgw_route ANTHROPIC_DEFAULT_FABLE_MODEL  "$_ccgw_fable"
+_ccgw_route ANTHROPIC_DEFAULT_OPUS_MODEL   "$_ccgw_opus"
+_ccgw_route CLAUDE_CODE_SUBAGENT_MODEL     "$_ccgw_subagent"
+# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
+_ccgw_route ANTHROPIC_CUSTOM_MODEL_OPTION  "$_ccgw_fable"
+
 # ANTHROPIC_MODEL is never exported: it outranks the `model` setting in the user's
 # settings.json, so any value here silently discards the tier chosen there -- an opus
 # session would still start on fable, with nothing in the client to say why. Cleared
 # unconditionally, since an inherited value reintroduces the same override.
 unset ANTHROPIC_MODEL
-
-# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
-if [ -n "${LITELLM_FABLE_MODEL:-}" ]; then
-    export ANTHROPIC_CUSTOM_MODEL_OPTION="$LITELLM_FABLE_MODEL"
-else
-    unset ANTHROPIC_CUSTOM_MODEL_OPTION
-fi
-
-# Subagent routing is opt-in. LiteLLM multiplexes, so pinning every subagent to
-# one tier is no longer needed -- and an unconditional value silently overrides
-# the model an agent definition's frontmatter declares. The value is a routing
-# key, passed through untranslated.
-if [ -n "${CCGW_SUBAGENT_MODEL:-}" ]; then
-    export CLAUDE_CODE_SUBAGENT_MODEL="$CCGW_SUBAGENT_MODEL"
-else
-    unset CLAUDE_CODE_SUBAGENT_MODEL
-fi
 
 export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Local model via ccgw"
 export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Mac backend via the LiteLLM gateway, selected per request"
