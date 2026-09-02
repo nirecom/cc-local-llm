@@ -309,13 +309,8 @@ Context '4. Model selection (tier map derived from litellm-server/config.yaml)' 
         Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' $script:FixtureTierValues['fable'] 'models/inherited-startup-model: the picker entry must be unaffected'
     }
 
-    # 4h. The migration warning, the CPR-ORTH sibling of POSIX case 5. Being
-    # ignored (4c/4d) and being TOLD you are ignored are different guarantees, and
-    # only the second one gets the operator to their .env: a key that silently
-    # stops working reads as the launcher being broken. All five retired keys are
-    # covered because an implementation that warns about the one key a test names
-    # is the likeliest way for this to pass while four operators stay stranded
-    # (detail.md:239).
+    # 4h. Being ignored (4c/4d) and being TOLD you are ignored are different
+    # guarantees; warn about all five retired keys, not just one (detail.md:239).
     It '4h. a retired routing key still in .env draws a migration warning: <Key>' -ForEach @(
         @{ Key = 'LITELLM_HAIKU_MODEL' }
         @{ Key = 'LITELLM_SONNET_MODEL' }

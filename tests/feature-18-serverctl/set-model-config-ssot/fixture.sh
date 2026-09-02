@@ -276,10 +276,8 @@ general_settings:
 EOF
             ;;
         envleftover)
-            # The pre-migration shape, on the fable route: the routing name is
-            # still delegated to an environment variable. This is what a
-            # half-finished migration or a hand-reverted hunk leaves behind, and
-            # it is the exact anti-pattern the whole issue exists to remove.
+            # The fable route's routing name is still delegated to an environment
+            # variable -- the anti-pattern this issue removes.
             cat > "$1" <<'EOF'
 model_list:
   # --- Haiku and sonnet tiers: the shared llama-swap backend ---

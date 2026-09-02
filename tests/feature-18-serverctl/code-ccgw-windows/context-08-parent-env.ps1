@@ -187,16 +187,8 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
     }
 
     It '8h. an unset credential refuses without touching the invoking shell' {
-        # One statement further in: the base URL has been resolved, so a launcher
-        # that writes as it goes has already made its first assignment when this
-        # guard fires.
-        #
-        # Two credentials are in scope on this path even though neither is
-        # accepted: the shell's own ANTHROPIC_API_KEY, which the launcher has
-        # already handled by the time the guard fires, and a value under a retired
-        # name -- the half-migrated .env that produces this error in real life.
-        # The refusal is written precisely when the launcher is trying to be
-        # helpful about credentials, so both must be shown to stay out of it.
+        # Two credentials are in scope here -- ANTHROPIC_API_KEY and a retired-name
+        # value -- and neither must leak into the refusal message.
         $ctx8hEnv = New-Ctx8ParentEnv @{ LITELLM_ANTHROPIC_BASE_URL = 'https://ctx8-err:1' }
         $ctx8hEnv[$script:RKeyCcgw] = $script:Ctx8ErrKey
         $r = Invoke-LauncherInParentShell -LauncherPath $script:Launcher -Environment $ctx8hEnv

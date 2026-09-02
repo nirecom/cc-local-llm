@@ -119,13 +119,10 @@ CONFIG_ENV_VARS_TEST_PATH = "tests/litellm-config/test_config_env_vars.py"
 EXCLUDED_PATHS = {HISTORY_PATH, SELF_PATH, CONFIG_ENV_VARS_TEST_PATH}
 
 # New env var names that must appear in the gateway source files after the move.
-# Connection endpoints only. The four LITELLM_*_MODEL routing keys were here
-# until issue #89 moved routing into config.yaml's `ccgw_tiers` annotations:
-# this list demands an `os.environ/<NAME>` reference, which is exactly what the
-# migration removes. They are deliberately NOT moved to LEGACY_TOKENS either --
-# migration warnings and docs must still be able to write the names, and their
-# real contract (gone from the config AND from .env.example) is pinned by
-# tests/litellm-config/test_config_env_vars.py.
+# Connection endpoints only -- the LITELLM_*_MODEL routing keys are excluded:
+# they route via config.yaml's `ccgw_tiers` now, and warnings/docs must still be
+# able to write their names. Their absence is pinned by
+# tests/litellm-config/test_config_env_vars.py instead.
 NEW_GATEWAY_ENV_VARS = [
     "LITELLM_CCGW_PROXY_URL",
     "LITELLM_CCGW_PROXY_OPENAI_URL",

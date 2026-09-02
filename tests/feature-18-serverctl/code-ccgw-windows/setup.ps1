@@ -41,13 +41,9 @@ $script:PwshPath =
     else { Join-Path $PSHOME 'pwsh' }
 
 # --- Retired variable names -------------------------------------------------
-# The cases that prove a retired variable no longer configures anything need its
-# exact spelling, but those spellings are banned repo-wide by
-# tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring match
-# over every tracked file -- this one included. The names are therefore assembled
-# at runtime instead of appearing as literals. The cases themselves must stay: a
-# stale .env still carrying them is precisely the situation where a surviving
-# fallback would silently route around the new single path.
+# These spellings are banned repo-wide by tests/ccgw-naming/test_no_legacy_names.py
+# (raw substring match, this file included), so they're assembled at runtime
+# instead of appearing as literals.
 $script:RBaseDs4 = 'DS4_ANTHROPIC' + '_BASE_URL'
 $script:RBaseCcgw = 'CCGW_ANTHROPIC' + '_BASE_URL'
 $script:RKeyDs4 = 'DS4_API' + '_KEY'
