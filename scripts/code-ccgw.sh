@@ -1,12 +1,9 @@
 #!/bin/bash
 # ccgw client launcher (macOS / Linux). POSIX counterpart of scripts/code-ccgw.ps1.
 #
-# Every client reaches the backends through the Mac LiteLLM gateway; the direct
-# CCGW Proxy route is retired, so there is exactly one path and nothing to fall
-# back to. An unconfigured base URL or credential is therefore an error rather
-# than a dummy default -- a dummy default only defers the failure to a confusing
-# 401 at request time. Rationale: docs/architecture.md;
-# procedure: docs/ops.md#client-macos--linux.
+# Every client reaches the backends through the Mac LiteLLM gateway -- one path,
+# so an unconfigured base URL or credential is a hard error, not a dummy default.
+# Rationale: docs/architecture.md; procedure: docs/ops.md#client-macos--linux.
 #
 # Usage: ./scripts/code-ccgw.sh [args passed through to `code`]
 set -euo pipefail
@@ -180,10 +177,7 @@ else
 fi
 
 # --- Model aliases ---------------------------------------------------------
-# The five keys below used to name the routing keys per host, which is how each
-# machine ended up addressing whatever it was told about last. They configure
-# nothing now, so a stale one is named back rather than ignored: an .env that
-# reads as if it sets routing, and does not, is the same silence again.
+# These no longer configure anything; warn rather than ignore a stale .env value.
 for _ccgw_retired in \
     LITELLM_HAIKU_MODEL LITELLM_SONNET_MODEL LITELLM_FABLE_MODEL \
     LITELLM_OPUS_MODEL CCGW_SUBAGENT_MODEL; do

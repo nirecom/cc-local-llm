@@ -14,17 +14,9 @@
 #     setup.ps1                   builds the fixtures (runs last, uses all of the above)
 #     context-NN-*.ps1            one file per group of Contexts
 #
-# Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
-# retired, so the launcher has exactly ONE path — the Mac LiteLLM — and since
-# issue #89 its tier map comes from that server's config.yaml (Contexts 4/13/16/17).
-#
-# Why the precedence chains had to go, rather than merely being re-pointed:
-# keeping a direct fallback would split the credential a client holds into two
-# systems (a LiteLLM key and a proxy token), which defeats the TLS termination
-# this change consolidates. With a single source there is nothing to fall back
-# to, so an unconfigured base URL / key is an error, never a dummy default —
-# a dummy default is what turns a misconfiguration into a confusing 401 much
-# later, at request time.
+# The launcher has exactly ONE path -- the Mac LiteLLM -- so an unconfigured
+# base URL / key is a hard error, never a dummy default (docs/architecture.md).
+# Tier map comes from that server's config.yaml (Contexts 4/13/16/17).
 #
 # This suite is the 1:1 mirror of tests/feature-18-serverctl/test-code-ccgw-posix.sh
 # (CPR-ORTH: the two launchers are symmetric members of one class, so the

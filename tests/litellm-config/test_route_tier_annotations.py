@@ -156,12 +156,7 @@ def test_case5_at_least_one_tier_is_mapped():
 
 
 def test_case6_every_tier_in_the_vocabulary_is_mapped():
-    """The lineup pin, kept separate from case 4 on purpose.
-
-    Case 4 is an invariant that must hold forever; this one records the CURRENT
-    lineup and is meant to be edited when a tier is deliberately retired -- a
-    distinction that disappears if the two share a case.
-    """
+    """The current lineup pin -- edit this case, not case 4, when a tier retires."""
     owners = tier_owners(config_text())
     missing = [t for t in TIER_VOCAB if t not in owners]
     assert not missing, (

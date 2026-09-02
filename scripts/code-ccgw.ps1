@@ -394,10 +394,7 @@ if ($null -ne $CaCert) {
 }
 
 # --- Model aliases ---------------------------------------------------------
-# The five keys below used to name the routing keys per host, which is how each machine
-# ended up addressing whatever it was told about last. They configure nothing now, so a
-# stale one is named back rather than ignored: an .env that reads as if it sets routing,
-# and does not, is the same silence again.
+# These no longer configure anything; warn rather than ignore a stale .env value.
 foreach ($retired in @('LITELLM_HAIKU_MODEL', 'LITELLM_SONNET_MODEL', 'LITELLM_FABLE_MODEL',
         'LITELLM_OPUS_MODEL', 'CCGW_SUBAGENT_MODEL')) {
     if ($null -ne (Get-EnvOrNull $retired)) {

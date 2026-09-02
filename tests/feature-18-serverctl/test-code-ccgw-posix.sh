@@ -3,12 +3,9 @@
 # Tags: lifecycle, client-launcher, scope:issue-specific
 set -u
 
-# Scenario (issue #41 / detail plan D5a): the direct-to-DS4-Proxy route is
-# retired, so this launcher (macOS/Linux counterpart of code-ccgw.ps1) has
-# exactly ONE path -- through the Mac LiteLLM. A retained fallback would split
-# the client credential across two systems and defeat the TLS termination that
-# consolidation buys, so an unconfigured base URL or key is a hard error rather
-# than a dummy default, which only surfaces as a confusing 401 at request time.
+# This launcher (macOS/Linux counterpart of code-ccgw.ps1) has exactly ONE
+# path -- through the Mac LiteLLM -- so an unconfigured base URL or key is a
+# hard error, never a dummy default (docs/architecture.md).
 # REPO is derived from $0's logical location (no symlink target resolution - see test-repo-derivation.sh); export REPO=<path> to point at another checkout.
 REPO="${REPO:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}"
 LAUNCHER="$REPO/scripts/code-ccgw.sh"
@@ -153,13 +150,8 @@ assert_no_ca_warning() { # assert_no_ca_warning <context>
 }
 
 # --- Retired variable names --------------------------------------------------
-# The cases that prove a retired variable no longer configures anything need
-# its exact spelling, but those spellings are banned repo-wide by
-# tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring
-# match over every tracked file — this one included. The names are therefore
-# assembled at runtime instead of appearing as literals. The cases themselves
-# must stay: a stale .env still carrying them is precisely the situation where
-# a surviving fallback would silently route around the new single path.
+# Assembled at runtime -- the literal spellings are banned repo-wide by
+# tests/ccgw-naming/test_no_legacy_names.py.
 R_BASE_DS4="DS4_ANTHROPIC""_BASE_URL"
 R_BASE_CCGW="CCGW_ANTHROPIC""_BASE_URL"
 R_KEY_DS4="DS4_API""_KEY"
@@ -171,9 +163,7 @@ run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 [ "$RC" -eq 0 ] || fail "base-url/configured: exited $RC: $(cat "$WORK/err")"
 assert_env ANTHROPIC_BASE_URL https://lite:1 "base-url: LITELLM_ANTHROPIC_BASE_URL is the only source"
 
-# The retired sources must not be honored — a stale .env carrying them is
-# exactly the situation where a silent fallback would send traffic down the
-# route this change removed.
+# A stale .env carrying only the retired sources must not be honored.
 run_launcher "$R_BASE_CCGW=https://ccgw:2" "$R_BASE_DS4=https://ds4:3" LITELLM_CLIENT_KEY=ck
 [ "$RC" -ne 0 ] || fail "base-url/retired-only: exited 0; CCGW_/DS4_ base URLs are retired and must not configure the launcher"
 
@@ -182,9 +172,7 @@ run_launcher LITELLM_CLIENT_KEY=ck
 assert_stderr 'LITELLM_ANTHROPIC_BASE_URL' "base-url/unset: the error must name the variable to set"
 assert_stderr 'docs/ops.md' "base-url/unset: the error must point at the setup procedure"
 
-# An empty (but defined) value must not count as configured — `-n` semantics,
-# unlike the retired .cmd's `if defined`, which would accept an empty string.
-# The .ps1 port matches this `-n` behaviour via its Get-EnvOrNull helper.
+# An empty (but defined) value must not count as configured (`-n` semantics).
 run_launcher LITELLM_ANTHROPIC_BASE_URL= LITELLM_CLIENT_KEY=ck
 [ "$RC" -ne 0 ] || fail "base-url/empty: an empty LITELLM_ANTHROPIC_BASE_URL must be treated as unset"
 

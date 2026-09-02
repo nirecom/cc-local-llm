@@ -2,12 +2,9 @@
 # Tests: scripts/code-ccgw.sh, litellm-server/config.yaml
 # Tags: scope:issue-specific, layer:TL2, client-launcher, config, ssot, routing
 #
-# Scenario (issue #89): each machine used to name its own routing keys in its
-# own .env, so a backend swapped on the Mac left every other host addressing
-# the key it was told about last -- the 2026-08-22 failure, where requests kept
-# going to a model llama-swap no longer served. config.yaml owns the map now:
-# the launcher reads each route's `ccgw_tiers` annotation and puts that route's
-# `model_name` on the matching /model tier.
+# config.yaml owns the routing map: the launcher reads each route's
+# `ccgw_tiers` annotation and puts that route's `model_name` on the matching
+# /model tier (issue #89; history: docs/history.md).
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/code-ccgw-config-tiers/fixture.sh"
 
 # Split out of test-code-ccgw-posix.sh, which keeps the concerns one fixture
@@ -17,9 +14,8 @@
 # TL3 gap: whether the routing key that reaches the child actually resolves at
 # a running LiteLLM -- the docs/ops.md cutover run at USER_VERIFIED covers it.
 #
-# The retired startup-model variable's spelling is banned repo-wide by
-# tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring
-# match over every tracked file -- so it is assembled at runtime.
+# Assembled at runtime -- the literal spelling is banned repo-wide by
+# tests/ccgw-naming/test_no_legacy_names.py.
 R_DEFAULT_MODEL="CCGW_DEFAULT""_MODEL"
 
 # --- Case 1: the annotated map reaches the child, tier by tier ---------------
@@ -141,12 +137,8 @@ subagent | CCGW_SUBAGENT_MODEL  | tier-subagent
 TABLE
 
 # --- Case 5: the operator is told their .env still carries the retired keys --
-# Silently ignoring them leaves a file that reads as if it configures routing;
-# the next person to edit it would expect a change and get none. All five names
-# are driven separately (detail.md:239 says "any of the five"): a warning built
-# from one hard-coded name, or from a list assembled by hand, passes on whichever
-# key the author happened to type and stays silent for the operator holding a
-# different one -- and silence is the exact failure the warning exists to end.
+# All five names are driven separately so a warning that only handles one
+# spelling can't pass by accident.
 write_default_config
 while IFS= read -r key; do
     [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
