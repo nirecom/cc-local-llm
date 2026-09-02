@@ -2,6 +2,7 @@
 *.log
 *.bak
 .env
+testResults.xml
 
 .migration-state.json
 
