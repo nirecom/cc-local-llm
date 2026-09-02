@@ -182,8 +182,22 @@ backends:
 |------|--------------------------|---------|---------------------|
 | Haiku | `qwen3.8-27b` | the Sonnet entry, shared — that host's swap group is exclusive, so a second model would evict this one on every call | Anthropic to OpenAI |
 | Sonnet | `qwen3.8-27b` | Qwen3.8-27B-UD-Q3_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
+| Subagent | `qwen3.8-27b` | the Sonnet entry again, for the same exclusivity reason | Anthropic to OpenAI |
 | Fable | `deepseek-v4-flash` | CCGW Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `qwen3.8-flash-next-3bit-mtp` (`.env`-selected) | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+| Opus | `qwen3.8-flash-next-3bit-mtp` | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+
+### The tier map lives in the config, not in each host's .env
+
+The routing keys used to be per-machine `.env` values, and `model_name` was
+`os.environ/LITELLM_<TIER>_MODEL`. That made the gateway's own identity depend on the Mac's
+private file while each client built its aliases from its own, so the hosts drifted apart
+silently and a tier switch had to be mirrored by hand onto every box. Each route now states its
+name literally and carries a `ccgw_tiers:` annotation naming the tiers it serves, which makes
+`litellm-server/config.yaml` the single tracked source both the gateway and every launcher read.
+Drift becomes a git question instead of a per-host one: `set-model.sh` publishes, and each
+launcher pulls before it reads (`CCGW_AUTO_PULL`). A checkout with local work or a diverged
+history is reported rather than fast-forwarded over — the operator's tree is not collateral for
+a routing update.
 
 ### Why the gateway moved off Windows/Docker
 
@@ -285,14 +299,16 @@ Sonnet tiers at all. It is retired: `LITELLM_ANTHROPIC_BASE_URL` and `LITELLM_CL
 required, and the launchers exit when either is missing. A placeholder default would only defer
 the same failure to a 401 at request time, where it is much harder to read.
 
-### Subagent pinning is opt-in
+### Subagent pinning is a route's decision
 
 The launchers used to export `CLAUDE_CODE_SUBAGENT_MODEL` unconditionally, because the two Mac
 backends are mutually exclusive: a subagent on the other backend would evict the model the main
-session is using. With the gateway multiplexing across four backends on two machines, that
-premise no longer holds for the Haiku and Sonnet tiers, while the unconditional export silently
-overrode the model each agent definition's frontmatter asks for. `CCGW_SUBAGENT_MODEL` now makes
-the pin opt-in, and it takes a routing key that is passed through untranslated.
+session is using. That premise no longer holds for the Haiku and Sonnet tiers now that the
+gateway multiplexes across four backends on two machines. Subagent is therefore a tier like any
+other: a route claims it by naming `subagent` in its `ccgw_tiers:` annotation, and the launchers
+export the variable only for as long as some route does. Today that is the shared Windows entry,
+which keeps subagents off a second model in an exclusive swap group. Nobody pins it per host, so
+opting subagents out is one edit in a tracked file rather than a change on every box.
 
 ### Two strategies update
 

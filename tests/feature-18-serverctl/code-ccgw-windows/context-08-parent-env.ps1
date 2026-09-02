@@ -26,16 +26,16 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
             NODE_EXTRA_CA_CERTS                       = 'C:\ctx8\ca.pem'
             ANTHROPIC_DEFAULT_FABLE_MODEL             = 'ctx8-fable'
             ANTHROPIC_DEFAULT_OPUS_MODEL              = 'ctx8-opus'
-            ANTHROPIC_DEFAULT_SONNET_MODEL            = 'ctx8-sonnet'
-            ANTHROPIC_DEFAULT_HAIKU_MODEL             = 'ctx8-haiku'
+            ANTHROPIC_DEFAULT_SONNET_MODEL            = 'ctx8-shared'
+            ANTHROPIC_DEFAULT_HAIKU_MODEL             = 'ctx8-shared'
             ANTHROPIC_CUSTOM_MODEL_OPTION             = 'ctx8-fable'
             ANTHROPIC_CUSTOM_MODEL_OPTION_NAME        = 'Local model via ccgw'
             ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = 'Mac backend via the LiteLLM gateway, selected per request'
-            CLAUDE_CODE_SUBAGENT_MODEL                = 'ctx8-subagent'
+            CLAUDE_CODE_SUBAGENT_MODEL                = 'ctx8-shared'
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC  = '1'
             CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = '1'
             CLAUDE_STREAM_IDLE_TIMEOUT_MS             = '600000'
-            CLAUDE_CODE_AUTO_COMPACT_WINDOW           = '65536'
+            CLAUDE_CODE_AUTO_COMPACT_WINDOW           = '102400'
             CLAUDE_AUTOCOMPACT_PCT_OVERRIDE           = '75'
         }
         # ANTHROPIC_API_KEY and ANTHROPIC_MODEL are deliberately NOT in that map:
@@ -43,26 +43,38 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
         # so each gets its own case -- 8d and 8k.
         $script:MustVars = @($script:Ctx8ExpectedChild.Keys)
 
-        # Every routing key set, so each variable above is genuinely computed to
-        # something OTHER than its sentinel -- a launcher that quietly stopped
-        # exporting anything must not be able to pass 8b.
+        # Connection settings from .env, every tier from config.yaml, so each
+        # variable above is genuinely computed to something OTHER than its
+        # sentinel -- a launcher that quietly stopped exporting anything must not
+        # be able to pass 8b. Both sources are exercised because a leak into the
+        # parent can come from either loader.
         $script:Ctx8Launcher = New-FixtureTree -Name 'fixture-ctx8' -DotEnvLines @(
             'LITELLM_ANTHROPIC_BASE_URL=https://ctx8-lite:1'
             'LITELLM_CLIENT_KEY=ctx8-client-key'
             'CCGW_CA_CERT=C:\ctx8\ca.pem'
-            'LITELLM_FABLE_MODEL=ctx8-fable'
-            'LITELLM_OPUS_MODEL=ctx8-opus'
-            'LITELLM_SONNET_MODEL=ctx8-sonnet'
-            'LITELLM_HAIKU_MODEL=ctx8-haiku'
-            'CCGW_SUBAGENT_MODEL=ctx8-subagent'
             'BASIC_KEY=ctx8-basic'
+        ) -ConfigYamlLines @(
+            'model_list:'
+            '  - model_name: ctx8-shared'
+            '    litellm_params:'
+            '      model: openai/Backend-A'
+            '      ccgw_tiers: [haiku, sonnet, subagent]'
+            ''
+            '  - model_name: ctx8-fable'
+            '    litellm_params:'
+            '      model: openai/Backend-B'
+            '      ccgw_tiers: [fable]'
+            ''
+            '  - model_name: ctx8-opus'
+            '    litellm_params:'
+            '      model: openai/Backend-C'
+            '      ccgw_tiers: [opus]'
         )
         # Keys the .env introduces that the shell never had. They exist to prove
         # the loader's own writes do not land in the shell either (8c).
         $script:Ctx8DotEnvOnlyKeys = @(
             'BASIC_KEY', 'LITELLM_ANTHROPIC_BASE_URL', 'LITELLM_CLIENT_KEY',
-            'CCGW_CA_CERT', 'LITELLM_FABLE_MODEL', 'LITELLM_OPUS_MODEL',
-            'LITELLM_SONNET_MODEL', 'LITELLM_HAIKU_MODEL', 'CCGW_SUBAGENT_MODEL'
+            'CCGW_CA_CERT'
         )
 
         $script:Ctx8ApiKey = 'cloud-key-must-survive-in-parent'
@@ -175,16 +187,8 @@ Context '8. The invoking shell keeps its own environment (issue #66)' {
     }
 
     It '8h. an unset credential refuses without touching the invoking shell' {
-        # One statement further in: the base URL has been resolved, so a launcher
-        # that writes as it goes has already made its first assignment when this
-        # guard fires.
-        #
-        # Two credentials are in scope on this path even though neither is
-        # accepted: the shell's own ANTHROPIC_API_KEY, which the launcher has
-        # already handled by the time the guard fires, and a value under a retired
-        # name -- the half-migrated .env that produces this error in real life.
-        # The refusal is written precisely when the launcher is trying to be
-        # helpful about credentials, so both must be shown to stay out of it.
+        # Two credentials are in scope here -- ANTHROPIC_API_KEY and a retired-name
+        # value -- and neither must leak into the refusal message.
         $ctx8hEnv = New-Ctx8ParentEnv @{ LITELLM_ANTHROPIC_BASE_URL = 'https://ctx8-err:1' }
         $ctx8hEnv[$script:RKeyCcgw] = $script:Ctx8ErrKey
         $r = Invoke-LauncherInParentShell -LauncherPath $script:Launcher -Environment $ctx8hEnv

@@ -167,103 +167,130 @@ Context '3. TLS CA (retained: LiteLLM terminates TLS with the mkcert leaf)' {
     }
 }
 
-Context '4. Model selection (unconditional LiteLLM routing keys)' {
-    # With the direct path gone there is no branch left: each LITELLM_*_MODEL is a
-    # LiteLLM routing key and goes onto its own /model tier verbatim. The launcher
-    # owns no backend names of its own -- inventing one would route to a model the
-    # gateway has no entry for, and the error would surface as a 400 from LiteLLM
-    # rather than as a launcher message.
+Context '4. Model selection (tier map derived from litellm-server/config.yaml)' {
+    # Since issue #89 the launcher takes no routing key from its environment at
+    # all: it reads its own tree's litellm-server/config.yaml and derives each
+    # /model tier from the `ccgw_tiers` annotation on the route that serves it.
+    # The launcher owns no backend names of its own -- inventing one would route
+    # to a model the gateway has no entry for, and the error would surface as a
+    # 400 from LiteLLM rather than as a launcher message.
 
     BeforeAll {
-        $script:AllKeys = @{
-            LITELLM_FABLE_MODEL  = 'lite-fable'
-            LITELLM_OPUS_MODEL   = 'lite-opus'
-            LITELLM_SONNET_MODEL = 'lite-sonnet'
-            LITELLM_HAIKU_MODEL  = 'lite-haiku'
-        }
+        # One route claiming every tier but fable: the shape that proves the
+        # picker entry is driven by an ANNOTATION and not by a variable.
+        $script:Ctx4NoFable = New-FixtureTree -Name 'fixture-ctx4-no-fable' -ConfigYamlLines @(
+            'model_list:'
+            '  - model_name: lite-only'
+            '    litellm_params:'
+            '      model: openai/Qwen3.8-27B'
+            '      ccgw_tiers: [haiku, sonnet, opus, subagent]'
+        )
+        # No route claims `subagent`, which is how an operator says "let each
+        # agent definition's frontmatter choose".
+        $script:Ctx4NoSubagent = New-FixtureTree -Name 'fixture-ctx4-no-subagent' -ConfigYamlLines @(
+            'model_list:'
+            '  - model_name: lite-only'
+            '    litellm_params:'
+            '      model: openai/Qwen3.8-27B'
+            '      ccgw_tiers: [haiku, sonnet, fable, opus]'
+        )
+        $script:Ctx4NoConfig = New-FixtureTree -Name 'fixture-ctx4-no-config' -NoConfigYaml
     }
 
-    It '4a. all four routing keys land verbatim on their own tiers' {
-        $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
+    It '4a. every tier the config claims lands verbatim on its own /model tier' {
+        $r = Invoke-Launcher -Environment (New-Env)
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'lite-fable' 'models: fable routing key'
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models: opus routing key'
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_SONNET_MODEL' 'lite-sonnet' 'models: sonnet routing key'
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-haiku' 'models: haiku routing key'
+        foreach ($tier in $script:TierRows.Keys) {
+            Assert-LauncherEnv $r $script:TierRows[$tier] $script:FixtureTierValues[$tier] "models: the $tier tier comes from config.yaml"
+        }
         Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' "models: the startup tier is settings.json's to choose, not the launcher's"
-        Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' 'lite-fable' 'models: custom model option follows the fable tier'
+        Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' $script:FixtureTierValues['fable'] 'models: custom model option follows the fable tier'
         # Stated as an inequality too: a regression that collapses the tiers onto
-        # one key would still satisfy each literal individually if all literals
+        # one route would still satisfy each literal individually if all literals
         # moved.
         Assert-LauncherEnvDiffers $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'ANTHROPIC_DEFAULT_OPUS_MODEL' `
-            'models: fable and opus must address different routing keys or /model cannot switch'
+            'models: fable and opus must address different routes or /model cannot switch'
     }
 
     It '4b. no retired direct-path backend name may appear in any model var' {
-        # The launcher is not allowed to know them any more.
-        $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
+        # The launcher is not allowed to know them any more. The fixture's
+        # `model:` lines deliberately carry such names so this case can only pass
+        # by the launcher reading `model_name`, never the backend behind it.
+        $r = Invoke-Launcher -Environment (New-Env)
         foreach ($v in $script:ModelVars) {
             $val = if ($r.Env.ContainsKey($v)) { $r.Env[$v] } else { '' }
-            $val | Should -Not -Match '(?i)deepseek' -Because "models: $v='$val' is a backend name, not a LiteLLM routing key"
-            $val | Should -Not -Match '(?i)laguna' -Because "models: $v='$val' is a backend name, not a LiteLLM routing key"
+            $val | Should -Not -Match '(?i)deepseek' -Because "models: $v='$val' is a backend name, not a LiteLLM route"
+            $val | Should -Not -Match '(?i)laguna' -Because "models: $v='$val' is a backend name, not a LiteLLM route"
+            $val | Should -Not -Match '(?i)qwen' -Because "models: $v='$val' is a backend name, not a LiteLLM route"
         }
     }
 
     It '4c. the retired startup-model variable must change nothing at all' {
-        $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ $script:RDefaultModel = 'laguna-s-2.1' }))
+        $r = Invoke-Launcher -Environment (New-Env @{ $script:RDefaultModel = 'laguna-s-2.1' })
         Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' 'models/retired-default: the retired startup-model variable must configure nothing'
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/retired-default: the tier map must be unaffected'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' $script:FixtureTierValues['opus'] 'models/retired-default: the tier map must be unaffected'
     }
 
     # 4d. Subagent contract (three cases).
     #
-    # Why it changed: the old launcher pinned CLAUDE_CODE_SUBAGENT_MODEL to the
-    # fable tier so a subagent could not evict the resident backend. Routing now
-    # goes through LiteLLM, which multiplexes, so the pin is no longer needed --
-    # and it actively harms, because it silently overrides the model an agent
-    # definition's frontmatter declares. Default is therefore "say nothing";
-    # CCGW_SUBAGENT_MODEL exists only for the case where a user deliberately wants
-    # every subagent confined to one route.
+    # Why it changed twice: the launcher once pinned CLAUDE_CODE_SUBAGENT_MODEL
+    # to the fable tier, which silently overrode the model an agent definition's
+    # frontmatter declares; the opt-in CCGW_SUBAGENT_MODEL that replaced it then
+    # became one more per-machine value to keep in sync. Both roles now live in
+    # the annotation: a route claiming `subagent` sets it, no route claiming it
+    # leaves it unset, and the environment cannot say otherwise.
 
-    It '4d-i. by default the subagent model is not exported at all' {
-        $r = Invoke-Launcher -Environment (New-Env $script:AllKeys)
-        Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/default: an unconditional value overrides agent frontmatter'
-    }
-
-    It '4d-ii. CCGW_SUBAGENT_MODEL is exported verbatim' {
-        $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ CCGW_SUBAGENT_MODEL = 'lite-haiku' }))
-        Assert-LauncherEnv $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'lite-haiku' 'subagent/opt-in'
-    }
-
-    It '4d-iii. an arbitrary routing key passes through untranslated' {
-        # A key the launcher has never heard of must survive intact, and a tier
-        # name must NOT be mapped to that tier's value.
-        $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ CCGW_SUBAGENT_MODEL = 'some-other-routing-key' }))
-        Assert-LauncherEnv $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'some-other-routing-key' 'subagent/domain'
-    }
-
-    It 'a defined-but-empty CCGW_SUBAGENT_MODEL counts as unset' {
-        # Exporting an empty model name would make Claude Code request "" and fail
-        # at the gateway.
-        $r = Invoke-Launcher -Environment (New-Env @{ LITELLM_FABLE_MODEL = 'lite-fable'; CCGW_SUBAGENT_MODEL = '' })
-        Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/empty'
-    }
-
-    It '4e. no routing keys at all: nothing may be invented' {
+    It '4d-i. a route claiming the subagent tier exports it' {
         $r = Invoke-Launcher -Environment (New-Env)
+        Assert-LauncherEnv $r 'CLAUDE_CODE_SUBAGENT_MODEL' $script:FixtureTierValues['subagent'] 'subagent/claimed'
+    }
+
+    It '4d-ii. no route claiming it leaves the subagent model unexported' {
+        $r = Invoke-Launcher -LauncherPath $script:Ctx4NoSubagent -Environment (New-Env)
+        $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
+        Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/unclaimed: an unconditional value overrides agent frontmatter'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-only' 'subagent/unclaimed: the other tiers must still be mapped'
+    }
+
+    It '4d-iii. the retired CCGW_SUBAGENT_MODEL variable no longer configures it' {
+        # A stale .env still carrying it is exactly the situation where a
+        # surviving fallback would keep serving a name the config has moved on
+        # from.
+        $r = Invoke-Launcher -LauncherPath $script:Ctx4NoSubagent -Environment (New-Env @{ CCGW_SUBAGENT_MODEL = 'some-other-routing-key' })
+        # A launcher that failed before starting the child leaves the same
+        # "unset" evidence, so the run is pinned first -- the assertion set 4d-ii
+        # already carries (CPR-ORTH).
+        $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
+        $r.Reached | Should -BeTrue -Because 'subagent/retired-var: the stub `code` was never reached, so an unset subagent model proves nothing'
+        Assert-LauncherEnvUnset $r 'CLAUDE_CODE_SUBAGENT_MODEL' 'subagent/retired-var: config.yaml is the only source'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-only' 'subagent/retired-var: the other tiers must still be mapped'
+    }
+
+    It 'a stale routing key in the environment cannot override the config' {
+        # The 2026-08-22 failure in one line: the per-machine value is wrong, the
+        # config is right, and the config has to win.
+        $r = Invoke-Launcher -Environment (New-Env @{
+                LITELLM_FABLE_MODEL = 'stale-fable-from-env'
+                LITELLM_OPUS_MODEL  = 'stale-opus-from-env'
+            })
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' $script:FixtureTierValues['fable'] 'models/stale-env: the config value wins'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' $script:FixtureTierValues['opus'] 'models/stale-env: the config value wins'
+    }
+
+    It '4e. an absent config.yaml is a hard failure naming the file' {
+        $r = Invoke-Launcher -LauncherPath $script:Ctx4NoConfig -Environment (New-Env)
+        $r.ExitCode | Should -Not -Be 0 -Because 'with no routing table there is no tier map to derive, and inventing one routes nowhere'
+        Assert-Stderr $r 'config.yaml' 'models/no-config: the error must name the file the launcher could not read'
         foreach ($v in $script:ModelVars) {
-            Assert-LauncherEnvUnset $r $v 'models/no-keys: the launcher must substitute no model name of its own'
+            Assert-LauncherEnvUnset $r $v 'models/no-config: the launcher must substitute no model name of its own'
         }
     }
 
-    It '4f. partial keys: the fable tier drives the picker entry, so its absence leaves it unset' {
-        $r = Invoke-Launcher -Environment (New-Env @{
-                LITELLM_OPUS_MODEL   = 'lite-opus'
-                LITELLM_SONNET_MODEL = 'lite-sonnet'
-                LITELLM_HAIKU_MODEL  = 'lite-haiku'
-            })
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/no-fable: opus routing key still applies'
-        Assert-LauncherEnvUnset $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'models/no-fable: no fable key means no fable tier'
+    It '4f. a tier no route claims: the fable tier drives the picker entry, so its absence leaves it unset' {
+        $r = Invoke-Launcher -LauncherPath $script:Ctx4NoFable -Environment (New-Env)
+        $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-only' 'models/no-fable: the claimed tiers still apply'
+        Assert-LauncherEnvUnset $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'models/no-fable: no route claims fable, so no fable tier'
         foreach ($v in $script:ActiveVars) {
             Assert-LauncherEnvUnset $r $v 'models/no-fable: the launcher must invent no model name of its own'
         }
@@ -275,10 +302,38 @@ Context '4. Model selection (unconditional LiteLLM routing keys)' {
     # value takes a different route than a set one, so the launcher has to clear it
     # rather than merely decline to set it.
     It '4g. an inherited ANTHROPIC_MODEL is cleared, not passed through' {
-        $r = Invoke-Launcher -Environment (New-Env ($script:AllKeys + @{ ANTHROPIC_MODEL = 'stale-from-parent' }))
+        $r = Invoke-Launcher -Environment (New-Env @{ ANTHROPIC_MODEL = 'stale-from-parent' })
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
         Assert-LauncherEnvUnset $r 'ANTHROPIC_MODEL' 'models/inherited-startup-model: an inherited value must be cleared'
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' 'lite-opus' 'models/inherited-startup-model: the tier map must be unaffected'
-        Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' 'lite-fable' 'models/inherited-startup-model: the picker entry must be unaffected'
+        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_OPUS_MODEL' $script:FixtureTierValues['opus'] 'models/inherited-startup-model: the tier map must be unaffected'
+        Assert-LauncherEnv $r 'ANTHROPIC_CUSTOM_MODEL_OPTION' $script:FixtureTierValues['fable'] 'models/inherited-startup-model: the picker entry must be unaffected'
+    }
+
+    # 4h. Being ignored (4c/4d) and being TOLD you are ignored are different
+    # guarantees; warn about all five retired keys, not just one (detail.md:239).
+    It '4h. a retired routing key still in .env draws a migration warning: <Key>' -ForEach @(
+        @{ Key = 'LITELLM_HAIKU_MODEL' }
+        @{ Key = 'LITELLM_SONNET_MODEL' }
+        @{ Key = 'LITELLM_FABLE_MODEL' }
+        @{ Key = 'LITELLM_OPUS_MODEL' }
+        @{ Key = 'CCGW_SUBAGENT_MODEL' }
+    ) {
+        $launcher = New-FixtureTree -Name "ctx4-retired-$Key" -DotEnvLines @("$Key=stale-from-dotenv")
+        $r = Invoke-Launcher -LauncherPath $launcher -Environment (New-Env)
+        $r.ExitCode | Should -Be 0 -Because "models/retired-$Key`: a retired key is a thing to say something about, never a reason to withhold the editor; stderr: $($r.StdErr)"
+        $r.Reached | Should -BeTrue -Because "models/retired-$Key`: the client was never started"
+        Assert-LauncherWarning $r $Key "models/retired-$Key`: the warning must name the key that no longer does anything, or the operator cannot find it"
+        Assert-LauncherWarning $r 'config.yaml' "models/retired-$Key`: the warning must say where the setting lives now"
+    }
+
+    It '4h-control. a .env with no retired key draws no migration warning' {
+        # Without this, the five rows above are all satisfied by a launcher that
+        # prints the same warning on every single start -- which trains the
+        # operator to ignore it.
+        $launcher = New-FixtureTree -Name 'ctx4-retired-none'
+        $r = Invoke-Launcher -LauncherPath $launcher -Environment (New-Env)
+        $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
+        ($r.StdErr + $r.StdOut) | Should -Not -Match '(?i)(no longer|retired|migrat)' `
+            -Because 'models/retired-none: warned about retired keys although .env carries none'
     }
 }

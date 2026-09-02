@@ -1,26 +1,19 @@
 #Requires -Version 5.1
 # ccgw client launcher (Windows). Every client reaches the backends through the Mac
-# LiteLLM gateway; the direct CCGW Proxy route is retired, so there is exactly one path
-# and nothing to fall back to. An unconfigured base URL or credential is therefore an
-# error rather than a dummy default -- a dummy default only defers the failure to a
-# confusing 401 at request time. Because PowerShell has no exec, this script never writes
-# any ccgw/LiteLLM value into its own process's $env:; every such value is collected and
-# injected only into the launched VS Code child process's environment block, so the
-# invoking shell's environment is left untouched and nothing bleeds into a later native
-# subscription session started from that same shell (issue #66).
+# LiteLLM gateway; an unconfigured base URL or credential is an error rather than a
+# dummy default, which would only defer the failure to a confusing 401.
+# PowerShell has no exec, so no ccgw/LiteLLM value is ever written into this
+# process's own $env: -- each is collected and injected only into the launched VS
+# Code child's environment block, leaving the invoking shell untouched (issue #66).
+# POSIX counterpart: scripts/code-ccgw.sh. The two resolve the base URL, the auth
+# token, the CA, the pre-launch pull and the tier map identically.
 # Rationale: docs/architecture.md; procedure: docs/ops.md#client-windows.
-#
-# POSIX counterpart: scripts/code-ccgw.sh. The two resolve the base URL, the auth token,
-# the CA and the model tiers identically. They differ where the platform forces it: the
-# VS Code profile path and the launch itself -- the POSIX script execs VS Code, this one
-# has no exec to hand off to, so it stays resident as the child's parent and passes the
-# environment through the child's process environment block instead of its own.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 # PowerShell 7.4+ turns a non-zero native exit code into a terminating error while
-# ErrorActionPreference is Stop. Neither `mkcert -CAROOT` failing nor VS Code's own exit
-# code should abort this launcher, so that conversion is switched off where it exists.
+# ErrorActionPreference is Stop. Neither `mkcert -CAROOT` failing nor VS Code's own
+# exit code should abort this launcher, so that conversion is switched off.
 if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 
 # Strips #@if <token> / #@endif blocks. Must stay behaviorally identical to
@@ -78,21 +71,29 @@ function Get-EnvOrNull([string]$Name) {
     return $v
 }
 
-# Writes to stderr without the Write-Error machinery, so the message shape is the
-# launcher's own and the exit code stays under this script's control.
+# The same resolution WITHOUT the empty-is-unset rule, for a switch whose empty
+# spelling is a deliberate "off" while "set nowhere at all" is a different answer.
+function Get-RawEnvOrNull([string]$Name) {
+    if ($ChildEnv.Contains($Name)) { return [string]$ChildEnv[$Name] }
+    return [Environment]::GetEnvironmentVariable($Name)
+}
+
+# Written straight to stderr rather than through Write-Error, so the message shape is
+# the launcher's own and the exit code stays under this script's control.
 function Write-LauncherError([string]$Message) {
     [Console]::Error.WriteLine("[code-ccgw] $Message")
 }
+function Write-LauncherWarning([string]$Message) {
+    [Console]::Error.WriteLine("[code-ccgw] WARNING: $Message")
+}
 
 # Load the repo-root .env (gitignored) so the real Mac LAN IP is never committed.
-# Format: KEY=value, one per line, # comment lines allowed. A value already set in
-# the shell takes precedence over .env -- EXCEPT for $ModelRoutingKeys, which must
-# always come from .env so a stale inherited shell value (e.g. an old
-# LITELLM_OPUS_MODEL from a previous launch) can never override the repo's intent.
-# See .env.example for the supported keys.
+# Format: KEY=value, one per line, # comment lines allowed. A value already set in the
+# shell takes precedence over .env. See .env.example for the supported keys.
 # .env may also carry #@if windows / #@if posix / #@endif blocks (docs/env-conditional-blocks.md).
-$EnvFile = Join-Path (Join-Path $PSScriptRoot '..') '.env'
-$ModelRoutingKeys = @('LITELLM_HAIKU_MODEL', 'LITELLM_SONNET_MODEL', 'LITELLM_FABLE_MODEL', 'LITELLM_OPUS_MODEL', 'CCGW_SUBAGENT_MODEL')
+$OpsRoot = Split-Path -Parent $PSScriptRoot
+$EnvFile = Join-Path $OpsRoot '.env'
+$ConfigFile = Join-Path (Join-Path $OpsRoot 'litellm-server') 'config.yaml'
 if (Test-Path -LiteralPath $EnvFile) {
     $IsWindowsPlatform = if (Test-Path variable:IsWindows) { $IsWindows } else { $true }
     $ActiveToken = if ($IsWindowsPlatform) { 'windows' } else { 'posix' }
@@ -111,15 +112,206 @@ if (Test-Path -LiteralPath $EnvFile) {
         $value = $trimmed.Substring($split + 1).Trim()
         # Shell value wins, but only when non-empty: a defined-but-empty variable is
         # indistinguishable from an unset one for every consumer below, so treating it
-        # as "already set" would silently discard the .env value. Model-routing keys
-        # are the exception: they always take the .env value (see $ModelRoutingKeys).
-        # This check deliberately reads the raw process env: the rule it enforces is
-        # about the value the invoking shell really carries. Reading is safe -- only
-        # writing to this process is what issue #66 forbids.
+        # as "already set" would silently discard the .env value. This check reads the
+        # raw process env deliberately -- the rule it enforces is about the value the
+        # invoking shell really carries. Reading is safe; only writing to this process
+        # is what issue #66 forbids.
         if ($claimedKeys.Contains($key)) { continue }
-        if (-not ($ModelRoutingKeys -contains $key) -and -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key))) { continue }
+        if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key))) { continue }
         [void]$claimedKeys.Add($key)
         Set-ChildEnv $key $value
+    }
+}
+
+# --- Pre-launch update -----------------------------------------------------
+# config.yaml is the routing map every host shares, so a backend swapped on one
+# machine reaches this one only once the checkout does. This runs before every
+# credential below on purpose: git inherits this process's environment, and the
+# gateway credential has not been resolved into it yet.
+#
+# Absent from both the shell and .env means on -- a host that never opts in is the
+# stale host this exists to prevent. Only `off` (or an explicitly empty value) turns
+# it off silently; any other spelling is named back, since the operator believes it
+# took effect.
+function Test-CcgwPullEnabled {
+    $switch = Get-RawEnvOrNull 'CCGW_AUTO_PULL'
+    if ($null -eq $switch) { return $true }
+    if ($switch -ceq 'on') { return $true }
+    if ($switch -ceq 'off' -or $switch -eq '') { return $false }
+    Write-LauncherWarning "CCGW_AUTO_PULL='$switch' is neither on nor off, so the pre-launch update stays off."
+    return $false
+}
+
+# A whole process tree is terminated through a Win32 job object: `git fetch` spawns
+# ssh or a credential helper, and a descendant whose parent has already exited is
+# unreachable by every parent-walking tool. Compiled only on the path that actually
+# runs git, so an opted-out launch pays nothing for it.
+$CcgwJobApiSource = @'
+using System;
+using System.Runtime.InteropServices;
+public static class CcgwJob {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr handle);
+}
+'@
+
+$script:PullTimedOut = $false
+$script:JobApiReady = $false
+$script:GitExe = ''
+$script:PullClock = $null
+$CcgwPullBudgetMs = 20000
+$CcgwGitCallMs = 12000
+# Every argument is validated against this before it reaches git: CreateProcess
+# re-invokes cmd.exe for a .cmd target, so a metacharacter in a branch name, a
+# remote name or a ref would be re-parsed by a shell nobody asked for.
+$CcgwGitTokenRe = '^[A-Za-z0-9][A-Za-z0-9._/-]*$'
+
+# One git call, bounded, with its output captured rather than inherited. Captured
+# because a remote URL may carry userinfo and git's own text must never reach the
+# terminal; asynchronously because a descendant holding an inherited pipe would
+# otherwise keep this launcher alive long after git itself had exited.
+function Invoke-CcgwGit {
+    param([string[]]$GitArgs)
+    if ($script:PullClock.ElapsedMilliseconds -ge $CcgwPullBudgetMs) { $script:PullTimedOut = $true }
+    if ($script:PullTimedOut) { return [pscustomobject]@{ Ok = $false; Out = '' } }
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $script:GitExe
+    $psi.Arguments = ($GitArgs -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.RedirectStandardInput = $true
+    $psi.WorkingDirectory = $OpsRoot
+    # No credential prompt may open on an interactive launch path.
+    $psi.Environment['GIT_TERMINAL_PROMPT'] = '0'
+    $ok = $false
+    $out = ''
+    $job = [IntPtr]::Zero
+    try {
+        if ($script:JobApiReady) { $job = [CcgwJob]::CreateJobObjectW([IntPtr]::Zero, $null) }
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        if ($job -ne [IntPtr]::Zero) { [void][CcgwJob]::AssignProcessToJobObject($job, $proc.Handle) }
+        $proc.StandardInput.Close()
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        [void]$proc.StandardError.ReadToEndAsync()
+        if ($proc.WaitForExit($CcgwGitCallMs)) { $ok = ($proc.ExitCode -eq 0) }
+        else { $script:PullTimedOut = $true }
+        if ($job -ne [IntPtr]::Zero) { [void][CcgwJob]::TerminateJobObject($job, 1) }
+        elseif (-not $proc.HasExited) { try { $proc.Kill() } catch { } }
+        [void]$proc.WaitForExit(2000)
+        if ($outTask.Wait(2000)) { $out = [string]$outTask.Result }
+    } catch {
+        $ok = $false
+    } finally {
+        if ($job -ne [IntPtr]::Zero) { [void][CcgwJob]::CloseHandle($job) }
+    }
+    return [pscustomobject]@{ Ok = $ok; Out = $out.Trim() }
+}
+
+# Resolves the upstream from the config fields rather than from `rev-parse
+# --abbrev-ref @{u}`: a remote whose name contains a slash renders as `up/stream/main`
+# there, which cannot be decoded back into its two halves. Both fields are plain text
+# in .git/config, so each is validated before it reaches `git fetch`.
+function Get-CcgwPullTarget {
+    $branch = (Invoke-CcgwGit @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out
+    if ($script:PullTimedOut) { return $null }
+    if ($branch -eq '' -or $branch -notmatch $CcgwGitTokenRe) {
+        Write-LauncherWarning 'HEAD is detached, so the pre-launch pull had nowhere to pull from.'
+        return $null
+    }
+    $remote = (Invoke-CcgwGit @('config', '--get', "branch.$branch.remote")).Out
+    $ref = (Invoke-CcgwGit @('config', '--get', "branch.$branch.merge")).Out
+    if ($script:PullTimedOut) { return $null }
+    if ($remote -eq '' -or $ref -eq '') {
+        Write-LauncherWarning "branch '$branch' has no upstream, so the pre-launch pull had nowhere to pull from."
+        return $null
+    }
+    if ($remote -eq '.') {
+        Write-LauncherWarning "branch '$branch' tracks a local branch, so there is no remote to pull from."
+        return $null
+    }
+    if ($remote -notmatch $CcgwGitTokenRe -or $ref -cnotmatch '^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*$' -or $ref -match '\.\.') {
+        Write-LauncherWarning "branch '$branch' has an upstream that is not a usable remote branch, so the pre-launch pull was skipped."
+        return $null
+    }
+    return [pscustomobject]@{ Remote = $remote; Ref = $ref }
+}
+
+# Every failure path returns without raising: a pull problem must never cost the
+# operator their client. Nothing here prints git's own output, and the only piece of
+# the remote that is ever named back is its NAME.
+function Invoke-CcgwPull {
+    $target = Get-CcgwPullTarget
+    if ($null -eq $target) { return }
+
+    # Asked of the tree, not of the merge: `git merge --ff-only` succeeds over staged,
+    # modified and untracked work that has nothing to do with the file it rewrites, and
+    # walking over that is the worst outcome available here.
+    $status = Invoke-CcgwGit @('status', '--porcelain')
+    if ($script:PullTimedOut) { return }
+    if (-not $status.Ok -or $status.Out -ne '') {
+        Write-LauncherWarning 'the checkout has uncommitted changes, so the pull was skipped and this host may be stale.'
+        return
+    }
+
+    if (-not (Invoke-CcgwGit @('fetch', '--quiet', $target.Remote, $target.Ref)).Ok) {
+        if ($script:PullTimedOut) { return }
+        Write-LauncherWarning "the pre-launch pull could not fetch from '$($target.Remote)'; continuing with the checkout as it stands."
+        return
+    }
+
+    $head = (Invoke-CcgwGit @('rev-parse', 'HEAD')).Out
+    $upstream = (Invoke-CcgwGit @('rev-parse', 'FETCH_HEAD')).Out
+    if ($script:PullTimedOut) { return }
+    if ($head -cnotmatch '^[0-9a-f]{7,64}$' -or $upstream -cnotmatch '^[0-9a-f]{7,64}$') {
+        Write-LauncherWarning 'the pre-launch pull could not read what the remote is holding; continuing with the checkout as it stands.'
+        return
+    }
+    # Already current, or merely holding commits nobody has published yet: both are the
+    # ordinary shape of a working checkout, so both are silent.
+    if ($head -eq $upstream) { return }
+    if ((Invoke-CcgwGit @('merge-base', '--is-ancestor', $upstream, $head)).Ok) { return }
+    if ($script:PullTimedOut) { return }
+    if (-not (Invoke-CcgwGit @('merge-base', '--is-ancestor', $head, $upstream)).Ok) {
+        if ($script:PullTimedOut) { return }
+        Write-LauncherWarning 'the local and upstream histories have diverged, so nothing was merged; resolve it when convenient.'
+        return
+    }
+    if (-not (Invoke-CcgwGit @('merge', '--ff-only', '--quiet', 'FETCH_HEAD')).Ok) {
+        if ($script:PullTimedOut) { return }
+        Write-LauncherWarning 'the pre-launch pull fetched but could not merge; continuing with the checkout as it stands.'
+        return
+    }
+    Write-LauncherError "The checkout was brought up to date with $($target.Remote)."
+}
+
+# `.git` is asked for by name rather than through `rev-parse`, which walks UP: a copied
+# tree sitting inside some unrelated repository would otherwise fast-forward a checkout
+# that is not the gateway's. Array-indexed because a Git for Windows install puts git on
+# PATH twice, and `.Source` on the two-element result is a single joined string.
+if (Test-CcgwPullEnabled) {
+    $gitMatches = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)
+    if (-not (Test-Path -LiteralPath (Join-Path $OpsRoot '.git'))) {
+        Write-LauncherWarning "$OpsRoot is not a git checkout of its own, so the pre-launch update was skipped."
+    } elseif ($gitMatches.Count -eq 0) {
+        Write-LauncherWarning 'git was not found on PATH, so the pre-launch update was skipped.'
+    } else {
+        $script:GitExe = $gitMatches[0].Source
+        $script:PullClock = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            if (-not ('CcgwJob' -as [type])) { Add-Type -TypeDefinition $CcgwJobApiSource }
+            $script:JobApiReady = $true
+        } catch { $script:JobApiReady = $false }
+        Invoke-CcgwPull
+        if ($script:PullTimedOut) {
+            Write-LauncherWarning 'the pre-launch pull ran out of time; continuing with the checkout as it stands.'
+        }
     }
 }
 
@@ -202,43 +394,122 @@ if ($null -ne $CaCert) {
 }
 
 # --- Model aliases ---------------------------------------------------------
-# Each LITELLM_*_MODEL is a LiteLLM routing key and goes onto its own /model tier
-# verbatim. The launcher owns no backend names: inventing one would address a model the
-# gateway has no entry for, and the error would surface as a 400 from LiteLLM rather
-# than as a message from here.
-# Absence of a source key means "the child must not have the derived variable at all",
-# never "keep whatever the invoking shell happened to carry": a leftover
-# ANTHROPIC_DEFAULT_OPUS_MODEL would otherwise pin a tier the repo's .env no longer
-# names. Hence every conditional set has an explicit clearing else branch.
-$FableModel = Get-EnvOrNull 'LITELLM_FABLE_MODEL'
-if ($null -ne $FableModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_FABLE_MODEL' $FableModel }
-else { Set-ChildEnv 'ANTHROPIC_DEFAULT_FABLE_MODEL' '' }
-$OpusModel = Get-EnvOrNull 'LITELLM_OPUS_MODEL'
-if ($null -ne $OpusModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_OPUS_MODEL' $OpusModel }
-else { Set-ChildEnv 'ANTHROPIC_DEFAULT_OPUS_MODEL' '' }
-$SonnetModel = Get-EnvOrNull 'LITELLM_SONNET_MODEL'
-if ($null -ne $SonnetModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_SONNET_MODEL' $SonnetModel }
-else { Set-ChildEnv 'ANTHROPIC_DEFAULT_SONNET_MODEL' '' }
-$HaikuModel = Get-EnvOrNull 'LITELLM_HAIKU_MODEL'
-if ($null -ne $HaikuModel) { Set-ChildEnv 'ANTHROPIC_DEFAULT_HAIKU_MODEL' $HaikuModel }
-else { Set-ChildEnv 'ANTHROPIC_DEFAULT_HAIKU_MODEL' '' }
+# These no longer configure anything; warn rather than ignore a stale .env value.
+foreach ($retired in @('LITELLM_HAIKU_MODEL', 'LITELLM_SONNET_MODEL', 'LITELLM_FABLE_MODEL',
+        'LITELLM_OPUS_MODEL', 'CCGW_SUBAGENT_MODEL')) {
+    if ($null -ne (Get-EnvOrNull $retired)) {
+        Write-LauncherWarning "$retired no longer configures anything; the tier map moved into litellm-server/config.yaml."
+    }
+}
+
+$CcgwTierNames = @('haiku', 'sonnet', 'fable', 'opus', 'subagent')
+$script:TierOwner = @{}
+$script:TierWarnings = New-Object System.Collections.Generic.List[string]
+
+# One route's annotation payload. First claim of a tier wins, so a duplicate is a
+# warning about the loser rather than a silent overwrite, and a token outside the
+# closed vocabulary is named back instead of being routed nowhere.
+function Add-CcgwTierTokens([string[]]$Tokens, [string]$RouteName) {
+    foreach ($raw in $Tokens) {
+        $tok = $raw.Trim()
+        if ($tok -eq '') { continue }
+        if ($CcgwTierNames -cnotcontains $tok) {
+            $script:TierWarnings.Add("config.yaml: `"$tok`" is not a Claude Code tier (haiku, sonnet, fable, opus, subagent); ignored.")
+            continue
+        }
+        if ($script:TierOwner.ContainsKey($tok)) {
+            if ($script:TierOwner[$tok] -cne $RouteName) {
+                $script:TierWarnings.Add("config.yaml: the $tok tier is claimed by both `"$($script:TierOwner[$tok])`" and `"$RouteName`"; the first one wins.")
+            }
+            continue
+        }
+        $script:TierOwner[$tok] = $RouteName
+    }
+}
+
+# Line-oriented rather than YAML-aware, so that this reader, the POSIX awk one and the
+# Python schema check can be held to the same two spellings byte for byte. Any
+# `- model_name:` line closes the block above it, well-formed or not: a name outside the
+# contract must take its own annotation out of play, never hand it to the route before
+# it. An unindented non-empty line closes a block too; a blank line and an indented
+# banner comment do not.
+function Read-CcgwTierMap([string[]]$Lines) {
+    $open = $false
+    $current = ''
+    $startIndex = -1
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        $line = $Lines[$i].TrimEnd("`r")
+        if ($line.StartsWith('  - model_name:')) {
+            $open = $false
+            $rest = $line.Substring(15)
+            $name = $rest.Trim()
+            if ($rest -match '^[ ]+[^ \t]+[ ]*$' -and $name -match '^[A-Za-z0-9._-]+$') {
+                $open = $true
+                $current = $name
+                $startIndex = $i
+            } else {
+                $script:TierWarnings.Add("config.yaml: model_name `"$name`" is outside the routing-name contract, so that route claims no tier.")
+            }
+            continue
+        }
+        if ($line -ne '' -and $line -notmatch '^[ \t]') { $open = $false; continue }
+        if (-not $open) { continue }
+        if ($line -cmatch '^      ccgw_tiers:[ ]*\[([^\]]*)\][ ]*$') {
+            Add-CcgwTierTokens ($Matches[1] -split ',') $current
+            continue
+        }
+        if ($i -eq $startIndex + 1 -and $line -cmatch '^    # ccgw-tiers:[ ]+(.+)$') {
+            Add-CcgwTierTokens ($Matches[1] -split '[ \t]+') $current
+        }
+    }
+}
+
+# config.yaml is the single source of truth for which tier reaches which route: each
+# route's annotation names the tiers it serves, and that route's model_name is the key
+# those tiers address. The launcher owns no backend names of its own, and there is
+# nothing to fall back to -- a client started with no tier map at all hands Claude Code
+# an empty /model list, which reads as a puzzle much later.
+$configLines = $null
+if (Test-Path -LiteralPath $ConfigFile -PathType Leaf) {
+    try { $configLines = [System.IO.File]::ReadAllLines($ConfigFile) } catch { $configLines = $null }
+}
+if ($null -eq $configLines) {
+    Write-LauncherError "ERROR: cannot read $ConfigFile."
+    Write-LauncherError 'It is the only source of the /model tier map; see docs/ops.md.'
+    exit 1
+}
+Read-CcgwTierMap $configLines
+foreach ($warning in $script:TierWarnings) { Write-LauncherWarning $warning }
+if ($script:TierOwner.Count -eq 0) {
+    Write-LauncherError "ERROR: no route in $ConfigFile carries a ccgw_tiers annotation."
+    Write-LauncherError 'There is no /model tier map to launch with; see docs/ops.md.'
+    exit 1
+}
+
+# An unmapped tier means "the child must not have the variable at all", never "keep
+# whatever the invoking shell carried": a leftover value would pin a tier config.yaml no
+# longer names, and an empty one hands Claude Code a /model entry that resolves nowhere.
+# An empty collected value is what removes it from the child's block.
+$TierRows = [ordered]@{
+    haiku    = 'ANTHROPIC_DEFAULT_HAIKU_MODEL'
+    sonnet   = 'ANTHROPIC_DEFAULT_SONNET_MODEL'
+    fable    = 'ANTHROPIC_DEFAULT_FABLE_MODEL'
+    opus     = 'ANTHROPIC_DEFAULT_OPUS_MODEL'
+    subagent = 'CLAUDE_CODE_SUBAGENT_MODEL'
+}
+foreach ($tier in @($TierRows.Keys)) {
+    if ($script:TierOwner.ContainsKey($tier)) { Set-ChildEnv $TierRows[$tier] $script:TierOwner[$tier] }
+    else { Set-ChildEnv $TierRows[$tier] '' }
+}
+# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
+if ($script:TierOwner.ContainsKey('fable')) { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' $script:TierOwner['fable'] }
+else { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' '' }
+
 # ANTHROPIC_MODEL never reaches the child: it outranks the `model` setting in the user's
 # settings.json, so any value here silently discards the tier chosen there -- an opus
 # session would still start on fable, with nothing in the client to say why. Cleared
 # unconditionally, since an inherited value reintroduces the same override.
 Set-ChildEnv 'ANTHROPIC_MODEL' ''
-
-# The picker entry is additive: it offers the fable tier, it does not choose the startup one.
-if ($null -ne $FableModel) { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' $FableModel }
-else { Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION' '' }
-
-# Subagent routing is opt-in. LiteLLM multiplexes, so pinning every subagent to one tier
-# is no longer needed -- and an unconditional value silently overrides the model an
-# agent definition's frontmatter declares. The value is a routing key, passed through
-# untranslated.
-$SubagentModel = Get-EnvOrNull 'CCGW_SUBAGENT_MODEL'
-if ($null -ne $SubagentModel) { Set-ChildEnv 'CLAUDE_CODE_SUBAGENT_MODEL' $SubagentModel }
-else { Set-ChildEnv 'CLAUDE_CODE_SUBAGENT_MODEL' '' }
 
 Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION_NAME' 'Local model via ccgw'
 Set-ChildEnv 'ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION' 'Mac backend via the LiteLLM gateway, selected per request'
@@ -259,10 +530,9 @@ Set-ChildEnv 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE' '75'
 # VS Code instance; VS Code otherwise shares one process (and one environment) across
 # all windows of a user-data-dir, which would leak this env into native windows.
 # Application-only resolution: a function/alias/script named "code" would not be a real
-# executable Process.Start can launch.
-# The indexing must be guarded rather than done inline: under Set-StrictMode -Version
-# Latest, [0] on the empty array Get-Command returns when "code" is absent throws a
-# terminating index-out-of-bounds error before the intended message below can run.
+# executable Process.Start can launch. The indexing must be guarded rather than done
+# inline: under Set-StrictMode -Version Latest, [0] on the empty array Get-Command
+# returns when "code" is absent throws before the intended message below can run.
 $codeCmdMatches = @(Get-Command code -CommandType Application -ErrorAction SilentlyContinue)
 $codeCmd = if ($codeCmdMatches.Count -gt 0) { $codeCmdMatches[0] } else { $null }
 if (-not $codeCmd) {

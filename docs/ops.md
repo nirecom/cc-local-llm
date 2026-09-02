@@ -408,21 +408,23 @@ the per-tier model aliases (the tier table under "Client (macOS / Linux)" applie
 direct CCGW Proxy path is retired, so an unset `LITELLM_ANTHROPIC_BASE_URL` or
 `LITELLM_CLIENT_KEY` is an error and the wrapper exits rather than falling back to a placeholder
 that would surface later as a confusing 401. A value set in the shell takes precedence over
-`.env` — except for the model-routing keys (`LITELLM_HAIKU_MODEL`, `LITELLM_SONNET_MODEL`,
-`LITELLM_FABLE_MODEL`, `LITELLM_OPUS_MODEL`, `CCGW_SUBAGENT_MODEL`), which always come from `.env`
-so a stale inherited shell value (e.g. an old `LITELLM_OPUS_MODEL` from a previous launch) cannot
-override the repo's intent. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
+`.env`, one rule for every key. `LITELLM_VIRTUAL_KEY` is still accepted in place of `LITELLM_CLIENT_KEY` for one release,
 with a warning. `CCGW_CA_CERT` must point at `<mkcert -CAROOT>\rootCA.pem` so Node trusts the
 gateway certificate (if unset the wrapper warns and TLS will not be trusted). `.env` may carry
 `#@if windows` / `#@if posix` / `#@endif` blocks so one file holds both platforms' values — see
 [env-conditional-blocks.md](env-conditional-blocks.md).
 
-Subagent routing is opt-in: set `CCGW_SUBAGENT_MODEL` to a LiteLLM routing key to pin every
-subagent to one tier. Left empty — the default — each agent's own frontmatter decides.
+The tier map is not in `.env` at all: each route in `litellm-server/config.yaml` carries a
+`ccgw_tiers:` annotation naming the tiers it serves, and the wrapper reads that file directly.
+A tier no route claims leaves its alias var out of the child's environment. `CCGW_AUTO_PULL=off`
+in `.env` or in the shell turns off the pre-launch refresh described below.
 
-When the Mac switches a tier's backend with `scripts/set-model.sh`, this `.env` must be updated
-by hand to match — see "Mirroring a `set-model.sh` change to the Windows client" under
-"Client (macOS / Linux)".
+**Migrating from the per-host routing keys.** `LITELLM_HAIKU_MODEL`, `LITELLM_SONNET_MODEL`,
+`LITELLM_FABLE_MODEL`, `LITELLM_OPUS_MODEL` and `CCGW_SUBAGENT_MODEL` no longer configure
+anything. Delete them from `.env`; a launcher that still finds one set prints a line naming it
+and the file that replaced it, so the migration is visible rather than silent. Nothing else has
+to be mirrored by hand: `scripts/set-model.sh` rewrites `config.yaml` and publishes it, and each
+client picks the change up on its next launch.
 
 **Isolation from native (subscription) VS Code:** the wrapper passes
 `--user-data-dir "$env:LOCALAPPDATA\vscode-ccgw"`, starting a *separate* VS Code process. VS Code
@@ -481,45 +483,44 @@ Launch:
 ./scripts/code-ccgw.sh .
 ```
 
-**Choosing the backend model.** Model names are LiteLLM routing keys — the `LITELLM_*_MODEL`
-values in `.env`, matched against `model_name` entries in
-[litellm-server/config.yaml](../litellm-server/config.yaml). Each tier is a separate route, so
-`/model` is what switches between them:
+**Choosing the backend model.** A model name is a LiteLLM routing key — a `model_name` entry in
+[litellm-server/config.yaml](../litellm-server/config.yaml). Which tiers reach which route is the
+`ccgw_tiers:` annotation on that same entry, so the file answers both questions at once and both
+launchers read it rather than any per-host setting. Each tier is a separate route, so `/model` is
+what switches between them:
 
 | Tier | Where its backend runs |
 |---|---|
 | Fable | Mac llama-swap |
 | Opus | Mac llama-swap |
 | Sonnet | Windows llama-swap |
-| Haiku | Windows llama-swap |
+| Haiku | Windows llama-swap (the same route as Sonnet) |
+| Subagent | Windows llama-swap (the same route again) |
 
-Which model a tier currently points at is not fixed — it is `.env`'s `LITELLM_<TIER>_MODEL`,
-and `scripts/set-model.sh` rewrites it. Read the live value with `scripts/set-model.sh --list`
-(which also enumerates the choices for the two Mac tiers) rather than a name written here.
+Which model a tier currently points at is not fixed — `scripts/set-model.sh` rewrites the route
+and its annotation. Read the live value with `scripts/set-model.sh --list` (which also enumerates
+the choices for the two Mac tiers) rather than a name written here.
 
-**Mirroring a `set-model.sh` change to the Windows client.** `set-model.sh` edits two files on
-the Mac — `litellm-server/config.yaml` and the Mac's `.env` — and restarts litellm-server. It
-does not reach the Windows client, and nothing else does either: `.env` is gitignored, and the
-Windows box is a separate clone. So a tier switch on the Mac needs a manual mirror.
+**Propagating a `set-model.sh` change to the other clients.** `set-model.sh` rewrites
+`litellm-server/config.yaml`, commits and pushes it, and restarts litellm-server. Because that
+file is the tier map itself and it is git-tracked, no client needs a hand-edited mirror: each one
+pulls before it launches (`CCGW_AUTO_PULL`, on unless set to `off`) and reads the map from the
+checkout it just refreshed.
 
-It matters because `model_name` in the LiteLLM config is `os.environ/LITELLM_<TIER>_MODEL`. The
-name LiteLLM answers to is literally the Mac `.env` value, while the Windows wrapper builds
-`ANTHROPIC_DEFAULT_*_MODEL` from *its own* `.env`. Leave the two out of sync and the client asks
-for a model group the gateway no longer publishes — a 400, not a silent fallback.
+1. On the Mac, switch the tier: `scripts/set-model.sh <tier> <key>`.
+2. On the client, close *all* windows of the ccgw VS Code profile, then relaunch — the wrapper
+   captures its environment at process start, so closing one window is not enough (same caveat as
+   `LITELLM_ANTHROPIC_BASE_URL` under "Client (Windows)").
 
-1. On the Mac, read the new value: `scripts/set-model.sh --list <tier>`.
-2. On Windows, set the same bare key in the repo-root `.env` as `LITELLM_<TIER>_MODEL=<key>`.
-3. Close *all* windows of the ccgw VS Code profile, then relaunch `.\scripts\code-ccgw.ps1 .` —
-   the wrapper captures its environment at process start, so closing one window is not enough
-   (same caveat as `LITELLM_ANTHROPIC_BASE_URL` under "Client (Windows)").
-
-Only the tier that changed needs mirroring; the other three keys keep working untouched.
+A client whose checkout has uncommitted changes, has diverged, or has no upstream is never
+fast-forwarded over: the launcher says so and starts from the files as they stand, which is the
+one case still needing a hand.
 
 The two Mac backends are mutually exclusive: switching between Fable and Opus unloads the
 resident model and cold-starts the other, so expect a long first response after each switch.
-Haiku and Sonnet live on a different machine and are unaffected. Subagents are no longer pinned
-to one tier — the gateway multiplexes, so each agent's frontmatter decides unless
-`CCGW_SUBAGENT_MODEL` is set.
+Haiku, Sonnet and the subagent route live on a different machine and are unaffected. They share
+one route because the Windows group is exclusive; moving subagents elsewhere means editing that
+route's `ccgw_tiers:` line, not a per-host variable.
 
 **Isolation from native (subscription) VS Code** works the same way as on Windows: the wrapper
 passes its own `--user-data-dir` (`~/Library/Application Support/vscode-ccgw` on macOS,

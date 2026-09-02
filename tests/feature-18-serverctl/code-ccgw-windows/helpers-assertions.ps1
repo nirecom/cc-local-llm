@@ -115,6 +115,60 @@ function Assert-NoSecretInOutput {
     }
 }
 
+# The terminal is only the copy the operator watches go past. git and the
+# launcher both write scratch under TEMP -- lock files, error reports, spooled
+# output -- and a credential kept out of stderr but left in one of those has
+# leaked into a file that OUTLIVES the run: onto a shared box, into a backup,
+# into the next search someone runs over %TEMP%. The caller hands over a
+# directory it created empty, so every file found here was written by that run.
+# The file NAMES are swept too: git derives temp names from what it was handed.
+function Assert-NoSecretInTree {
+    param([string]$Path, [string[]]$Secrets, [string]$Context)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    foreach ($file in @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        $text = try { [System.IO.File]::ReadAllText($file.FullName) } catch { '' }
+        foreach ($s in $Secrets) {
+            if ([string]::IsNullOrEmpty($s)) { continue }
+            if ($file.FullName -match [regex]::Escape($s)) {
+                throw "$Context`: the credential '$s' appears in the NAME of $($file.FullName)"
+            }
+            if ($text -match [regex]::Escape($s)) {
+                throw "$Context`: the credential '$s' was written into $($file.FullName)"
+            }
+        }
+    }
+}
+
+# The third copy is the one nobody clears. A failing fetch writes FETCH_HEAD,
+# reflogs and its own error reports INSIDE .git/, and that directory is handed on
+# with the checkout: into every archive, backup and copy taken of it, long after
+# %TEMP% has been emptied. POSIX sibling: git_state_hits in
+# code-ccgw-auto-pull/fixture.sh (CPR-ORTH). `config` and `config.worktree` are
+# the only exclusions -- the remote URL is in them because the operator put it
+# there with `git remote set-url`, so that copy is their own record rather than a
+# spill, which is why the caller is expected to prove the secret is still IN one
+# of them and to plant a probe elsewhere under .git/ before trusting a silence.
+function Assert-NoSecretInGitState {
+    param([string]$RepoPath, [string[]]$Secrets, [string]$Context)
+    $gitDir = Join-Path $RepoPath '.git'
+    if (-not (Test-Path -LiteralPath $gitDir)) {
+        throw "$Context`: $gitDir does not exist, so this sweep would pass over nothing at all"
+    }
+    foreach ($file in @(Get-ChildItem -LiteralPath $gitDir -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        foreach ($s in $Secrets) {
+            if ([string]::IsNullOrEmpty($s)) { continue }
+            if ($file.Name -match [regex]::Escape($s)) {
+                throw "$Context`: the credential '$s' appears in the NAME of $($file.FullName), which travels with the checkout"
+            }
+            if ($file.Name -in @('config', 'config.worktree')) { continue }
+            $text = try { [System.IO.File]::ReadAllText($file.FullName) } catch { '' }
+            if ($text -match [regex]::Escape($s)) {
+                throw "$Context`: the credential '$s' was written into $($file.FullName), which travels with the checkout"
+            }
+        }
+    }
+}
+
 # "No child was launched" -- the other half of a refusal. A refusal that has
 # already started VS Code is not a refusal.
 function Assert-NoChildLaunched {
