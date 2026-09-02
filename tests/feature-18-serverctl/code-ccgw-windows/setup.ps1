@@ -8,12 +8,11 @@
 # that actually builds things, so every function it calls is already defined.
 # It runs as top-level code (not as a function) on purpose -- the $script:
 # variables it sets are what every Context reads.
-
-# The repo root is found by walking up until the launcher is there, rather than
-# by counting '..' segments: this file's depth below the suite is a layout
-# detail, and the split that introduced the sub-folder is exactly the kind of
-# move that silently re-points a hard-coded relative path.
 $script:RepoRoot = $PSScriptRoot
+# Walking up until the launcher is there, rather than counting '..' segments:
+# this file's depth below the suite is a layout detail, and the split that
+# introduced the sub-folder is exactly the kind of move that silently
+# re-points a hard-coded relative path.
 while ($script:RepoRoot -and -not (Test-Path -LiteralPath (Join-Path (Join-Path $script:RepoRoot 'scripts') 'code-ccgw.ps1'))) {
     $parent = Split-Path -Parent $script:RepoRoot
     if ($parent -eq $script:RepoRoot) { break }
@@ -42,13 +41,9 @@ $script:PwshPath =
     else { Join-Path $PSHOME 'pwsh' }
 
 # --- Retired variable names -------------------------------------------------
-# The cases that prove a retired variable no longer configures anything need its
-# exact spelling, but those spellings are banned repo-wide by
-# tests/ccgw-naming/test_no_legacy_names.py, whose scan is a raw substring match
-# over every tracked file -- this one included. The names are therefore assembled
-# at runtime instead of appearing as literals. The cases themselves must stay: a
-# stale .env still carrying them is precisely the situation where a surviving
-# fallback would silently route around the new single path.
+# These spellings are banned repo-wide by tests/ccgw-naming/test_no_legacy_names.py
+# (raw substring match, this file included), so they're assembled at runtime
+# instead of appearing as literals.
 $script:RBaseDs4 = 'DS4_ANTHROPIC' + '_BASE_URL'
 $script:RBaseCcgw = 'CCGW_ANTHROPIC' + '_BASE_URL'
 $script:RKeyDs4 = 'DS4_API' + '_KEY'
@@ -164,3 +159,27 @@ $script:ActiveVars = @(
     'ANTHROPIC_CUSTOM_MODEL_OPTION'
 )
 $script:ModelVars = $script:TierVars + $script:ActiveVars + @('ANTHROPIC_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL')
+
+# The whole tier vocabulary and the child variable each token drives -- the one
+# place this suite states the mapping (CPR-SSOT). `subagent` is in the vocabulary
+# because config.yaml now owns it too: it is exported when, and only when, some
+# route claims it. The POSIX sibling states the same table as TIER_ROWS in
+# test-code-ccgw-config-tiers.sh; the two must not drift (CPR-ORTH).
+$script:TierRows = [ordered]@{
+    haiku    = 'ANTHROPIC_DEFAULT_HAIKU_MODEL'
+    sonnet   = 'ANTHROPIC_DEFAULT_SONNET_MODEL'
+    fable    = 'ANTHROPIC_DEFAULT_FABLE_MODEL'
+    opus     = 'ANTHROPIC_DEFAULT_OPUS_MODEL'
+    subagent = 'CLAUDE_CODE_SUBAGENT_MODEL'
+}
+
+# What the default fixture config.yaml (helpers-fixtures.ps1) resolves to, stated
+# separately from the YAML so a case asserts against an expectation rather than
+# against a re-parse of the same text it is testing.
+$script:FixtureTierValues = [ordered]@{
+    haiku    = 'lite-shared'
+    sonnet   = 'lite-shared'
+    fable    = 'lite-fable'
+    opus     = 'lite-opus'
+    subagent = 'lite-shared'
+}

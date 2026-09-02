@@ -148,16 +148,77 @@ class CcgwCodeStub {
 }
 '@
 
-# The launcher reads <script>/../.env. Copying it into a fixture tree pins that
-# file to an empty one, so precedence is asserted from the child's environment
-# block alone.
+# The tier map's source of truth (issue #89): litellm-server/config.yaml, read
+# out of the tree the launcher lives in. Shaped like the real file rather than
+# minimally -- three routes, one of them shared by three tiers, and a 2-space
+# `# --- ... ---` banner between routes. That banner is the C2 regression: an
+# annotation reader that walks forward from `model_name` to "the next line that
+# starts a block" has to treat the banner as a boundary, so putting it on the
+# DEFAULT fixture makes every case in the suite police it for free.
+$script:DefaultConfigYamlLines = @(
+    'model_list:'
+    '  # --- Haiku, sonnet and the subagent route share one backend ---'
+    '  - model_name: lite-shared'
+    '    litellm_params:'
+    '      model: openai/Qwen3.8-27B'
+    '      api_base: http://127.0.0.1:9/v1'
+    '      ccgw_tiers: [haiku, sonnet, subagent]'
+    ''
+    '  # --- The fable tier ---'
+    '  - model_name: lite-fable'
+    '    litellm_params:'
+    '      model: openai/DeepSeek-V4-Flash'
+    '      api_base: http://127.0.0.1:9/v1'
+    '      ccgw_tiers: [fable]'
+    ''
+    '  # --- The opus tier ---'
+    '  - model_name: lite-opus'
+    '    litellm_params:'
+    '      model: openai/Qwen3.8-Flash-Next'
+    '      api_base: http://127.0.0.1:9/v1'
+    '      ccgw_tiers: [opus]'
+)
+
+# The launcher reads <script>/../.env and <script>/../litellm-server/config.yaml.
+# Copying both into a fixture tree pins them: the .env to an empty file, so
+# precedence is asserted from the child's environment block alone, and the config
+# to the shape above, so no case depends on the repo's live routing table.
 function New-FixtureTree {
-    param([string]$Name, [string[]]$DotEnvLines = @('# intentionally empty: precedence is asserted from the env alone'))
+    param(
+        [string]$Name,
+        [string[]]$DotEnvLines = @('# intentionally empty: precedence is asserted from the env alone'),
+        [string[]]$ConfigYamlLines = $script:DefaultConfigYamlLines,
+        [switch]$NoConfigYaml
+    )
     $root = Join-Path $script:Work $Name
     New-Item -ItemType Directory -Path (Join-Path $root 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath $script:SourceLauncher -Destination (Join-Path $root 'scripts' 'code-ccgw.ps1') -Force
     Set-Content -LiteralPath (Join-Path $root '.env') -Value $DotEnvLines -Encoding utf8
+    # -NoConfigYaml is the "operator has not created it yet" case; it must be an
+    # absent file, not an empty one, so the launcher's own guard is what runs.
+    if (-not $NoConfigYaml) {
+        New-FixtureConfigYaml -Root $root -Lines $ConfigYamlLines | Out-Null
+    }
     return (Join-Path $root 'scripts' 'code-ccgw.ps1')
+}
+
+# Writes (or rewrites) one fixture tree's config.yaml. Separate from
+# New-FixtureTree so a case can vary the routing table without rebuilding the
+# stubs around it; returns the path so a case can delete it again.
+function New-FixtureConfigYaml {
+    param([string]$Root, [string[]]$Lines = $script:DefaultConfigYamlLines)
+    $dir = Join-Path $Root 'litellm-server'
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $path = Join-Path $dir 'config.yaml'
+    Set-Content -LiteralPath $path -Value $Lines -Encoding utf8
+    return $path
+}
+
+# The fixture root of a launcher path, i.e. what the launcher resolves as its ops
+# root: <root>\scripts\code-ccgw.ps1 -> <root>.
+function Get-FixtureRoot {
+    param([string]$LauncherPath)
+    return (Split-Path -Parent (Split-Path -Parent $LauncherPath))
 }
 
 # Compiles $script:CodeStubCsSource into <Dir>\code.exe. csc.exe from the .NET

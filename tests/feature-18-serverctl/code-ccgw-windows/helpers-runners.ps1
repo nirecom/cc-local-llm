@@ -2,15 +2,13 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
-# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from its
-# top-level BeforeAll: two of the three ways this suite runs the launcher,
-# plus the shared environment-block builder and dump parsers (the third,
-# Measure-LauncherLaunch, is in helpers-runners-latency.ps1). The child's
-# environment block is cleared and rebuilt so an ambient LITELLM_*/CCGW_*
-# value in the dev's shell can't satisfy an assertion by accident, and a real mkcert can't fake "no mkcert" passing.
-
-# Builds the child's environment block. Shared by every runner below so the
-# "cleared and rebuilt" guarantee is stated once (CPR-SSOT).
+# Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced from its top-level
+# BeforeAll: two of the three ways this suite runs the launcher (the third,
+# Measure-LauncherLaunch, is in helpers-runners-latency.ps1), the shared
+# environment-block builder, and the dump parsers. The child's environment block
+# is cleared and rebuilt so an ambient LITELLM_*/CCGW_* value in the dev's shell
+# cannot satisfy an assertion by accident, nor a real mkcert fake "no mkcert".
+# Shared by every runner, so "cleared and rebuilt" is stated once (CPR-SSOT).
 function Set-ChildEnvBlock {
     param(
         $Psi,
@@ -19,7 +17,8 @@ function Set-ChildEnvBlock {
         [string]$DumpPath,
         [string]$ArgvPath,
         [string]$ExeMarkerPath,
-        [switch]$NoLocalAppData
+        [switch]$NoLocalAppData,
+        [switch]$NoAutoPullDefault
     )
     $Psi.Environment.Clear()
     $Psi.Environment['PATH'] = $StubDir
@@ -36,6 +35,13 @@ function Set-ChildEnvBlock {
     # .CMD must precede it so a Windows run resolves `code` the way a real VS Code
     # install does.
     $Psi.Environment['PATHEXT'] = '.COM;.EXE;.BAT;.CMD;.PS1'
+    # Auto-pull is on by default in the launcher (issue #89), which would make
+    # every case in this suite reach for a git remote. Off is the default HERE, so
+    # only the cases that are about pulling opt back in via -Environment.
+    # -NoAutoPullDefault omits the key entirely, which is the only way to ask
+    # "where does the launcher READ the switch from" -- a process-env value, even
+    # the matching one, would answer the question before the .env is opened.
+    if (-not $NoAutoPullDefault) { $Psi.Environment['CCGW_AUTO_PULL'] = 'off' }
     foreach ($passthrough in @('SystemRoot', 'ComSpec', 'windir')) {
         $v = [Environment]::GetEnvironmentVariable($passthrough)
         if ($v) { $Psi.Environment[$passthrough] = $v }
@@ -87,7 +93,8 @@ function Invoke-Launcher {
         [string]$StubDir = $script:StubDir,
         [string]$LauncherPath = $script:Launcher,
         [string]$WorkingDirectory = $script:Work,
-        [switch]$NoLocalAppData
+        [switch]$NoLocalAppData,
+        [switch]$NoAutoPullDefault
     )
 
     $dump = Join-Path $script:Work 'env.dump'
@@ -105,7 +112,8 @@ function Invoke-Launcher {
     $psi.RedirectStandardError = $true
     $psi.WorkingDirectory = $WorkingDirectory
     Set-ChildEnvBlock -Psi $psi -Environment $Environment -StubDir $StubDir `
-        -DumpPath $dump -ArgvPath $argvFile -ExeMarkerPath $marker -NoLocalAppData:$NoLocalAppData
+        -DumpPath $dump -ArgvPath $argvFile -ExeMarkerPath $marker -NoLocalAppData:$NoLocalAppData `
+        -NoAutoPullDefault:$NoAutoPullDefault
 
     $proc = [System.Diagnostics.Process]::Start($psi)
     $stdout = $proc.StandardOutput.ReadToEnd()

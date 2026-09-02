@@ -477,10 +477,11 @@ Read by `scripts/ccgw-proxy.sh` (from the repo-root `.env`). Design: [architectu
 ### LiteLLM env vars
 
 Read by the native LiteLLM process on the Mac, started by `serverctl.sh start litellm`.
-Designed in `litellm-server/config.yaml`. The `model_name` fields use the `os.environ/` pattern;
-the `litellm_params.model` values are hardcoded backend model names (env vars cannot be embedded
-after a provider prefix). Defaults are documented here but are NOT embedded in config.yaml; they
-are set in `.env.example` and resolved at process startup.
+Designed in `litellm-server/config.yaml`. Each route's `model_name` is written literally and
+carries a `ccgw_tiers:` annotation naming the Claude Code tiers it serves, so that one git-tracked
+file is the whole tier map and every host reads the same one. Endpoints and credentials still
+arrive through `os.environ/`; their defaults are documented here rather than embedded in the
+config, and are resolved at process startup.
 
 | Var | Default | Why |
 |-----|---------|-----|
@@ -494,28 +495,33 @@ are set in `.env.example` and resolved at process startup.
 | `LITELLM_CCGW_PROXY_OPENAI_URL` | `https://<mac-lan-ip>:8443/v1` | The same proxy endpoint with a `/v1` suffix, for the Opus tier. The `openai/` provider appends only `/chat/completions`, so without the suffix the request lands on llama-swap's unrouted `/chat/completions` and comes back as a bare `404 page not found`. Same host and port as `LITELLM_CCGW_PROXY_URL` — only the suffix differs. |
 | `LITELLM_CCGW_PROXY_API_KEY` | (required) | Credential the gateway presents to the CCGW Proxy. Must match `CCGW_PROXY_AUTH_TOKEN`. |
 | `LITELLM_LLAMASWAP_URL` | `https://<windows-lan-ip>:8443/v1` | Windows PC endpoint shared by the Haiku and Sonnet tiers: the host's Caddy TLS front, which reverse-proxies to llama-swap's loopback-only `:18080`. Sole backend for these tiers — no fallback. Its certificate is verified against `SSL_CERT_FILE`; the hop carries no auth key. Carries a `/v1` suffix for the same reason `LITELLM_CCGW_PROXY_OPENAI_URL` does — an `openai/`-provider route — and is the only endpoint here addressing a host directly rather than through the CCGW Proxy. |
-| `LITELLM_HAIKU_MODEL` | `qwen3.8-27b` | Model routing key for the Haiku tier. Claude Code sends this value as the model name; LiteLLM matches it to the model_name entry in config.yaml. Holds the same value as `LITELLM_SONNET_MODEL`: the Windows `heavy` group is exclusive, so a haiku on its own model would be swapped in and out on every call. |
-| `LITELLM_SONNET_MODEL` | `qwen3.8-27b` | Model routing key for the Sonnet tier, and the one entry the config actually keys on. LiteLLM routes it to Qwen3.8-27B-UD-Q3_K_XL via llama-swap. |
-| `LITELLM_FABLE_MODEL` | `deepseek-v4-flash` | Model routing key for the Fable tier — ds4 on the Mac. |
-| `LITELLM_OPUS_MODEL` | `qwen3.8-flash-next-3bit-mtp` | Model routing key for the Opus tier — an `mlx_lm.server` backend on the Mac. `scripts/set-model.sh opus <key>` switches it among the Mac llama-swap entries and rewrites `litellm-server/config.yaml` to match, so no backend name is fixed here. The Mac backends are mutually exclusive, so they occupy separate tiers and `/model` is what switches tier. |
 | `LITELLM_ANTHROPIC_BASE_URL` | (required for client) | The gateway endpoint the launcher points `ANTHROPIC_BASE_URL` at. The direct CCGW Proxy route is retired, so the launcher exits when this is unset. |
 | `LITELLM_CLIENT_KEY` | (required for client) | Credential the launcher presents to the gateway. Same value as `LITELLM_MASTER_KEY`. `LITELLM_VIRTUAL_KEY` is accepted for one release as a deprecated alias, with a warning. |
-| `CCGW_SUBAGENT_MODEL` | `qwen3.8-27b` | Pins every subagent to one routing key; empty lets each agent's frontmatter decide. It holds the sonnet key for the same exclusivity reason haiku does — a subagent route naming a second Windows model would thrash against the tier it runs beside. |
+| `CCGW_AUTO_PULL` | `on` | Whether the launcher refreshes this checkout from its upstream before starting the editor. On by default including when set nowhere at all: a host that never opts in is the stale host the switch exists to prevent. An uncommitted or diverged checkout is reported and left alone, never fast-forwarded over. |
+
+`LITELLM_HAIKU_MODEL`, `LITELLM_SONNET_MODEL`, `LITELLM_FABLE_MODEL`, `LITELLM_OPUS_MODEL` and
+`CCGW_SUBAGENT_MODEL` are retired. Each named a routing key per machine, which is how the hosts
+came to address different backends from the same repo; the tier map now lives in the
+`ccgw_tiers:` annotations of `litellm-server/config.yaml`. A launcher that still finds one of
+them set says so and ignores it.
 
 ### Client env vars
 
 `ANTHROPIC_BASE_URL` points at the gateway (`https://<mac-lan-ip>:8445`); there is no second
-path. The per-tier alias vars take the `LITELLM_*_MODEL` routing keys verbatim — the launchers
-own no backend names, so an unknown key surfaces as a 400 from the gateway rather than as a
-guess made client-side.
+path. The per-tier alias vars take each route's `model_name` from `litellm-server/config.yaml`
+verbatim — the launchers own no backend names, so an unknown key surfaces as a 400 from the
+gateway rather than as a guess made client-side. A tier no route claims leaves its alias var out
+of the child's environment entirely, rather than set to something that resolves nowhere.
 
-| Tier | Backend |
-|---|---|
-| Fable | ds4 (`deepseek-v4-flash`), Mac |
-| Opus | the `.env`-selected Mac backend (`qwen3.8-flash-next-3bit-mtp`) |
-| Sonnet | Qwen3.8-27B, Windows llama-swap |
-| Haiku | Qwen3.8-27B, Windows llama-swap (the same entry as Sonnet) |
+| Tier | Route | Backend |
+|---|---|---|
+| Fable | `deepseek-v4-flash` | ds4, Mac |
+| Opus | `qwen3.8-flash-next-3bit-mtp` | `mlx_lm.server`, Mac |
+| Sonnet | `qwen3.8-27b` | Qwen3.8-27B, Windows llama-swap |
+| Haiku | `qwen3.8-27b` | the same route as Sonnet |
+| Subagent | `qwen3.8-27b` | the same route again |
 
-`CLAUDE_CODE_SUBAGENT_MODEL` is no longer set unconditionally. The gateway multiplexes across
-four backends, so pinning subagents to the resident Mac model bought nothing and silently
-overrode the model an agent definition asks for. Set `CCGW_SUBAGENT_MODEL` to opt back in.
+Haiku, Sonnet and the subagent route share one entry because the Windows `heavy` group is
+exclusive: a second Windows route would be swapped in and out against the tier running beside it.
+`CLAUDE_CODE_SUBAGENT_MODEL` is therefore set from that route rather than left unset — the
+annotation is what decides, so opting subagents back out is a config.yaml edit, not a per-host one.

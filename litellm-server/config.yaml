@@ -7,18 +7,27 @@
 #
 # IMPORTANT: The os.environ/ prefix is only resolved by LiteLLM when it appears
 # at the START of a value. After a provider prefix (e.g., openai/), the entire
-# string including os.environ/ is passed literally to the backend. Therefore,
-# model_name (routing key) uses os.environ/, but litellm_params.model uses a
+# string including os.environ/ is passed literally to the backend. So it is used
+# for connection endpoints and credentials only; litellm_params.model carries a
 # hardcoded backend model name after the provider prefix.
+#
+# model_name is the routing key clients address, and it is written out literally
+# here rather than read from each host's .env: this file is the single source of
+# truth for which Claude Code tier reaches which route. The tier annotation in
+# each route says which tiers it serves, scripts/code-ccgw.* reads it to build
+# the child environment, and every host therefore routes from the same committed
+# file. Tier vocabulary: haiku, sonnet, fable, opus, subagent -- each claimed by
+# exactly one route, all five claimed somewhere. See docs/architecture.md.
 
 model_list:
-  # --- Haiku and sonnet tiers: Qwen3.8-27B via llama-swap @ the Windows PC ---
-  # One entry, two tiers: llama-swap's heavy group on that PC is exclusive, so a haiku
+  # --- Haiku, sonnet and the subagent route: Qwen3.8-27B via llama-swap @ the Windows PC ---
+  # One entry, three tiers: llama-swap's heavy group on that PC is exclusive, so a haiku
   # on its own model would evict the sonnet one on every call and reload it on the next.
-  # .env points LITELLM_HAIKU_MODEL, LITELLM_SONNET_MODEL and CCGW_SUBAGENT_MODEL at this
-  # one key for that reason -- a subagent route naming anything else would thrash too.
-  - model_name: os.environ/LITELLM_SONNET_MODEL
+  # The subagent tier shares the same key for that reason -- a route naming anything else
+  # would thrash too.
+  - model_name: qwen3.8-27b
     litellm_params:
+      ccgw_tiers: [haiku, sonnet, subagent]
       model: openai/Qwen3.8-27B-UD-Q3_K_XL
       api_base: os.environ/LITELLM_LLAMASWAP_URL
       api_key: none
@@ -44,12 +53,13 @@ model_list:
   # The Mac backends are mutually exclusive (see llama-swap/m5-max-128gb/config.yaml in this
   # repo) -- only one can be resident at once. They sit on separate Claude Code tiers
   # so /model switches between them: fable -> ds4, opus -> whichever llama-swap entry
-  # .env's LITELLM_OPUS_MODEL currently names.
+  # the opus route below currently names.
   #
   # ds4-server accepts the Anthropic shape directly, so this route keeps the
   # anthropic/ provider and reaches the proxy at POST <origin>/v1/messages.
-  - model_name: os.environ/LITELLM_FABLE_MODEL
+  - model_name: deepseek-v4-flash
     litellm_params:
+      ccgw_tiers: [fable]
       model: anthropic/deepseek-v4-flash
       api_base: os.environ/LITELLM_CCGW_PROXY_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
@@ -64,8 +74,8 @@ model_list:
       supports_max_reasoning_effort: true
 
   # --- Opus tier: the selected mlx_lm.server backend via CCGW Proxy -> Mac swap layer ---
-  # scripts/set-model.sh rewrites the model: line below and .env's LITELLM_OPUS_MODEL
-  # together, so it names whichever llama-swap entry is selected, not a fixed backend.
+  # scripts/set-model.sh rewrites the model_name and model: lines below together, so they
+  # name whichever llama-swap entry is selected, not a fixed backend.
   # Both MLX backends (mlx_lm.server, mlx_vlm.server) speak only the OpenAI shape, so this
   # route uses the same openai/
   # provider pattern as haiku/sonnet: LiteLLM performs the Anthropic->OpenAI conversion
@@ -75,8 +85,9 @@ model_list:
   # backend's own "404 page not found" rather than any LiteLLM-level error. The body
   # model rewrite either MLX server needs is llama-swap's useModelName -- note the two want
   # opposite values there; see docs/tuning.md#mtp-speculative-decoding-qwen3827b.
-  - model_name: os.environ/LITELLM_OPUS_MODEL
+  - model_name: qwen3.8-flash-next-3bit-mtp
     litellm_params:
+      ccgw_tiers: [opus]
       model: openai/qwen3.8-flash-next-3bit-mtp
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY

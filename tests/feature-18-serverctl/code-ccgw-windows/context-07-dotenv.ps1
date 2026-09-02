@@ -22,7 +22,10 @@ Context '7. Repo-root .env loading' {
             ''
             'LITELLM_ANTHROPIC_BASE_URL=https://from-dotenv:9'
             'LITELLM_CLIENT_KEY=dotenv-token'
-            '  LITELLM_FABLE_MODEL = lite-fable  '
+            # Deliberately NOT a routing key: those are config.yaml's since issue
+            # #89, so probing the trim through one would assert the loader's
+            # behaviour on a value nothing consumes any more.
+            '  TRIM_PROBE_KEY = trimmed_value  '
             'MALFORMED_NO_EQUALS'
         )
 
@@ -165,7 +168,7 @@ Context '7. Repo-root .env loading' {
 
     It 'trims surrounding whitespace around key and value' {
         $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncher
-        Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_FABLE_MODEL' 'lite-fable' 'dotenv: whitespace-padded KEY = value is trimmed'
+        Assert-LauncherEnv $r 'TRIM_PROBE_KEY' 'trimmed_value' 'dotenv: whitespace-padded KEY = value is trimmed'
     }
 
     It 'a non-empty shell value outranks .env' {
@@ -186,6 +189,10 @@ Context '7. Repo-root .env loading' {
         $bare = Join-Path $script:Work 'fixture-no-dotenv'
         New-Item -ItemType Directory -Path (Join-Path $bare 'scripts') -Force | Out-Null
         Copy-Item -LiteralPath $script:SourceLauncher -Destination (Join-Path $bare 'scripts' 'code-ccgw.ps1') -Force
+        # The tree is hand-built rather than New-FixtureTree'd precisely so that
+        # .env is absent; config.yaml is a separate concern and must still be
+        # there, or this case would pass through the missing-config guard instead.
+        New-FixtureConfigYaml -Root $bare | Out-Null
         $r = Invoke-Launcher -LauncherPath (Join-Path $bare 'scripts' 'code-ccgw.ps1') -Environment (New-Env)
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
         Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'dotenv/absent: launcher still runs'

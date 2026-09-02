@@ -19,8 +19,25 @@ Context '14. The launch is fire-and-forget: the launcher does not wait for VS Co
     BeforeAll {
         # One measured launch, read by both cases (CPR-SSOT): they are two halves
         # of one contract, and a blocking launcher costs this Context its whole
-        # budget once instead of once per case.
+        # budget once instead of once per case. CCGW_AUTO_PULL is off (the suite
+        # default in Set-ChildEnvBlock), so 14a/14b measure the launch alone.
         $script:Ctx14 = Measure-LauncherLaunch -Environment (New-Env) -Arguments @('C:\some\project') -BudgetMs 10000
+
+        # 14c's fixture: the same long-lived `code` stub, plus a `git` that never
+        # returns. ping is the sleep because PATH is the stub dir alone, so the
+        # absolute System32 path is the only one that resolves.
+        $script:Ctx14StubDir = New-StubDir -Name 'stub-ctx14-hanging-git' -NoMkcert -LongLivedCmdStub
+        Set-Content -LiteralPath (Join-Path $script:Ctx14StubDir 'git.cmd') -Encoding ascii -Value @(
+            '@echo off'
+            '%SystemRoot%\System32\ping.exe -n 300 127.0.0.1 > nul'
+            'exit /b 0'
+        )
+        # A tree that LOOKS like a checkout, so an implementation that skips the
+        # pull when there is no .git still reaches the hanging git here.
+        $script:Ctx14Launcher = New-FixtureTree -Name 'fixture-ctx14-autopull'
+        $ctx14GitDir = Join-Path (Get-FixtureRoot $script:Ctx14Launcher) '.git'
+        New-Item -ItemType Directory -Path $ctx14GitDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $ctx14GitDir 'HEAD') -Value 'ref: refs/heads/main' -Encoding ascii
     }
 
     It '14a. the launcher returns promptly even when the process it started is still alive' {
@@ -53,5 +70,21 @@ lifetime to the console it was started from. Launcher output: $($r.Output)
         $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'C:\some\project')
         (@($r.Argv) -join "`u{1}") | Should -BeExactly ($expected -join "`u{1}") `
             -Because "a detached launch must still deliver the full argv; got [$(@($r.Argv) -join '][')]"
+    }
+
+    It '14c. auto-pull on: a git that never returns must not hold the launch hostage' {
+        # Auto-pull is on by default (issue #89), which puts a network operation
+        # on the critical path of every launch. An unreachable remote -- VPN down,
+        # SSH agent asking for a passphrase nobody will type -- is the normal
+        # failure, and it must cost the deadline, not the session. The budget is
+        # the launcher's own 20s deadline plus room for process startup; anything
+        # near this Context's cap means no deadline is being enforced at all.
+        $r = Measure-LauncherLaunch -LauncherPath $script:Ctx14Launcher -StubDir $script:Ctx14StubDir `
+            -Environment (New-Env @{ CCGW_AUTO_PULL = 'on' }) -BudgetMs 60000
+        $r.ExitedWithinBudget | Should -BeTrue -Because @"
+the launcher was still running $($r.ElapsedMs)ms after start with a deliberately hanging git on PATH:
+auto-pull has no deadline, so an unreachable remote blocks the editor from ever opening. Launcher output: $($r.Output)
+"@
+        $r.StubStarted | Should -BeTrue -Because "a timed-out pull must still launch the editor; launcher output: $($r.Output)"
     }
 }
