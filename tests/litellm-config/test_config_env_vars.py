@@ -160,25 +160,13 @@ def test_routing_keys_are_no_longer_declared_in_env_example():
 
 
 def test_routing_key_names_are_gone_from_env_example_entirely():
-    """The `KEY=` scan above cannot see a key that is merely commented out.
-
-    Commenting a line out is the natural way to "remove" it, and it leaves the
-    name in the file where the next operator uncomments it, or copies the block
-    into a real .env, and re-seeds the per-machine drift this change exists to
-    end. The retired names are also not wanted as prose: .env.example is the
-    reference an operator greps, and a hit teaches that the key still exists.
-    Migration guidance belongs in docs/ops.md, which is where a reader looking
-    for the OLD name should land.
-    """
+    """Catches a key surviving as a comment, which the `KEY=` scan above misses."""
     content = _read(ENV_EXAMPLE_PATH)
     surviving = sorted(name for name in ROUTING_KEYS if name in content)
     assert not surviving, (
-        f"{ENV_EXAMPLE_PATH} still mentions {surviving} somewhere in its raw "
-        "text (a commented-out line, a leftover section header, or an "
-        "explanatory sentence). The parsed-key check passes on all three, and "
-        "all three put the retired name back in front of the next operator — "
-        f"the routing keys live in {CONFIG_PATH}'s `ccgw_tiers` annotations now, "
-        "and the migration note belongs in docs/ops.md"
+        f"{ENV_EXAMPLE_PATH} still mentions {surviving} in raw text — routing "
+        f"keys live in {CONFIG_PATH}'s `ccgw_tiers` annotations now; see "
+        "docs/ops.md for the migration note"
     )
 
 
