@@ -293,6 +293,43 @@ the whole 145 s. Before APC there was no prefix cache for a stable prefix to hit
 normalization only earned its keep on the ds4 tier, which keeps its own KV cache via
 `--kv-disk-dir`.
 
+### What the memory line costs a re-quantization
+
+The measured line above is not just an operating limit; it is the constraint that picks the
+quantization recipe. With APC on, `peak ≈ weights + 3.1 GB + 170.6 KB/token`, and a routed opus
+tier has to hold `CLAUDE_CODE_AUTO_COMPACT_WINDOW` — 102400, of which 76,800 tokens actually
+reach the backend — inside the 112 GB practical budget. Every gigabyte spent on weights is
+therefore about 6k tokens of reachable context.
+
+| build | weights | reachable, APC off | reachable, APC on |
+|---|---|---|---|
+| uniform 3bit/g32 (the build that repeats) | 83.2 GiB | ~229k | ~115k |
+| mixed, routed experts 3bit/g64 | 84.8 GiB | ~209k | ~105k |
+| mixed, experts up/gate 3bit + down 4bit | 89.5 GiB | ~150k | ~75k |
+| `pipenetwork/…-MLX-mixed-4_8bit` verbatim | 98.9 GiB | ~32k | ~16k |
+
+Only the first two clear the 76,800-token window with margin. The 89.5 GiB variant lands on it
+with none, and the upstream 4/8-bit build cannot serve the tier at all. That is why the adopted
+recipe drops **only** the routed experts to 3 bits and keeps everything else at the published
+mixed-precision allocation, rather than taking a publisher's build as-is or spending bits on the
+expert `down` projections.
+
+The bit budget is not what was wrong with the uniform build. At `bits + 32/group_size`, uniform
+3bit/g32 is 4.03 effective bits per weight — *more* than the 3.705 of unsloth's UD-IQ3_XXS GGUF,
+which does not repeat. The failure is where the bits sit: a uniform pass spends the same 3 bits on
+the routers, the QSA indexer and the PLE n-gram table as on the routed experts, and those three
+make discrete decisions that a 3-bit grid inverts. The adopted recipe leaves routers and indexer
+in bf16, puts the PLE table at 4bit/g32, and buys that back from the experts, landing at 4.094
+bpw / 85 GB — within 1.8 GB of the build it replaces.
+
+Two mechanical notes for anyone re-running the conversion. `mlx_vlm`'s
+`quant_utils.wrapped_predicate` silently skips any module whose input dim the default
+`group_size` does not divide, unless the predicate's return dict carries `fallback_group_size` —
+an explicit `group_size` alone is not enough. PLE shard rows are 160 wide, so omitting that key
+leaves 51.2B parameters in bf16 and the build comes out at 7.269 bpw / 150 GB with no error
+raised. And `conv1d` / patch-embed weights have no `to_quantized` at all; ~0.3 GiB staying bf16
+there is expected, not a miss.
+
 ## Memory budget (Laguna S 2.1)
 
 Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_heads: 8` (GQA)
@@ -516,7 +553,7 @@ of the child's environment entirely, rather than set to something that resolves 
 | Tier | Route | Backend |
 |---|---|---|
 | Fable | `deepseek-v4-flash` | ds4, Mac |
-| Opus | `qwen3.8-flash-next-3bit-mtp` | `mlx_lm.server`, Mac |
+| Opus | `qwen3.8-flash-next-mixed-3_8bit` | `mlx_vlm.server`, Mac |
 | Sonnet | `qwen3.8-27b` | Qwen3.8-27B, Windows llama-swap |
 | Haiku | `qwen3.8-27b` | the same route as Sonnet |
 | Subagent | `qwen3.8-27b` | the same route again |
