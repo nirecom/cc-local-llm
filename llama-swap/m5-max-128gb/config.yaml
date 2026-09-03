@@ -142,28 +142,37 @@ models:
     useModelName: ${env.HOME}/.lmstudio/models/orcarouter/Qwen3.8-27B-Uncensored-MLX
     concurrencyLimit: 3
   # Qwen3.8-Flash-Next -- 125B-A6B MoE plus 51B hashed n-gram PLE embeddings,
-  # self-converted to 3bit/group-32 MLX (89.4GB) because no publisher with a
-  # track record ships an MLX build of it. See scripts/convert-mlx-model.sh.
+  # self-converted to a mixed 3/8-bit MLX build (85GB, 4.094 bpw): routers and
+  # QSA indexer unquantized, PLE n-gram table 4bit/group-32, routed experts
+  # 3bit/group-64, everything else 8bit/group-64.
+  #
+  # The uniform 3bit/group-32 build this replaces degenerated into token
+  # repetition from the first turn of a session -- reproduced deterministically
+  # under greedy decoding on a 40-token prompt. It was not short of bits (4.03
+  # bpw, more than the 3.705 of unsloth's UD-IQ3_XXS GGUF, which is fine); it
+  # spent them uniformly, so the routers, the indexer and the PLE table ran on
+  # the same 3-bit grid as the experts and their discrete selections inverted.
+  # Why these bit widths and not a publisher's build: docs/tuning.md.
   #
   # --max-num-seqs 1, unlike the Qwen3.8-27B family above: mlx-vlm's qwen4_exp
   # README says the QSA cache path is not yet wired into continuous batching.
-  qwen3.8-flash-next-3bit:
+  qwen3.8-flash-next-mixed-3_8bit:
     cmd: >-
       caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
-      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-mixed-3_8bit
       --prefill-step-size 1024
       --max-num-seqs 1
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
     # Same mlx_vlm.server path-as-model-name convention as the Qwen3.8-27B
     # family -- see the qwen3.8-27b-8bit entry's comment.
-    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-mixed-3_8bit
     concurrencyLimit: 1
-  qwen3.8-flash-next-3bit-mtp:
+  qwen3.8-flash-next-mixed-3_8bit-mtp:
     cmd: >-
       caffeinate -ism mlx_vlm.server --host 127.0.0.1 --port ${PORT}
-      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
-      --draft-model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-MTP-3bit
+      --model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-mixed-3_8bit
+      --draft-model ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-MTP-mixed-3_8bit
       --draft-kind mtp
       --prefill-step-size 1024
       --max-num-seqs 1
@@ -180,7 +189,7 @@ models:
       - MLX_VLM_TOKEN_QUEUE_TIMEOUT=3600
     proxy: http://127.0.0.1:${PORT}
     ttl: 0
-    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-3bit
+    useModelName: ${env.HOME}/.lmstudio/models/nirecom/Qwen3.8-Flash-Next-mixed-3_8bit
     concurrencyLimit: 1
   qwen3-next-80b-a3b-thinking:
     # Same Qwen3-Next-80B-A3B base architecture as qwen3-coder-next-80b-a3b

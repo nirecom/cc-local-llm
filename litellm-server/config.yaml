@@ -85,10 +85,10 @@ model_list:
   # backend's own "404 page not found" rather than any LiteLLM-level error. The body
   # model rewrite either MLX server needs is llama-swap's useModelName -- note the two want
   # opposite values there; see docs/tuning.md#mtp-speculative-decoding-qwen3827b.
-  - model_name: qwen3.8-flash-next-3bit
+  - model_name: qwen3.8-flash-next-mixed-3_8bit
     litellm_params:
       ccgw_tiers: [opus]
-      model: openai/qwen3.8-flash-next-3bit
+      model: openai/qwen3.8-flash-next-mixed-3_8bit
       api_base: os.environ/LITELLM_CCGW_PROXY_OPENAI_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
@@ -97,7 +97,7 @@ model_list:
       # This route had no explicit timeout, so it ran on LiteLLM's shorter default --
       # fine for a normal turn, but a long prefill on this backend (206,819 tokens
       # measured at 717s; see the MLX_VLM_TOKEN_QUEUE_TIMEOUT note on the
-      # qwen3.8-flash-next-3bit-mtp entry in llama-swap/m5-max-128gb/config.yaml)
+      # qwen3.8-flash-next-mixed-3_8bit-mtp entry in llama-swap/m5-max-128gb/config.yaml)
       # timed out client-side well before the backend itself gave up. Matches that
       # backend ceiling so LiteLLM never cuts the connection first.
       timeout: 3600

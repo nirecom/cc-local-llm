@@ -184,7 +184,7 @@ backends:
 | Sonnet | `qwen3.8-27b` | Qwen3.8-27B-UD-Q3_K_XL via llama-swap (<windows-host>, Caddy TLS front `:8443/v1`) | Anthropic to OpenAI |
 | Subagent | `qwen3.8-27b` | the Sonnet entry again, for the same exclusivity reason | Anthropic to OpenAI |
 | Fable | `deepseek-v4-flash` | CCGW Proxy (<mac-host>, :8443) | None (Anthropic passthrough) |
-| Opus | `qwen3.8-flash-next-3bit-mtp` | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
+| Opus | `qwen3.8-flash-next-mixed-3_8bit` | CCGW Proxy (<mac-host>, :8443) | Anthropic to OpenAI |
 
 ### The tier map lives in the config, not in each host's .env
 
