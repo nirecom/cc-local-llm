@@ -13,8 +13,10 @@ Usage: scripts/convert-mlx-model.sh [options]
   --hf-path <repo|dir>   Source checkpoint      (default: Qwen/Qwen3.8-Flash-Next)
   --publisher <name>     ~/.lmstudio/models/<publisher>   (default: nirecom)
   --name <name>          Output dir name       (default: <model>-<bits>bit)
-  --q-bits <n>           Bits per weight       (default: 3)
-  --q-group-size <n>     Quantization group    (default: 32)
+  --q-bits <n>           Bits per weight       (default: 3, or 8 with --recipe)
+  --q-group-size <n>     Quantization group    (default: 32, or 64 with --recipe)
+  --recipe <name>        Per-module mixed-precision recipe; one of: qwen4-exp-mixed
+                         (rationale and per-bucket bits: scripts/lib/convert-mixed-quant.py)
   --no-mtp               Skip MTP drafter extraction
   --dry-run              Print the plan and the convert command, then exit
 
@@ -38,6 +40,9 @@ PUBLISHER="nirecom"
 NAME=""
 Q_BITS=3
 Q_GROUP_SIZE=32
+Q_BITS_EXPLICIT=0
+Q_GROUP_SIZE_EXPLICIT=0
+RECIPE=""
 WITH_MTP=1
 DRY_RUN=0
 
@@ -46,8 +51,9 @@ while [ $# -gt 0 ]; do
         --hf-path)       HF_PATH="${2:?--hf-path needs a value}"; shift 2 ;;
         --publisher)     PUBLISHER="${2:?--publisher needs a value}"; shift 2 ;;
         --name)          NAME="${2:?--name needs a value}"; shift 2 ;;
-        --q-bits)        Q_BITS="${2:?--q-bits needs a value}"; shift 2 ;;
-        --q-group-size)  Q_GROUP_SIZE="${2:?--q-group-size needs a value}"; shift 2 ;;
+        --q-bits)        Q_BITS="${2:?--q-bits needs a value}"; Q_BITS_EXPLICIT=1; shift 2 ;;
+        --q-group-size)  Q_GROUP_SIZE="${2:?--q-group-size needs a value}"; Q_GROUP_SIZE_EXPLICIT=1; shift 2 ;;
+        --recipe)        RECIPE="${2:?--recipe needs a value}"; shift 2 ;;
         --no-mtp)        WITH_MTP=0; shift ;;
         --dry-run)       DRY_RUN=1; shift ;;
         -h|--help)       usage; exit 0 ;;
@@ -58,6 +64,22 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# A recipe's "everything else" bucket follows docs/history.md's validated
+# build (8bit/group-64), not the uniform path's low-bit default -- only when
+# the caller did not pass their own --q-bits/--q-group-size.
+if [ -n "$RECIPE" ]; then
+    [ "$Q_BITS_EXPLICIT" -eq 1 ] || Q_BITS=8
+    [ "$Q_GROUP_SIZE_EXPLICIT" -eq 1 ] || Q_GROUP_SIZE=64
+
+    case "$RECIPE" in
+        qwen4-exp-mixed) ;;
+        *)
+            printf "${C_YELLOW}Unknown --recipe '$RECIPE'. Run --help for the available recipes.${C_RESET}\n" >&2
+            exit 2
+            ;;
+    esac
+fi
 
 if [ "$(uname -s)" != "Darwin" ]; then
     printf "${C_YELLOW}MLX conversion requires macOS with Metal.${C_RESET}\n" >&2
@@ -108,19 +130,33 @@ fi
 # The group size must divide every quantized tensor's input dimension, or the
 # tensor is silently left in BF16 and the output balloons past its planned size.
 # qwen4_exp's hashed n-gram PLE tables are 160 wide: 160 % 32 == 0, 160 % 64 != 0.
-if [ "$MODEL_TYPE" = "qwen4_exp" ] && [ "$Q_GROUP_SIZE" -gt 32 ]; then
-    printf "${C_YELLOW}qwen4_exp needs --q-group-size 32 or smaller (its n-gram PLE tables are 160 wide).${C_RESET}\n" >&2
+# Only applies to the uniform path -- a recipe pins the PLE table's own group
+# size (see scripts/lib/convert-mixed-quant.py) regardless of --q-group-size.
+if [ -z "$RECIPE" ] && [ "$MODEL_TYPE" = "qwen4_exp" ] && [ "$Q_GROUP_SIZE" -gt 32 ]; then
+    printf "${C_YELLOW}qwen4_exp needs --q-group-size 32 or smaller (its n-gram PLE tables are 160 wide), or --recipe qwen4-exp-mixed.${C_RESET}\n" >&2
     exit 1
 fi
 
 # --- Output paths -----------------------------------------------------------
 MODEL_BASENAME="$(basename "$HF_PATH")"
-[ -n "$NAME" ] || NAME="${MODEL_BASENAME}-${Q_BITS}bit"
+if [ -n "$RECIPE" ]; then
+    # Naming convention validated against pipenetwork/mlx-community's own mixed
+    # builds (docs/history.md, 2026-09-03): hyphen between name components,
+    # underscore joining the two bit widths. "3" is qwen4-exp-mixed's fixed
+    # routed-expert bit width -- the only recipe today, so not parameterized.
+    [ -n "$NAME" ] || NAME="${MODEL_BASENAME}-mixed-3_${Q_BITS}bit"
+else
+    [ -n "$NAME" ] || NAME="${MODEL_BASENAME}-${Q_BITS}bit"
+fi
 MODELS_ROOT="$HOME/.lmstudio/models/$PUBLISHER"
 OUT_DIR="$MODELS_ROOT/$NAME"
 # Mirrors mlx-community's own naming (Qwen3.8-27B-MTP-8bit) so the drafter sorts
 # next to its base model. convert's default, "<mlx-path>-mtp", does not.
-MTP_NAME="${MODEL_BASENAME}-MTP-${Q_BITS}bit"
+if [ -n "$RECIPE" ]; then
+    MTP_NAME="${MODEL_BASENAME}-MTP-mixed-3_${Q_BITS}bit"
+else
+    MTP_NAME="${MODEL_BASENAME}-MTP-${Q_BITS}bit"
+fi
 MTP_DIR="$MODELS_ROOT/$MTP_NAME"
 # Staged in siblings and moved on success -- a conversion this long must not
 # leave a half-written directory that looks like a finished model.
@@ -154,9 +190,20 @@ if [ -n "$SOURCE_DIR" ] && [ -d "$SOURCE_DIR" ]; then
     SOURCE_GB="$(du -sk -L "$SOURCE_DIR" 2>/dev/null | awk '{printf "%.0f", $1/1024/1024}')"
 fi
 
+# A recipe mixes bit widths per module, so the uniform formula above is only
+# approximate for it -- routed experts dominate a MoE's parameter count, so
+# estimate from their bucket (3bit/group-64) rather than the structural one.
+if [ -n "$RECIPE" ]; then
+    EST_BITS=3
+    EST_GROUP_SIZE=64
+else
+    EST_BITS="$Q_BITS"
+    EST_GROUP_SIZE="$Q_GROUP_SIZE"
+fi
+
 NEED_GB=""
 if [ -n "$SOURCE_GB" ] && [ "$SOURCE_GB" -gt 0 ]; then
-    NEED_GB="$(awk -v s="$SOURCE_GB" -v b="$Q_BITS" -v g="$Q_GROUP_SIZE" 'BEGIN{printf "%.0f", s*(b+32/g)/16*1.15}')"
+    NEED_GB="$(awk -v s="$SOURCE_GB" -v b="$EST_BITS" -v g="$EST_GROUP_SIZE" 'BEGIN{printf "%.0f", s*(b+32/g)/16*1.15}')"
 fi
 AVAIL_GB="$(df -g "$HOME" | awk 'NR==2{print $4}')"
 
@@ -164,14 +211,24 @@ AVAIL_GB="$(df -g "$HOME" | awk 'NR==2{print $4}')"
 printf "${C_CYAN}=== MLX conversion plan ===${C_RESET}\n"
 printf "  source        %s (model_type: %s)\n" "$HF_PATH" "$MODEL_TYPE"
 [ -n "$SOURCE_GB" ] && printf "  source size   ~%s GiB\n" "$SOURCE_GB"
-printf "  quantization  %s-bit affine, group size %s\n" "$Q_BITS" "$Q_GROUP_SIZE"
+if [ -n "$RECIPE" ]; then
+    printf "  quantization  recipe %s: experts 3bit/g64, PLE table 4bit/g32, router/indexer unquantized, everything else %s-bit/g%s\n" "$RECIPE" "$Q_BITS" "$Q_GROUP_SIZE"
+else
+    printf "  quantization  %s-bit affine, group size %s\n" "$Q_BITS" "$Q_GROUP_SIZE"
+fi
 printf "  output        %s\n" "$OUT_DIR"
 if [ "$WITH_MTP" -eq 1 ]; then
     printf "  MTP drafter   %s\n" "$MTP_DIR"
 else
     printf "  MTP drafter   ${C_GRAY}(skipped)${C_RESET}\n"
 fi
-[ -n "$NEED_GB" ] && printf "  disk needed   ~%s GiB (available: %s GiB)\n" "$NEED_GB" "$AVAIL_GB"
+if [ -n "$NEED_GB" ]; then
+    if [ -n "$RECIPE" ]; then
+        printf "  disk needed   ~%s GiB (available: %s GiB, approximate -- estimated from the experts bucket)\n" "$NEED_GB" "$AVAIL_GB"
+    else
+        printf "  disk needed   ~%s GiB (available: %s GiB)\n" "$NEED_GB" "$AVAIL_GB"
+    fi
+fi
 echo ""
 
 if [ -n "$NEED_GB" ] && [ "$AVAIL_GB" -lt "$NEED_GB" ]; then
@@ -179,13 +236,22 @@ if [ -n "$NEED_GB" ] && [ "$AVAIL_GB" -lt "$NEED_GB" ]; then
     exit 1
 fi
 
-CONVERT_ARGS=(--hf-path "$HF_PATH" --mlx-path "$STAGING_DIR" -q --q-bits "$Q_BITS" --q-group-size "$Q_GROUP_SIZE")
-if [ "$WITH_MTP" -eq 1 ]; then
-    CONVERT_ARGS+=(--mtp --mtp-output "$MTP_STAGING_DIR")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -n "$RECIPE" ]; then
+    CONVERT_CMD=("$PY" "$SCRIPT_DIR/lib/convert-mixed-quant.py" --recipe "$RECIPE" --hf-path "$HF_PATH" --mlx-path "$STAGING_DIR" --q-bits "$Q_BITS" --q-group-size "$Q_GROUP_SIZE")
+    if [ "$WITH_MTP" -eq 1 ]; then
+        CONVERT_CMD+=(--mtp --mtp-output "$MTP_STAGING_DIR")
+    fi
+else
+    CONVERT_CMD=(mlx_vlm.convert --hf-path "$HF_PATH" --mlx-path "$STAGING_DIR" -q --q-bits "$Q_BITS" --q-group-size "$Q_GROUP_SIZE")
+    if [ "$WITH_MTP" -eq 1 ]; then
+        CONVERT_CMD+=(--mtp --mtp-output "$MTP_STAGING_DIR")
+    fi
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
-    printf "${C_GRAY}caffeinate -ism mlx_vlm.convert ${CONVERT_ARGS[*]}${C_RESET}\n"
+    printf "${C_GRAY}caffeinate -ism ${CONVERT_CMD[*]}${C_RESET}\n"
     exit 0
 fi
 
@@ -196,7 +262,7 @@ mkdir -p "$MODELS_ROOT"
 rm -rf "$STAGING_DIR" "$MTP_STAGING_DIR"
 
 printf -- "${C_BOLD}--- Converting (this takes a while; do not interrupt) ---${C_RESET}\n"
-if ! caffeinate -ism mlx_vlm.convert "${CONVERT_ARGS[@]}"; then
+if ! caffeinate -ism "${CONVERT_CMD[@]}"; then
     printf "${C_YELLOW}Conversion failed -- leaving $STAGING_DIR in place for inspection.${C_RESET}\n" >&2
     exit 1
 fi
