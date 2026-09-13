@@ -75,7 +75,7 @@ Context '15. Adversarial CONFIG values stay data too (issue #66)' -Skip:(-not $I
             # The argv half of the same launch: a value that leaked out of the
             # environment block and into the command line shows up as extra
             # arguments even when nothing executed.
-            if (@($r.Argv).Count -ne 3) {
+            if (@($r.Argv).Count -ne 5) {
                 $bad.Add("${name}: argv was [$(@($r.Argv) -join '][')] -- a config value reached the command line")
             }
         }
@@ -143,6 +143,6 @@ Context '15. Adversarial CONFIG values stay data too (issue #66)' -Skip:(-not $I
         # the block above it -- which is exactly what the empty name invites.
         Assert-LauncherEnv $r 'ANTHROPIC_DEFAULT_HAIKU_MODEL' 'lite-good' "config-injection/grammar/${Label}: the well-formed routes still apply"
         # And nothing ran: the metachar shape is shell syntax on two platforms.
-        (@($r.Argv).Count) | Should -Be 3 -Because "config-injection/grammar/${Label}: argv was [$(@($r.Argv) -join '][')]"
+        (@($r.Argv).Count) | Should -Be 5 -Because "config-injection/grammar/${Label}: argv was [$(@($r.Argv) -join '][')]"
     }
 }

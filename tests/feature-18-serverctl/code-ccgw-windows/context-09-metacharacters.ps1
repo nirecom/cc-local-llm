@@ -35,13 +35,14 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
             'a&&b||c'
         )
         $script:ProfileArg = Join-Path $script:LocalAppData 'vscode-ccgw'
+        $script:ExtensionsArg = Join-Path $script:LocalAppData 'vscode-ccgw-extensions'
     }
 
     It '9a. a metacharacter in an argument reaches the child as the literal string' {
         $bad = New-Object System.Collections.Generic.List[string]
         foreach ($value in $script:MetacharValues) {
             $r = Invoke-Launcher -Environment (New-Env) -Arguments @('C:\some\project', $value)
-            $expected = @('--user-data-dir', $script:ProfileArg, 'C:\some\project', $value)
+            $expected = @('--user-data-dir', $script:ProfileArg, '--extensions-dir', $script:ExtensionsArg, 'C:\some\project', $value)
             if ($r.ExitCode -ne 0) {
                 $bad.Add("'$value': exit $($r.ExitCode); stderr: $($r.StdErr)")
             } elseif (-not $r.Reached) {
@@ -81,7 +82,7 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
                 $bad.Add("'$value': exit $($r.ExitCode); stderr: $($r.StdErr)")
             } elseif (-not $r.Reached) {
                 $bad.Add("'$value': the stub was never reached; stderr: $($r.StdErr)")
-            } elseif (@($r.Argv).Count -ne 4) {
+            } elseif (@($r.Argv).Count -ne 6) {
                 $bad.Add("'$value': argv was [$(@($r.Argv) -join '][')]")
             } elseif ($value -notmatch '"' -and (@($r.Argv)[-1] -cne $value)) {
                 # Argv equality is only checked for the values the stub can
@@ -102,9 +103,9 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
         $r = Invoke-Launcher -Environment (New-Env) -Arguments @('C:\trailing\dir\', 'C:\some\project')
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
         $r.Reached | Should -BeTrue -Because "stderr: $($r.StdErr)"
-        @($r.Argv).Count | Should -Be 4 -Because "the trailing backslash must not swallow the next argument; argv: [$(@($r.Argv) -join '][')]"
-        ($r.Argv[2] -replace '\\+$', '\') | Should -BeExactly 'C:\trailing\dir\'
-        $r.Argv[3] | Should -BeExactly 'C:\some\project'
+        @($r.Argv).Count | Should -Be 6 -Because "the trailing backslash must not swallow the next argument; argv: [$(@($r.Argv) -join '][')]"
+        ($r.Argv[4] -replace '\\+$', '\') | Should -BeExactly 'C:\trailing\dir\'
+        $r.Argv[5] | Should -BeExactly 'C:\some\project'
     }
 
     It '9d. an argument containing a newline is refused before anything is launched, and its payload never runs' {
@@ -169,7 +170,7 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
         $r.StdErr | Should -Not -Match '(?i)is not recognized as an internal or external command' `
             -Because "part of the stub's own path was executed as a command: $($r.StdErr)"
 
-        $expected = @('--user-data-dir', $script:ProfileArg, 'C:\some\project', '--new-window')
+        $expected = @('--user-data-dir', $script:ProfileArg, '--extensions-dir', $script:ExtensionsArg, 'C:\some\project', '--new-window')
         (@($r.Argv) -join "`u{1}") | Should -BeExactly ($expected -join "`u{1}") `
             -Because "argv must survive an unfriendly path to code.cmd; got [$(@($r.Argv) -join '][')]"
         Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'metachars/unfriendly-code-path'
@@ -204,7 +205,7 @@ Context '9. Argument metacharacters stay data, never cmd.exe operators (issue #6
             )) {
             $r = Invoke-Launcher -StubDir $script:StubCmdForward -Environment (New-Env) `
                 -Arguments @($value, 'TAIL-SENTINEL')
-            $expected = @('--user-data-dir', $script:ProfileArg, $value, 'TAIL-SENTINEL')
+            $expected = @('--user-data-dir', $script:ProfileArg, '--extensions-dir', $script:ExtensionsArg, $value, 'TAIL-SENTINEL')
             if ($r.ExitCode -ne 0) {
                 $bad.Add("'$value': exit $($r.ExitCode); stderr: $($r.StdErr)")
             } elseif (-not $r.Reached) {

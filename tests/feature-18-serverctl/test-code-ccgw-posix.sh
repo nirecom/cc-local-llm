@@ -36,8 +36,14 @@ export HOME="$WORK/home"
 mkdir -p "$HOME"
 trap 'rm -rf "$WORK"' EXIT
 
+# Pre-seeds the marker the bootstrap-install branch checks for (Darwin path),
+# so every run_launcher call below is unaffected by it by default; section 7
+# covers the branch itself with its own fresh $HOME fixtures.
+mkdir -p "$HOME/Library/Application Support/vscode-ccgw-extensions/anthropic.claude-code-0.0.0"
+
 DUMP="$WORK/env.dump"
 ARGV="$WORK/argv.dump"
+CALLLOG="$WORK/calllog.dump"
 
 # --- the config.yaml the launcher derives its tiers from ---------------------
 # Routing keys live here now (issue #89), so even the cases below that assert
@@ -79,6 +85,9 @@ cat > "$STUB/code" <<'EOF'
 #!/bin/bash
 env > "$CCGW_TEST_DUMP"
 printf '%s\n' "$@" > "$CCGW_TEST_ARGV"
+if [ -n "${CCGW_TEST_CALLLOG:-}" ]; then
+    { echo '---CALL---'; printf '%s\n' "$@"; } >> "$CCGW_TEST_CALLLOG"
+fi
 EOF
 chmod +x "$STUB/code"
 
@@ -109,14 +118,14 @@ run_launcher() { # run_launcher [KEY=VAL ...] [-- <argv for code>]
         if [ "$seen" -eq 0 ] && [ "$a" = "--" ]; then seen=1; continue; fi
         if [ "$seen" -eq 0 ]; then envs+=("$a"); else args+=("$a"); fi
     done
-    rm -f "$DUMP" "$ARGV"
+    rm -f "$DUMP" "$ARGV" "$CALLLOG"
     # CCGW_AUTO_PULL defaults to on: left alone, every case here would reach
     # for a git remote before launching. Pinned off -- the pull is
     # test-code-ccgw-auto-pull.sh's subject, not a side effect of these cases.
     env -i \
         HOME="$HOME" PATH="$STUB_PATH" DOTENV_FILE="$DOTENV_FILE" \
         CCGW_OPS_ROOT="$OPS" CCGW_AUTO_PULL=off \
-        CCGW_TEST_DUMP="$DUMP" CCGW_TEST_ARGV="$ARGV" \
+        CCGW_TEST_DUMP="$DUMP" CCGW_TEST_ARGV="$ARGV" CCGW_TEST_CALLLOG="$CALLLOG" \
         ${envs[@]+"${envs[@]}"} \
         bash "$LAUNCHER" ${args[@]+"${args[@]}"} >"$WORK/out" 2>"$WORK/err"
     RC=$?
@@ -320,6 +329,8 @@ run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck -- 
 [ "$RC" -eq 0 ] || fail "argv: exited $RC: $(cat "$WORK/err")"
 EXPECT_ARGV="--user-data-dir
 $HOME/Library/Application Support/vscode-ccgw
+--extensions-dir
+$HOME/Library/Application Support/vscode-ccgw-extensions
 /some/project
 --new-window"
 GOT_ARGV="$(cat "$ARGV")"
@@ -332,19 +343,26 @@ LINUX_STUB="$WORK/stub-linux"
 make_uname "$LINUX_STUB" Linux
 cp "$STUB/code" "$LINUX_STUB/code"
 STUB_PATH="$LINUX_STUB:/usr/bin:/bin"
+# Pre-seed the marker for this $HOME's Linux (XDG-unset) extensions dir too.
+mkdir -p "$HOME/.local/share/vscode-ccgw-extensions/anthropic.claude-code-0.0.0"
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 GOT_ARGV="$(cat "$ARGV")"
 EXPECT_ARGV="--user-data-dir
-$HOME/.local/share/vscode-ccgw"
+$HOME/.local/share/vscode-ccgw
+--extensions-dir
+$HOME/.local/share/vscode-ccgw-extensions"
 [ "$GOT_ARGV" = "$EXPECT_ARGV" ] || fail "argv on Linux (XDG unset):
   expected: $EXPECT_ARGV
   actual:   $GOT_ARGV"
 
 # Linux: explicit XDG_DATA_HOME is honored.
+mkdir -p "$WORK/xdg/vscode-ccgw-extensions/anthropic.claude-code-0.0.0"
 run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck XDG_DATA_HOME="$WORK/xdg"
 GOT_ARGV="$(cat "$ARGV")"
 EXPECT_ARGV="--user-data-dir
-$WORK/xdg/vscode-ccgw"
+$WORK/xdg/vscode-ccgw
+--extensions-dir
+$WORK/xdg/vscode-ccgw-extensions"
 [ "$GOT_ARGV" = "$EXPECT_ARGV" ] || fail "argv on Linux (XDG_DATA_HOME set):
   expected: $EXPECT_ARGV
   actual:   $GOT_ARGV"
@@ -359,5 +377,62 @@ run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
 [ "$RC" -ne 0 ] || fail "missing-code: exited 0; a missing 'code' must be a hard failure"
 assert_stderr "ERROR: 'code' command not found on PATH" "missing-code: must name the problem"
 assert_stderr "Install 'code' command in PATH" "missing-code: must state the remedy"
+
+# --- 7. Bootstrap-installing anthropic.claude-code into the isolated
+#        extensions dir (mirrors code-ccgw-windows.Tests.ps1 Context 20;
+#        CPR-ORTH) ------------------------------------------------------------
+STUB_PATH="$SAVED_PATH"
+count_calls() { grep -c '^---CALL---$' "$CALLLOG" 2>/dev/null || true; }
+
+# 7a. No marker: code is invoked twice -- install, then the real launch.
+HOME_CTX7_FRESH="$WORK/home-ctx7-fresh"
+mkdir -p "$HOME_CTX7_FRESH"
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck HOME="$HOME_CTX7_FRESH"
+[ "$RC" -eq 0 ] || fail "extensions-bootstrap/no-marker: exited $RC: $(cat "$WORK/err")"
+CALLS="$(count_calls)"
+[ "$CALLS" -eq 2 ] || fail "extensions-bootstrap/no-marker: expected 2 invocations of code (install + launch), got $CALLS; calllog: $(cat "$CALLLOG" 2>/dev/null)"
+grep -q -- '--install-extension' "$CALLLOG" || fail "extensions-bootstrap/no-marker: the install call must pass --install-extension; calllog: $(cat "$CALLLOG")"
+grep -q 'anthropic.claude-code' "$CALLLOG" || fail "extensions-bootstrap/no-marker: the install call must name anthropic.claude-code; calllog: $(cat "$CALLLOG")"
+GOT_ARGV="$(cat "$ARGV")"
+EXPECT_ARGV="--user-data-dir
+$HOME_CTX7_FRESH/Library/Application Support/vscode-ccgw
+--extensions-dir
+$HOME_CTX7_FRESH/Library/Application Support/vscode-ccgw-extensions"
+[ "$GOT_ARGV" = "$EXPECT_ARGV" ] || fail "extensions-bootstrap/no-marker: the real launch's own argv:
+  expected: $EXPECT_ARGV
+  actual:   $GOT_ARGV"
+
+# 7b. Marker already present (the default $HOME fixture): code is invoked once.
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck
+[ "$RC" -eq 0 ] || fail "extensions-bootstrap/marker-present: exited $RC: $(cat "$WORK/err")"
+CALLS="$(count_calls)"
+[ "$CALLS" -eq 1 ] || fail "extensions-bootstrap/marker-present: expected exactly 1 invocation of code, got $CALLS; calllog: $(cat "$CALLLOG" 2>/dev/null)"
+
+# 7c. A failing install is non-fatal: warns, but the real launch still happens.
+FAILINSTALL_STUB="$WORK/stub-failinstall"
+mkdir -p "$FAILINSTALL_STUB"
+make_uname "$FAILINSTALL_STUB" Darwin
+cat > "$FAILINSTALL_STUB/code" <<'EOF'
+#!/bin/bash
+if [ -n "${CCGW_TEST_CALLLOG:-}" ]; then
+    { echo '---CALL---'; printf '%s\n' "$@"; } >> "$CCGW_TEST_CALLLOG"
+fi
+if [ "$1" = "--install-extension" ]; then
+    exit 7
+fi
+env > "$CCGW_TEST_DUMP"
+printf '%s\n' "$@" > "$CCGW_TEST_ARGV"
+EOF
+chmod +x "$FAILINSTALL_STUB/code"
+HOME_CTX7_FAILINSTALL="$WORK/home-ctx7-failinstall"
+mkdir -p "$HOME_CTX7_FAILINSTALL"
+STUB_PATH="$FAILINSTALL_STUB:/usr/bin:/bin"
+run_launcher LITELLM_ANTHROPIC_BASE_URL=https://lite:1 LITELLM_CLIENT_KEY=ck HOME="$HOME_CTX7_FAILINSTALL"
+[ "$RC" -eq 0 ] || fail "extensions-bootstrap/install-fails: a failed install must not block the launch; exited $RC: $(cat "$WORK/err")"
+assert_stderr 'could not install' "extensions-bootstrap/install-fails: must warn"
+[ -f "$DUMP" ] || fail "extensions-bootstrap/install-fails: the real launch must still have happened (no env dump)"
+CALLS="$(count_calls)"
+[ "$CALLS" -eq 2 ] || fail "extensions-bootstrap/install-fails: expected 2 invocations (failed install + real launch), got $CALLS; calllog: $(cat "$CALLLOG" 2>/dev/null)"
+STUB_PATH="$SAVED_PATH"
 
 echo "PASS: test-code-ccgw-posix"

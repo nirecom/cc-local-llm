@@ -129,6 +129,12 @@ $script:StubCmdForward = if ($script:HaveObserverExe) {
 
 $script:LocalAppData = Join-Path $script:Work 'localappdata'
 New-Item -ItemType Directory -Path $script:LocalAppData -Force | Out-Null
+# Pre-seeds the marker the launcher's bootstrap-install branch checks for, so
+# the shared fixture skips that branch by default (see context-20 for the
+# branch's own coverage). Without this, every test below would pay for a
+# synchronous install call against whatever stub is in play.
+$script:ExtensionMarker = Join-Path $script:LocalAppData 'vscode-ccgw-extensions\anthropic.claude-code-0.0.0'
+New-Item -ItemType Directory -Path $script:ExtensionMarker -Force | Out-Null
 
 $script:Configured = @{
     LITELLM_ANTHROPIC_BASE_URL = 'https://lite:1'

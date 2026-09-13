@@ -331,10 +331,16 @@ export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75
 # Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate
 # VS Code instance; VS Code otherwise shares one process (and one environment) across
 # all windows of a user-data-dir, which would leak this env into native windows.
+# --extensions-dir isolates it the same way: unshared, a native `code` window racing
+# this one on the same anthropic.claude-code native-binary payload can hit
+# "Unsupported platform: ... No compatible Claude Code binary found." on a brand-new
+# session there. A dedicated extensions dir gives this window its own untouched copy.
 if [ "$(uname -s)" = "Darwin" ]; then
     _user_data_dir="$HOME/Library/Application Support/vscode-ccgw"
+    _extensions_dir="$HOME/Library/Application Support/vscode-ccgw-extensions"
 else
     _user_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/vscode-ccgw"
+    _extensions_dir="${XDG_DATA_HOME:-$HOME/.local/share}/vscode-ccgw-extensions"
 fi
 
 if ! command -v code >/dev/null 2>&1; then
@@ -343,4 +349,12 @@ if ! command -v code >/dev/null 2>&1; then
     exit 1
 fi
 
-exec code --user-data-dir "$_user_data_dir" "$@"
+# A fresh --extensions-dir starts empty, so anthropic.claude-code must be
+# bootstrapped in once; best-effort so a failed install doesn't block the launch.
+if ! compgen -G "$_extensions_dir/anthropic.claude-code-*" >/dev/null 2>&1; then
+    if ! code --install-extension anthropic.claude-code --extensions-dir "$_extensions_dir" >/dev/null 2>&1; then
+        echo "[code-ccgw] WARNING: could not install anthropic.claude-code into the isolated extensions dir. The Claude Code panel will be missing until this succeeds." >&2
+    fi
+fi
+
+exec code --user-data-dir "$_user_data_dir" --extensions-dir "$_extensions_dir" "$@"

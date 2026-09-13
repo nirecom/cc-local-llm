@@ -529,6 +529,10 @@ Set-ChildEnv 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE' '75'
 # Launch VS Code in an isolated process. A distinct --user-data-dir starts a separate
 # VS Code instance; VS Code otherwise shares one process (and one environment) across
 # all windows of a user-data-dir, which would leak this env into native windows.
+# --extensions-dir isolates it the same way: unshared, a native `code` window racing
+# this one on the same anthropic.claude-code native-binary payload can hit
+# "Unsupported platform: ... No compatible Claude Code binary found." on a brand-new
+# session there. A dedicated extensions dir gives this window its own untouched copy.
 # Application-only resolution: a function/alias/script named "code" would not be a real
 # executable Process.Start can launch. The indexing must be guarded rather than done
 # inline: under Set-StrictMode -Version Latest, [0] on the empty array Get-Command
@@ -544,7 +548,18 @@ if (-not $codeCmd) {
 # LOCALAPPDATA is always set on Windows, but a stripped service environment (or pwsh on
 # another OS) would otherwise make Join-Path throw here, after all the work is done.
 $appData = if ([string]::IsNullOrEmpty($env:LOCALAPPDATA)) { Join-Path (Join-Path $HOME '.local') 'share' } else { $env:LOCALAPPDATA }
-$codeArgs = @('--user-data-dir', (Join-Path $appData 'vscode-ccgw')) + $args
+$extensionsDir = Join-Path $appData 'vscode-ccgw-extensions'
+
+# A fresh --extensions-dir starts empty, so anthropic.claude-code must be
+# bootstrapped in once; best-effort so a failed install doesn't block the launch.
+if (-not (Test-Path (Join-Path $extensionsDir 'anthropic.claude-code-*'))) {
+    & $codeCmd.Source --install-extension anthropic.claude-code --extensions-dir $extensionsDir *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-LauncherWarning "could not install anthropic.claude-code into the isolated extensions dir (exit $LASTEXITCODE). The Claude Code panel will be missing until this succeeds."
+    }
+}
+
+$codeArgs = @('--user-data-dir', (Join-Path $appData 'vscode-ccgw'), '--extensions-dir', $extensionsDir) + $args
 
 # The resolved "code" command is a .cmd on every real install (VS Code ships code.cmd),
 # and Win32 CreateProcess() implicitly re-invokes cmd.exe to interpret .cmd/.bat targets
