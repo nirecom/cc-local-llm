@@ -177,3 +177,33 @@ function Assert-NoChildLaunched {
         throw "$Context`: a child process was launched even though the launcher had to refuse"
     }
 }
+
+# Splits a CallLog dump into per-invocation argument lists, one list per
+# "---CALL---" marker the stub writes on every invocation. Lives here (not in
+# context-20 itself) because a Context file's own top-level code only runs
+# during Pester's discovery phase; It blocks run later, in the Run phase, and
+# need this function to still be defined then -- exactly why every OTHER
+# helper in this suite is dot-sourced from BeforeAll instead.
+function ConvertTo-CallLogInvocations {
+    param([string[]]$Lines)
+    $invocations = New-Object System.Collections.Generic.List[object]
+    $current = $null
+    foreach ($line in $Lines) {
+        if ($line -eq '---CALL---') {
+            $current = New-Object System.Collections.Generic.List[string]
+            $invocations.Add($current)
+        # An empty List[string] is falsy in PowerShell's boolean context, so a
+        # plain "$current" check drops every ARG line of the first call it sees
+        # (and, once nothing was ever added, every later one too) -- an explicit
+        # null check is required here.
+        } elseif ($line -match '^ARG="(.*)"$' -and $null -ne $current) {
+            $current.Add($Matches[1])
+        }
+    }
+    # An unadorned "return" auto-enumerates an enumerable return value onto the
+    # pipeline, and PowerShell then flattens each (possibly empty) nested list in
+    # turn -- an empty invocation contributes zero objects, so the caller can end
+    # up with $null instead of a list of invocations. The leading comma forces a
+    # single array value onto the pipeline instead.
+    return , $invocations
+}

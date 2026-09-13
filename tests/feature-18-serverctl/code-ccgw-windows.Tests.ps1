@@ -153,6 +153,7 @@ Describe 'code-ccgw.ps1' {
             'context-17-auto-pull.ps1'
             'context-18-auto-pull-safety.ps1'
             'context-19-config-file-shape.ps1'
+            'context-20-extensions-bootstrap.ps1'
         )) {
         . (Join-Path (Join-Path $PSScriptRoot 'code-ccgw-windows') $contextFile)
     }

@@ -17,6 +17,7 @@ function Set-ChildEnvBlock {
         [string]$DumpPath,
         [string]$ArgvPath,
         [string]$ExeMarkerPath,
+        [string]$CallLogPath,
         [switch]$NoLocalAppData,
         [switch]$NoAutoPullDefault
     )
@@ -25,6 +26,7 @@ function Set-ChildEnvBlock {
     $Psi.Environment['CCGW_TEST_DUMP'] = $DumpPath
     $Psi.Environment['CCGW_TEST_ARGV'] = $ArgvPath
     if ($ExeMarkerPath) { $Psi.Environment['CCGW_TEST_EXE_MARKER'] = $ExeMarkerPath }
+    if ($CallLogPath) { $Psi.Environment['CCGW_TEST_CALLLOG'] = $CallLogPath }
     if (-not $NoLocalAppData) { $Psi.Environment['LOCALAPPDATA'] = $script:LocalAppData }
     $Psi.Environment['TEMP'] = $script:Work
     $Psi.Environment['TMP'] = $script:Work
@@ -100,7 +102,8 @@ function Invoke-Launcher {
     $dump = Join-Path $script:Work 'env.dump'
     $argvFile = Join-Path $script:Work 'argv.dump'
     $marker = Join-Path $script:Work 'exe-launch-marker.txt'
-    Remove-Item -LiteralPath $dump, $argvFile, $marker -Force -ErrorAction SilentlyContinue
+    $callLog = Join-Path $script:Work 'calllog.dump'
+    Remove-Item -LiteralPath $dump, $argvFile, $marker, $callLog -Force -ErrorAction SilentlyContinue
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $script:PwshPath
@@ -112,8 +115,8 @@ function Invoke-Launcher {
     $psi.RedirectStandardError = $true
     $psi.WorkingDirectory = $WorkingDirectory
     Set-ChildEnvBlock -Psi $psi -Environment $Environment -StubDir $StubDir `
-        -DumpPath $dump -ArgvPath $argvFile -ExeMarkerPath $marker -NoLocalAppData:$NoLocalAppData `
-        -NoAutoPullDefault:$NoAutoPullDefault
+        -DumpPath $dump -ArgvPath $argvFile -ExeMarkerPath $marker -CallLogPath $callLog `
+        -NoLocalAppData:$NoLocalAppData -NoAutoPullDefault:$NoAutoPullDefault
 
     $proc = [System.Diagnostics.Process]::Start($psi)
     $stdout = $proc.StandardOutput.ReadToEnd()
@@ -133,6 +136,7 @@ function Invoke-Launcher {
         Cwd       = $parsed.Cwd
         Reached   = (Test-Path -LiteralPath $dump)
         ExeMarker = (Test-Path -LiteralPath $marker)
+        CallLog   = Read-DumpLines -Path $callLog
     }
 }
 

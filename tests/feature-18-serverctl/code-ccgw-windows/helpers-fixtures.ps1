@@ -2,23 +2,10 @@
 # Tests: scripts/code-ccgw.ps1
 # Tags: lifecycle, client-launcher, windows, scope:issue-specific
 #
-# Part of the code-ccgw-windows.Tests.ps1 suite. Dot-sourced from the
-# suite's top-level BeforeAll: fixture trees and the `code` / `mkcert`
-# stubs. Definitions only -- setup.ps1 builds anything. Both dumping stubs
-# write the SAME two files, so assertion helpers are blind to which ran:
-# argv dump -- `CWD=<dir>` then `ARG="<value>"` per argument in order; env
-# dump -- `NAME=value` per variable (the `set` shape, no formatting needed).
+# Part of the code-ccgw-windows.Tests.ps1 suite, dot-sourced from its top-level BeforeAll: fixture trees and the `code`/`mkcert` stubs (definitions only -- setup.ps1 builds anything). Both dumping stubs write the SAME two files, so assertion helpers are blind to which ran: argv dump is `CWD=<dir>` then `ARG="<value>"` per argument; env dump is `NAME=value` per variable (the `set` shape).
 
 # --- code.cmd stub (Windows) ------------------------------------------------
-# Windows uses code.cmd since that's what a real VS Code install puts on
-# PATH, and Process can't start a .ps1 at all -- a .ps1 stub would exempt
-# the launcher from the cmd.exe re-parse Context 9 polices. `ARG="%~1"`
-# quoting is load-bearing: cmd expands %~1 as text into the line it's
-# scanning, so unquoted `echo ARG=%~1` would let `&`/`|` in the VALUE split
-# the stub's own echo, misreporting argv or running what followed the
-# operator. chcp 65001 first, by absolute path (PATH is the stub dir alone):
-# `echo`/`set` render via the CONSOLE code page, so without this a non-ASCII
-# round-trip only holds where the code page happens to match; pinning UTF-8 makes it the same bytes everywhere (CPR-UNV).
+# code.cmd is what a real VS Code install puts on PATH (Process can't start a .ps1, and a .ps1 stub would skip Context 9's cmd.exe re-parse). `ARG="%~1"` quoting is load-bearing: an unquoted echo would let a shell metacharacter in the value split the stub's own echo. chcp 65001 by absolute path (PATH is the stub dir alone) pins the console code page so a non-ASCII round-trip does not depend on the developer's locale (CPR-UNV).
 $script:CodeStubCmdBody = @'
 @echo off
 %SystemRoot%\System32\chcp.com 65001 > nul
@@ -83,6 +70,47 @@ if %CCGWWAIT% GTR 60 goto ccgwend
 %SystemRoot%\System32\ping.exe -n 2 127.0.0.1 > nul
 goto ccgwwait
 :ccgwend
+'@
+
+# Appends each invocation's argv to a call log (CCGW_TEST_CALLLOG), on top of the
+# usual single-invocation dump, so a case can prove HOW MANY TIMES `code` was
+# invoked -- the bootstrap-install branch (Context 20) calls it twice (install,
+# then the real launch) when no extension marker is present.
+$script:CodeStubCmdCallLogBody = @'
+@echo off
+%SystemRoot%\System32\chcp.com 65001 > nul
+>> "%CCGW_TEST_CALLLOG%" echo ---CALL---
+> "%CCGW_TEST_ARGV%" echo CWD=%CD%
+:ccgwloop
+if "%~1"=="" goto ccgwdone
+>>"%CCGW_TEST_ARGV%" echo ARG="%~1"
+>>"%CCGW_TEST_CALLLOG%" echo ARG="%~1"
+shift
+goto ccgwloop
+:ccgwdone
+set > "%CCGW_TEST_DUMP%"
+'@
+
+# Same call-logging shape, but exits non-zero on an --install-extension call
+# without touching ARGV/DUMP -- Context 20's "install fails, launch still
+# proceeds" case.
+$script:CodeStubCmdCallLogFailInstallBody = @'
+@echo off
+%SystemRoot%\System32\chcp.com 65001 > nul
+>> "%CCGW_TEST_CALLLOG%" echo ---CALL---
+if "%~1"=="--install-extension" (
+>>"%CCGW_TEST_CALLLOG%" echo ARG="%~1"
+exit /b 7
+)
+> "%CCGW_TEST_ARGV%" echo CWD=%CD%
+:ccgwloop
+if "%~1"=="" goto ccgwdone
+>>"%CCGW_TEST_ARGV%" echo ARG="%~1"
+>>"%CCGW_TEST_CALLLOG%" echo ARG="%~1"
+shift
+goto ccgwloop
+:ccgwdone
+set > "%CCGW_TEST_DUMP%"
 '@
 
 # A .cmd that forwards its whole argument tail to a real executable, which is the
@@ -258,6 +286,8 @@ function New-StubDir {
         [switch]$BrokenExeStub,
         [switch]$PositionalCmdStub,
         [switch]$LongLivedCmdStub,
+        [switch]$CallLogCmdStub,
+        [switch]$CallLogFailInstallCmdStub,
         [string]$ForwardCmdStubTo
     )
     $dir = Join-Path $script:Work $Name
@@ -279,6 +309,8 @@ function New-StubDir {
             $body =
                 if ($PositionalCmdStub) { $script:CodeStubCmdPositionalBody }
                 elseif ($LongLivedCmdStub) { $script:CodeStubCmdLongLivedBody }
+                elseif ($CallLogCmdStub) { $script:CodeStubCmdCallLogBody }
+                elseif ($CallLogFailInstallCmdStub) { $script:CodeStubCmdCallLogFailInstallBody }
                 else { $script:CodeStubCmdBody }
             Set-Content -LiteralPath (Join-Path $dir 'code.cmd') -Value $body -Encoding ascii
         } else {

@@ -67,7 +67,7 @@ lifetime to the console it was started from. Launcher output: $($r.Output)
         $r.Reached | Should -BeTrue -Because "the stub wrote no environment dump; launcher output: $($r.Output)"
         Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://lite:1' 'responsiveness/env'
         Assert-LauncherEnv $r 'ANTHROPIC_AUTH_TOKEN' 'ck' 'responsiveness/env'
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'C:\some\project')
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'), 'C:\some\project')
         (@($r.Argv) -join "`u{1}") | Should -BeExactly ($expected -join "`u{1}") `
             -Because "a detached launch must still deliver the full argv; got [$(@($r.Argv) -join '][')]"
     }

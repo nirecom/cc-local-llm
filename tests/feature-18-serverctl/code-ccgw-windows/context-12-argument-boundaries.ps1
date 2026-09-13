@@ -29,7 +29,7 @@ Context '12. Argument boundaries: empty, non-ASCII, and over-long' {
         $r.Reached | Should -BeTrue -Because "stderr: $($r.StdErr)"
 
         $argv = @($r.Argv)
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'SENTINEL-A', '', 'SENTINEL-B')
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'), 'SENTINEL-A', '', 'SENTINEL-B')
         for ($i = 0; $i -lt $expected.Count; $i++) {
             $got = if ($i -lt $argv.Count) { $argv[$i] } else { '<missing>' }
             $got | Should -BeExactly $expected[$i] -Because "argument $($i + 1) of [$($argv -join '][')] -- an empty argument must occupy its own slot, not vanish"
@@ -54,6 +54,10 @@ Context '12. Argument boundaries: empty, non-ASCII, and over-long' {
         # argument it forwards.
         $uniLocalAppData = Join-Path $script:Work ("localappdata-$([char]0x30C6)$([char]0x30B9)$([char]0x30C8)")
         New-Item -ItemType Directory -Path $uniLocalAppData -Force | Out-Null
+        # Pre-seed the marker for this test's OWN localappdata fixture -- it is
+        # not covered by setup.ps1's shared pre-seed.
+        $uniExtensionMarker = Join-Path $uniLocalAppData 'vscode-ccgw-extensions\anthropic.claude-code-0.0.0'
+        New-Item -ItemType Directory -Path $uniExtensionMarker -Force | Out-Null
         $uniArg = "C:\$([char]0x30D7)$([char]0x30ED)$([char]0x30B8)\caf$([char]0x00E9)-$([char]0x00DF)$([char]0x4E2D)$([char]0x6587).txt"
 
         $r = Invoke-Launcher -LauncherPath $script:UnicodeLauncher `
@@ -65,7 +69,7 @@ Context '12. Argument boundaries: empty, non-ASCII, and over-long' {
         # The launcher found its own .env through a non-ASCII $PSScriptRoot.
         Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://unicode-lite:1' 'unicode: .env beside a non-ASCII script dir'
 
-        $expected = @('--user-data-dir', (Join-Path $uniLocalAppData 'vscode-ccgw'), $uniArg, '--new-window')
+        $expected = @('--user-data-dir', (Join-Path $uniLocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $uniLocalAppData 'vscode-ccgw-extensions'), $uniArg, '--new-window')
         (@($r.Argv) -join "`u{1}") | Should -BeExactly ($expected -join "`u{1}") `
             -Because "a non-ASCII argument or profile path must reach VS Code unchanged; got [$(@($r.Argv) -join '][')]"
     }

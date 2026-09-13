@@ -60,7 +60,7 @@ Context '10. The non-batch (.exe) launch path' {
         $r.ExeMarker | Should -BeTrue -Because "the stub must actually have run; a launcher that starts nothing passes every absence-of-error check. stderr: $($r.StdErr)"
         $r.Reached | Should -BeTrue -Because "stderr: $($r.StdErr)"
 
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'C:\some\project', $meta, $unicode)
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'), 'C:\some\project', $meta, $unicode)
         (@($r.Argv) -join "`u{1}") | Should -BeExactly ($expected -join "`u{1}") `
             -Because "the .exe branch must deliver argv verbatim; got [$(@($r.Argv) -join '][')]"
 

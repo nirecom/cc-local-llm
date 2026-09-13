@@ -10,13 +10,13 @@ Context '5. VS Code profile isolation and argv passthrough' {
     It 'passes an isolated --user-data-dir under LOCALAPPDATA plus the caller argv' {
         $r = Invoke-Launcher -Environment (New-Env) -Arguments @('C:\some\project', '--new-window')
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), 'C:\some\project', '--new-window')
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'), 'C:\some\project', '--new-window')
         @($r.Argv) | Should -Be $expected
     }
 
-    It 'passes only the --user-data-dir pair when the caller supplied no argv' {
+    It 'passes only the --user-data-dir/--extensions-dir pairs when the caller supplied no argv' {
         $r = Invoke-Launcher -Environment (New-Env)
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'))
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'))
         @($r.Argv) | Should -Be $expected
     }
 
@@ -29,13 +29,17 @@ Context '5. VS Code profile isolation and argv passthrough' {
         $r = Invoke-Launcher -Environment (New-Env) -NoLocalAppData
         $r.Reached | Should -BeTrue -Because "an unset LOCALAPPDATA must not abort the launcher; stderr: $($r.StdErr)"
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
-        @($r.Argv).Count | Should -Be 2
+        @($r.Argv).Count | Should -Be 4
         $r.Argv[0] | Should -Be '--user-data-dir'
         $r.Argv[1] | Should -BeLike "$($script:Work)*"
         $r.Argv[1] | Should -BeLike '*vscode-ccgw'
         # Still isolated: the fallback must not be the LOCALAPPDATA path, and must
         # not be the bare home dir either.
         $r.Argv[1] | Should -Not -Be (Join-Path $script:Work 'vscode-ccgw')
+        $r.Argv[2] | Should -Be '--extensions-dir'
+        $r.Argv[3] | Should -BeLike "$($script:Work)*"
+        $r.Argv[3] | Should -BeLike '*vscode-ccgw-extensions'
+        $r.Argv[3] | Should -Not -Be (Join-Path $script:Work 'vscode-ccgw-extensions')
     }
 
     It 'resolves .env and the profile dir from the script''s own location, not the caller''s cwd' {
@@ -50,7 +54,7 @@ Context '5. VS Code profile isolation and argv passthrough' {
         $r = Invoke-Launcher -LauncherPath $script:DotEnvLauncherForCwd -WorkingDirectory $elsewhere
         $r.ExitCode | Should -Be 0 -Because "stderr: $($r.StdErr)"
         Assert-LauncherEnv $r 'ANTHROPIC_BASE_URL' 'https://from-dotenv-cwd:9' 'cwd: .env is resolved from $PSScriptRoot, not the cwd'
-        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'))
+        $expected = @('--user-data-dir', (Join-Path $script:LocalAppData 'vscode-ccgw'), '--extensions-dir', (Join-Path $script:LocalAppData 'vscode-ccgw-extensions'))
         @($r.Argv) | Should -Be $expected -Because 'the profile dir must not depend on the cwd either'
         (Resolve-Path -LiteralPath $r.Cwd).Path | Should -Be (Resolve-Path -LiteralPath $elsewhere).Path `
             -Because 'the child must inherit the caller''s directory so relative file arguments still resolve'
