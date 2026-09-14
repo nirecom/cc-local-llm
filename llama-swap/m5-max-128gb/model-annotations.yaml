@@ -14,8 +14,14 @@ deepseek-v4-flash:
   role: fable-tier (Claude Code LiteLLM)
   used_by:
     - cc-local-llm (LiteLLM fable tier, model name deepseek-v4-flash)
-  notes: "ds4-server (antirez/ds4, not MLX), ctx 393216, --quality, 32GB KV disk cache, --batched-session 2, ~90.9GB resident, checkEndpoint /v1/models"
-  decision: "cmd wrapped in sh -c to pin the cwd: ds4-server resolves its model file and metal/ relative to cwd and aborts before binding under llama-swap's own cwd"
+  notes: "ds4-server (antirez/ds4, not MLX), explicit --model pin (gguf/DeepSeek-V4-Flash-...gguf), ctx 393216, --quality, 32GB KV disk cache, --batched-session 2, ~90.9GB resident, checkEndpoint /v1/models"
+  decision: "cmd wrapped in sh -c to pin the cwd: ds4-server resolves its model file and metal/ relative to cwd and aborts before binding under llama-swap's own cwd. --model added 2026-09-13: was previously unset (defaulting to ds4-server's mutable ds4flash.gguf symlink in ~/git/ds4), which download_model.sh repoints to whatever was last downloaded -- downloading DeepSeek-V4.1-Flash-Q2 that day repointed it away from this entry's intended weights. See deepseek-v4.1-flash below."
+
+deepseek-v4.1-flash:
+  role: fable-tier candidate
+  used_by: []
+  notes: "ds4-server, distinct model from deepseek-v4-flash (not a quant variant), explicit --model pin (gguf/DeepSeek-V4.1-Flash-Q2.gguf), 365.7GB weights, --ssd-streaming (does not fit resident in 128GB), ctx 32768, separate --kv-disk-dir from deepseek-v4-flash, checkEndpoint /v1/models"
+  decision: "Added 2026-09-13 after downloading DeepSeek-V4.1-Flash-Q2 in ~/git/ds4. First-pass conservative flags (automatic ssd-streaming expert-cache budget, ctx 32768) per ds4's own docs/SSD_STREAMING.md guidance for a large model on a 128GB M5 Max -- pending real measurement, see docs/tuning.md. Separate --kv-disk-dir from deepseek-v4-flash because ds4-server's disk KV cache can reuse rendered-text prefixes across quant variants by default, and these are different models, not quant siblings. Not yet routed to any LiteLLM tier -- candidate for trying out only."
 
 laguna-s-2.1:
   role: opus-tier candidate (Claude Code LiteLLM)

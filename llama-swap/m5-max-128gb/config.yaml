@@ -1,8 +1,8 @@
-# Mac-side llama-swap configuration. Manages ds4-server, Laguna S 2.1, and
-# Qwen3-Coder-Next as three entries with no shared group -- llama-swap's
+# Mac-side llama-swap configuration. Manages two ds4-server model entries plus
+# Laguna S 2.1 and Qwen3-Coder-Next, all with no shared group -- llama-swap's
 # default behavior already keeps exactly one model process loaded at a time,
 # killing the previous one before starting the next. That default alone gives
-# all three mutual exclusivity (any two together exceed the Mac's 128 GB
+# all of them mutual exclusivity (any two together exceed the Mac's 128 GB
 # unified memory), so no explicit `groups:` block is needed here.
 #
 # ttl: 0 disables idle-based auto-unload for both entries -- swap-on-request
@@ -20,10 +20,21 @@ models:
     # before binding its port; llama-swap then reports the failure only as
     # "upstream command exited prematurely". Pinning the cwd via `sh -c` fixes
     # the whole class at once, rather than absolutizing each path one at a time.
+    #
+    # -m/--model is pinned explicitly rather than left at ds4-server's default
+    # (`ds4flash.gguf`, a symlink `download_model.sh` repoints to whatever was
+    # downloaded/selected most recently in ~/git/ds4). Without the pin, this
+    # entry's real weight file silently changes underneath it whenever anyone
+    # runs download_model.sh for a different model -- as happened 2026-09-13,
+    # when downloading DeepSeek-V4.1-Flash-Q2 repointed the symlink and would
+    # have made this entry (routed to the LiteLLM fable tier) serve V4.1-Flash
+    # instead of V4-Flash on its next load. See deepseek-v4.1-flash below,
+    # which gets the same treatment.
     cmd: >-
       sh -c 'cd "$HOME/git/ds4" && exec
       caffeinate -ism ./ds4-server
       --port ${PORT} --host 127.0.0.1
+      --model gguf/DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf
       --metal --quality --ctx 393216
       --kv-disk-dir ${env.HOME}/Library/Caches/ds4-server/kv
       --kv-disk-space-mb 32768
@@ -35,6 +46,39 @@ models:
     # check never passes and the load fails at healthCheckTimeout even though the
     # process is up and listening. /v1/models is the cheapest route it does
     # answer. Not needed on laguna-s-2.1: mlx_lm.server implements /health.
+    checkEndpoint: /v1/models
+    ttl: 0
+  # DeepSeek-V4.1-Flash -- a distinct model from deepseek-v4-flash above, not a
+  # quant variant of it. Downloaded 2026-09-13 via `./download_model.sh
+  # ds41f-q2` in ~/git/ds4 (DeepSeek-V4.1-Flash-Q2.gguf, 365.7 GB). At roughly
+  # 3.7x the weight size of deepseek-v4-flash (97.6 GB), it does not fit
+  # resident in the Mac's 128 GB unified memory, so it runs under
+  # --ssd-streaming instead. --model is pinned for the same reason as the
+  # entry above -- see its comment.
+  #
+  # First-pass, conservative flags pending real measurement (docs/tuning.md):
+  # --ctx 32768 and automatic expert-cache sizing, following ds4's own
+  # docs/SSD_STREAMING.md example for a large model on a 128 GB M5 Max
+  # ("Prefer the automatic budget for a first run"). That doc's example also
+  # shows `--nothink`, but that flag belongs to the `ds4` interactive CLI, not
+  # `ds4-server` -- there is no such server flag; thinking mode is controlled
+  # per-request instead (see docs/tuning.md "Thinking control").
+  #
+  # --kv-disk-dir is a separate directory from deepseek-v4-flash's, not shared:
+  # ds4-server's disk KV cache can reuse "compatible rendered-text prefixes"
+  # across quant variants of the same model by default, and V4 Flash / V4.1
+  # Flash are different models, not quant siblings -- sharing a cache directory
+  # risks a wrong-model prefix hit.
+  deepseek-v4.1-flash:
+    cmd: >-
+      sh -c 'cd "$HOME/git/ds4" && exec
+      caffeinate -ism ./ds4-server
+      --port ${PORT} --host 127.0.0.1
+      --model gguf/DeepSeek-V4.1-Flash-Q2.gguf
+      --metal --ssd-streaming --ctx 32768
+      --kv-disk-dir ${env.HOME}/Library/Caches/ds4-server/kv-v4.1-flash
+      --kv-disk-space-mb 8192'
+    proxy: http://127.0.0.1:${PORT}
     checkEndpoint: /v1/models
     ttl: 0
   laguna-s-2.1:

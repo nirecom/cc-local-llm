@@ -18,6 +18,91 @@ incidents that produced these values in [history.md](history.md).
 | `--warm-weights` | on | Page in the whole model at startup. RSS ~90.9 GB is expected, not a leak. |
 | `--batched-session` | `2` | **Number of resident KV sessions.** With a single live KV slot, the main conversation, sub-agents and one-off small prompts evict each other's prefix every time they interleave. Over the 0713–0811 window every one of the 548 live-cache misses was `token-mismatch`, and 55% of them shared under 1000 tokens of common prefix — i.e. the slot had been handed to an unrelated request. That eviction is also what produced `reason=evict` 475.00 GiB, 54% of all KV disk writes. So the single slot is the **common cause** of both the 30.7 hours of cold prefill and the bulk of the disk churn, which is why it is attacked first. Started at N=2 rather than N=3 because the premise for sizing N — "~1.3 GB per KV session" — is a derived figure that has never been measured (#34); confirm real RSS before deciding on N=3. |
 | `--host 127.0.0.1` | — | Loopback only; the proxy (scripts/ccgw-proxy.sh) is the LAN endpoint. |
+| `--model` | `gguf/DeepSeek-V4-Flash-...gguf` (explicit path) | Added 2026-09-13. Previously unset, so ds4-server fell back to its default `ds4flash.gguf`, a symlink `download_model.sh` repoints to whatever it last downloaded/selected in `~/git/ds4`. That made this entry's real weights depend on unrelated activity in the ds4 checkout -- downloading DeepSeek-V4.1-Flash-Q2 repointed the symlink and would have served it here on the next load. Pinning the path makes the entry's weights independent of the symlink's current target. |
+
+## Server flags (DeepSeek-V4.1-Flash, ds4-server, first pass)
+
+Added 2026-09-13 as a `deepseek-v4.1-flash` llama-swap entry after downloading
+DeepSeek-V4.1-Flash-Q2.gguf (365.7 GB) into `~/git/ds4/gguf/`. Distinct model from
+deepseek-v4-flash above, not a quant variant of it -- see that entry's `--model` row.
+Not yet routed to any LiteLLM tier; a candidate to try, same as laguna-s-2.1 below.
+
+At ~3.7x deepseek-v4-flash's weight size (97.6 GB), it does not fit resident in the
+Mac's 128 GB unified memory, so it needs `--ssd-streaming` -- and, per ds4's own
+`docs/SSD_STREAMING.md`, options genuinely need to differ from deepseek-v4-flash's,
+which is exactly why the two are kept as separate, independently switchable llama-swap
+entries rather than variants of one.
+
+| Flag | Value | Why |
+|---|---|---|
+| `--ssd-streaming` | on | Required: 365.7 GB weights exceed the 128 GB unified memory ceiling, so most routed experts stream from SSD instead of staying resident. |
+| `--ssd-streaming-cache-experts` | (unset, automatic) | ds4's own docs/SSD_STREAMING.md: "Prefer the automatic budget for a first run." No measurement exists yet to justify a manual byte/slot budget. |
+| `--ctx` | `32768` | First-pass conservative value, following ds4's docs/SSD_STREAMING.md example for a large model on a 128 GB M5 Max (`--ssd-streaming --ctx 32768`). Not derived from a measurement -- raise only after real load/generation testing. |
+| `--kv-disk-dir` | `~/Library/Caches/ds4-server/kv-v4.1-flash` | Separate directory from deepseek-v4-flash's `kv` dir. ds4's docs/SERVER.md: the disk KV cache can reuse "compatible rendered-text prefixes" across quant variants by default. V4 Flash and V4.1 Flash are different models, not quant siblings of each other, so sharing a directory risks a wrong-model prefix hit. |
+| `--kv-disk-space-mb` | `8192` | Matches ds4's generic doc example; proportionally smaller than deepseek-v4-flash's 32768 given the 32768-token ctx here is roughly 1/12th of that entry's 393216. |
+| (no `--nothink`) | — | ds4's docs/SSD_STREAMING.md example for large models also shows `--nothink`, but that flag belongs to the `ds4` interactive CLI, not `ds4-server` (`./ds4-server --help` has no such flag). Thinking mode on this entry is controlled per-request instead -- see "Thinking control" below. |
+
+The `--ctx`, `--ssd-streaming-cache-experts` and `--kv-disk-space-mb` values above are a
+first pass pending real measurement, not derived sizing math -- update this section once
+load and generation tests exist.
+
+### Measured: prefill/gen throughput vs context (ds4-bench, 2026-09-14)
+
+Methodology: `ds4-bench --prompt-file speed-bench/promessi_sposi.txt --gen-tokens 64`, one
+continuous process per model. `--ctx-start 4096 --ctx-max 65536 --step-mul 2` sweeps five
+frontiers in a single run -- context accumulates and cache state carries over between
+frontiers, so each sweep row's prefill tps is the marginal throughput for only the newly
+added interval, not a from-scratch prefill of the full context. The 100000 row is a
+separate single-shot invocation (`--ctx-start 100000 --ctx-max 100000`) -- a cold prefill of
+the whole 100k prompt in one go, not a continuation of the sweep above it, so it is not
+directly comparable to the sweep's marginal numbers.
+
+| ctx (tokens) | deepseek-v4-flash prefill tps | deepseek-v4-flash gen tps | deepseek-v4.1-flash prefill tps | deepseek-v4.1-flash gen tps |
+|---|---|---|---|---|
+| 4096 | 383.68 | 32.04 | 222.01 | 13.83 |
+| 8192 | 353.72 | 31.26 | 201.60 | 14.89 |
+| 16384 | 322.86 | 28.92 | 309.95 | 15.50 |
+| 32768 | 267.92 | 28.44 | 395.04 | 15.05 |
+| 65536 | 240.95 | 24.09 | 469.54 | 14.48 |
+| 100000 (cold single-shot) | 204.88 | 20.83 | 549.21 | 14.26 |
+
+**deepseek-v4-flash (full residency, no SSD streaming) shows the expected decline**: marginal
+prefill tps falls monotonically as context grows (383.68 → 204.88, −47% from 4k to 100k) --
+attention cost grows with context, so each further token costs more to prefill. Gen tps
+declines more mildly (32.04 → 20.83, −35%).
+
+**deepseek-v4.1-flash (`--ssd-streaming`) does the opposite within this sweep**: marginal
+prefill tps *rises* with context (222.01 → 469.54 across 4k–65k, then 549.21 at the cold
+100k point) instead of falling. This is not a contradiction of the mechanism above -- it is
+the SSD-streaming expert cache warming up. ds4-bench's startup log shows the auto-sized cache
+holds only ~7,400-8,200 of the model's routed experts resident at once (a ~68.5 GiB dynamic
+cache against a 365.7 GB model); early in a cold run, prefill stalls on disk reads for
+experts not yet cached, and as more tokens are processed in the same process, more
+frequently-hit experts land in the cache, so later frontiers see fewer cold reads. Two
+effects run in opposite directions here -- attention cost rising with context (pushes tps
+down) and expert-cache warm-up (pushes tps up) -- and warm-up wins across this range.
+
+The cold single-shot 100k point (549.21 tps) being *higher* than the warmed 65k sweep point
+(469.54 tps) is the sharpest illustration: a fresh process prefilling 100k tokens straight
+through outran a process that had already warmed its cache through 65k tokens of accumulated
+context. Not root-caused -- plausibly a single large prefill gives the SSD-streaming
+prefetcher a longer, more predictable run to overlap disk reads with compute, versus the
+sweep's five separate smaller prefill calls each restarting the prefill-headroom reserve.
+Unlike v4-flash's clean monotonic decline, this tier's throughput depends on *how* the
+context was reached (cumulative small increments vs. one large cold prefill), not only on how
+large it is -- treat both v4.1-flash columns as first-pass, workload-shape-dependent numbers,
+not a settled curve.
+
+Gen tps for v4.1-flash barely moves across the whole range (13.83-15.50, no clear trend --
+likely run-to-run noise at these sizes), and sits at roughly half of deepseek-v4-flash's at
+the same points: SSD streaming pays a steady per-token cost fetching routed experts even
+during decode.
+
+This measurement does not change `--ctx`, `--ssd-streaming-cache-experts` or
+`--kv-disk-space-mb` -- the finding here is about throughput *shape*, not about the
+auto-computed cache budget being wrong. `--ctx 32768` remains untested as an actual serving
+ceiling; this ds4-bench run drove its own `--ctx-alloc` up to 100000+ internally to run the
+sweep, independent of the entry's configured `--ctx`.
 
 ## Memory budget (128 GB)
 
