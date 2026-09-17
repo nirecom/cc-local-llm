@@ -57,10 +57,10 @@ model_list:
   #
   # ds4-server accepts the Anthropic shape directly, so this route keeps the
   # anthropic/ provider and reaches the proxy at POST <origin>/v1/messages.
-  - model_name: deepseek-v4.1-flash
+  - model_name: deepseek-v4-flash
     litellm_params:
       ccgw_tiers: [fable]
-      model: anthropic/deepseek-v4.1-flash
+      model: anthropic/deepseek-v4-flash
       api_base: os.environ/LITELLM_CCGW_PROXY_URL
       api_key: os.environ/LITELLM_CCGW_PROXY_API_KEY
       stream: true
