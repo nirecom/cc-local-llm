@@ -1,9 +1,10 @@
 #!/bin/bash
 # cc-local-llm installer for macOS and Linux (Windows uses install.ps1).
 #
-# Usage: ./install.sh [--server | --client | --all]
-#   server  Mac backend stack -- macOS only, the backends need Metal / MLX.
-#   client  Claude Code client prerequisites (mkcert, for gateway TLS trust).
+# Usage: ./install.sh [--server | --client | --all] [--develop]
+#   server   Mac backend stack -- macOS only, the backends need Metal / MLX.
+#   client   Claude Code client prerequisites (mkcert, for gateway TLS trust).
+#   develop  Also install benchmark tooling (lm-evaluation-harness, etc.).
 #   Defaults: --all on macOS (backend host and client), --client on Linux.
 # What each role installs, and why: docs/ops.md.
 
@@ -38,17 +39,21 @@ else
     ROLE="client"
 fi
 
-case "${1:-}" in
-    "")                 ;;
-    --server) ROLE="server" ;;
-    --client) ROLE="client" ;;
-    --all)    ROLE="all"    ;;
-    *)
-        printf "${C_YELLOW}Unknown option: $1${C_RESET}\n" >&2
-        echo "Usage: ./install.sh [--server | --client | --all]" >&2
-        exit 2
-        ;;
-esac
+DEVELOP=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --server)  ROLE="server" ;;
+        --client)  ROLE="client" ;;
+        --all)     ROLE="all"    ;;
+        --develop) DEVELOP=1     ;;
+        *)
+            printf "${C_YELLOW}Unknown option: $1${C_RESET}\n" >&2
+            echo "Usage: ./install.sh [--server | --client | --all] [--develop]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 if [ "$ROLE" != "client" ] && [ "$PLATFORM" != "mac" ]; then
     printf "${C_YELLOW}The backend (ds4-server and the MLX servers) requires macOS with Metal -- '--server' is unavailable here.${C_RESET}\n" >&2
@@ -120,6 +125,13 @@ else
     else
         printf "${C_GREEN}Created .env from .env.example -- fill in LITELLM_MASTER_KEY, CCGW_PROXY_AUTH_TOKEN and the TLS cert paths.${C_RESET}\n"
     fi
+fi
+
+# --- Develop role -----------------------------------------------------------
+if [ "$DEVELOP" = "1" ]; then
+    echo ""
+    printf -- "${C_BOLD}--- Installing benchmark tooling (lm-evaluation-harness) ---${C_RESET}\n"
+    "$REPO_ROOT/install/$PLATFORM/lm-eval.sh"
 fi
 
 echo ""

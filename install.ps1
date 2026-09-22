@@ -6,7 +6,7 @@
 # already have in their notes -- install.sh defaults to all instead, and that asymmetry
 # is deliberate: on macOS the same machine is normally both.
 #
-# Usage: .\install.ps1 [-Client | -Server | -All] [-LanIp <ipv4>]
+# Usage: .\install.ps1 [-Client | -Server | -All] [-Develop] [-LanIp <ipv4>]
 #        .\install.ps1 -Server -Uninstall
 
 param(
@@ -14,6 +14,7 @@ param(
     [switch]$Client,
     [switch]$All,
     [switch]$Uninstall,
+    [switch]$Develop,
     [ValidatePattern('^$|^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$')]
     [string]$LanIp = ''
 )
@@ -120,6 +121,12 @@ if ($Uninstall) {
 # installs, and an operator watching the output sees the cheap half succeed first.
 if ($Role -eq 'client' -or $Role -eq 'all') { Install-ClientRole }
 if ($Role -eq 'server' -or $Role -eq 'all') { Install-ServerRole }
+
+if ($Develop) {
+    Write-Host ""
+    Write-Host "--- Installing benchmark tooling (lm-evaluation-harness) ---"
+    & "$RepoRoot\install\win\lm-eval.ps1"
+}
 
 Write-Host ""
 Write-Host "=== Done ===" -ForegroundColor Cyan
