@@ -510,19 +510,25 @@ working-set limit.
 
 **IFEval (standardized adherence benchmark).** The ad-hoc 8-probe batteries above are self-authored
 and small; IFEval is the reproducible, judge-free standard (part of the OpenLLM Leaderboard set) and
-replaces them as the adherence measure. Harness: lm-evaluation-harness 0.4.13, `local-chat-completions`
-against the MLX server at `:18080`, full 541 prompts, 0-shot, greedy (temperature 0), `max_gen_toks=1280`.
-Scoring is programmatic (no judge model), so the numbers are reproducible.
+replaces them as the adherence measure. Harness: lm-evaluation-harness 0.4.13, `local-chat-completions`,
+full 541 prompts, 0-shot, greedy (temperature 0), `max_gen_toks=1280`. Scoring is programmatic (no judge
+model), so the numbers are reproducible. Both builds are measured **thinking-off**, for parity and to match
+the production non-thinking deployment: MLX (`:18080`) is non-thinking by default, UD (`:18090`) is forced
+non-thinking via `--chat-template-kwargs '{"enable_thinking":false}'`. 0 `<think>` in either build's 541 samples.
 
 | build | prompt_strict | prompt_loose | inst_strict | inst_loose |
 |---|---|---|---|---|
-| MLX mixed-3_8bit | 0.8447 | 0.8743 | 0.8969 | 0.9185 |
+| MLX mixed-3_8bit (thinking-off) | 0.8447 | 0.8743 | 0.8969 | 0.9185 |
+| UD-Q3_K_XL (thinking-off) | 0.8521 | 0.8872 | 0.9017 | 0.9269 |
 
-prompt-level strict 84.5% / instruction-level strict 89.7% — strong instruction-following for a quantized
-local build, near the frontier-model 85–90% band. strict→loose gap is small (+3pt at prompt level), so
-format-only slips are minor. UD-Q3_K_XL on the same harness is the pending A/B: run identically against the
-llama.cpp server (`:18090`) and compare against this row to settle the imatrix-adherence hypothesis with a
-standard benchmark rather than the ad-hoc probes.
+Both land in the frontier-model 85–90% band; strict→loose gaps are small (+3–4pt at prompt level), so
+format-only slips are minor. UD-Q3_K_XL edges MLX on all four metrics by +0.5 to +1.3pt — a small but
+**consistent** advantage. This is a weak positive for the imatrix-adherence hypothesis that the coarse
+8-probe battery (which found no UD advantage, above) could not resolve; at ~1pt the margin is suggestive,
+not decisive. Runtime: MLX 1h57m, UD ~1h40m (541 prompts each, serial, single Mac). Next: a thinking-**on**
+A/B on both builds (raising `max_gen_toks` so the reasoning trace does not truncate the final answer), to
+capture the max-capability numbers and test whether enabling thinking — rather than swapping the quant — is
+the cheaper lever for the opus tier's adherence.
 
 ## Memory budget (Laguna S 2.1)
 
