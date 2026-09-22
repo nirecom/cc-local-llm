@@ -415,6 +415,99 @@ leaves 51.2B parameters in bf16 and the build comes out at 7.269 bpw / 150 GB wi
 raised. And `conv1d` / patch-embed weights have no `to_quantized` at all; ~0.3 GiB staying bf16
 there is expected, not a miss.
 
+### llama.cpp UD-Q3_K_XL (imatrix GGUF) — runtime A/B
+
+The recipe above spends its bits by hand because the MLX runtime holds weights in committed
+Metal buffers that count against `recommendedMaxWorkingSetSize`. unsloth's UD-Q3_K_XL is the same
+checkpoint quantized the other way — imatrix-calibrated dynamic bits — and run under llama.cpp
+(`llama-server` 0.4.1, `qwen4exp` arch, [PR #27742](https://github.com/ggml-org/llama.cpp/pull/27742)),
+the memory model is different enough to move that premise. Evaluated 2026-09-22 (issue #92),
+84 GB GGUF in 3 shards, on this Mac.
+
+**Weights are reclaimable, not committed.** `footprint <pid>` on the loaded server, taken after a
+full 100k prefill that touches every layer, reports `phys_footprint` = 3.66 GB (peak 3.81 GB)
+against 57 GB of **clean** `mapped file` and 19 MB of `IOAccelerator`. llama.cpp `mmap`s the GGUF
+and the GPU reads it through unified memory, so the only committed (non-reclaimable) memory is the
+KV cache and compute scratch. The 112 GB working-set budget that the section above treats as the
+binding ceiling does **not** bind here: the weights are file cache the kernel can drop and
+re-fault, so the bound becomes 128 GB physical RAM plus the cold-fault performance cost, not the
+115.45 GB Metal ceiling. This is the opposite of the MLX line, where a gigabyte of weights costs
+~6k tokens of reachable context.
+
+**100k gate.** A 98,939-token prompt at `--ctx-size 106496 --parallel 1`:
+
+| metric | value |
+|---|---|
+| prefill | 350 tok/s (cold single-shot; warm/steady is in the throughput A/B below) |
+| decode | 14.5 tok/s (cold; warm is 17.2 — cold faults weight pages mid-generation) |
+| swap | 0 pages — nothing evicted to disk |
+| peak system used_phys | ~114 GB (dominated by the reclaimable weight cache) |
+
+`kv_unified='true'` means one stream reaches the full context and `n_slots` (default 4) does not
+split it — verified against a `--ctx-size 131072`/`--parallel 4` run that peaked at the same
+~114.5 GB, 363 tok/s. The gate passes: 100k completes with zero swap, inside physical RAM.
+
+**Method caveat.** The ~114 GB above is a *system-wide* `wired+active+compressor` figure, so it
+counts the reclaimable mmap weight cache the same as committed memory and is **not** comparable to
+the MLX `peak_memory` column (mlx-vlm's process-lifetime Metal high-water mark). The comparable
+per-process number is `footprint`'s `phys_footprint` — 3.8 GB committed here. System-wide used is
+the wrong instrument for an mmap runtime; it overstates the footprint.
+
+**Throughput A/B (warm, same probe both runtimes).** `stream:false` so the llama.cpp-shaped
+`timings` block is attached, `cache_prompt` off so prefill is recomputed each call, both servers
+warm (weights already resident/faulted). tok/s at three context sizes, this M5 Max:
+
+| ctx (prompt_n) | MLX mixed-3_8bit prefill / decode | UD-Q3_K_XL prefill / decode |
+|---|---|---|
+| ~13k (10,864) | 855.9 / 24.1 | 870.1 / 37.4 |
+| ~53k (44,194) | 950.6 / 21.7 | 551.7 / 26.9 |
+| ~100k (83,359) | 678.7 / 18.8 | 358.8 / 17.2 |
+
+Prefill is at parity around 13k but MLX pulls ahead as context grows — 1.7× at 53k, 1.9× at 100k —
+so MLX prefill scales better on this hardware. Decode runs the other way: UD leads at short/mid
+context and the two converge by 100k (MLX 18.8 vs UD 17.2). Decode was measured over only 16–19
+generated tokens, so read the decode column as directional, not precise. The earlier gate's cold
+UD numbers (350 / 14.5) understated UD: warm UD@100k is 358.8 / 17.2 — prefill is unchanged (a
+100k prefill faults every weight page regardless), decode is what the cold mmap penalty hit. This
+supersedes the retired uniform-3bit line (605 / 23.0 at 103k), which is a different, deleted build
+and was never a valid baseline for either runtime.
+
+**vs the reference article** ([zenn](https://zenn.dev/jtechjapan_pub/articles/qwen-flash-next-runtime-comparison),
+M4 Max 128 GB, UD-Q3_K_XL): it tops out at ~53k — 230 / 18.9 at 13k, 143 / 12.2 at 53k. Our warm
+UD runs 2.5–3.9× faster at the matched contexts. The gap is explained, not anomalous: `--flash-attn
+on`, a warm mmap cache, and M5-vs-M4 memory bandwidth. The context-scaling *shape* matches (prefill
+and decode both fall as context grows), so this is a faster-config/newer-chip operating point, not
+a contradiction of the article.
+
+**Adherence A/B (temperature 0, 8 instruction-following probes).** UD-Q3_K_XL 8/8 vs the adopted
+`mixed-3_8bit` 7/8. The sole difference: on "list exactly 4 primary colors" UD followed the
+explicit count (added green) where mixed followed its prior (3 colors). Suggestive of the reported
+prompt-adherence gap, but one confounded probe on an easy battery.
+
+**Hard adherence battery (8 agent-realistic probes).** Same temperature 0, higher difficulty:
+12 simultaneous constraints, a buried negative instruction in a long system prompt, diff-only
+output, strict JSON schema, instruction-over-prior, exact stop count, YAML persona lock, and a
+~16k-token context with the instruction at the very beginning.
+
+| probe | MLX mixed-3_8bit | UD-Q3_K_XL |
+|---|---|---|
+| multi_constraint_12 | **0.92** (11/12) | 0.83 (10/12) |
+| buried_negative | 1.00 | 1.00 |
+| diff_only | 1.00 | 1.00 |
+| json_schema_strict | 1.00 | 1.00 |
+| instruction_over_prior | 1.00 | 1.00 |
+| exact_stop_7 | 1.00 | 1.00 |
+| yaml_persona_lock | 0.00 (code-fenced YAML) | 0.00 (returned JSON) |
+| long_ctx_instruction | 1.00 | 1.00 |
+| **total** | **6.92 / 8** | **6.83 / 8** |
+
+No significant adherence difference: the easy battery's 1-probe gap reversed on the harder set.
+Both models share the same failure mode on `yaml_persona_lock` (persona constraint not maintained
+across a turn). The imatrix-calibration hypothesis for adherence improvement is not supported by
+this data. UD's measurable advantages are on the performance side: prefill ≈ 2× and an mmap
+memory model where the binding ceiling is 128 GB physical RAM rather than the 115.45 GB Metal
+working-set limit.
+
 ## Memory budget (Laguna S 2.1)
 
 Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_heads: 8` (GQA)
