@@ -508,6 +508,22 @@ this data. UD's measurable advantages are on the performance side: prefill ≈ 2
 memory model where the binding ceiling is 128 GB physical RAM rather than the 115.45 GB Metal
 working-set limit.
 
+**IFEval (standardized adherence benchmark).** The ad-hoc 8-probe batteries above are self-authored
+and small; IFEval is the reproducible, judge-free standard (part of the OpenLLM Leaderboard set) and
+replaces them as the adherence measure. Harness: lm-evaluation-harness 0.4.13, `local-chat-completions`
+against the MLX server at `:18080`, full 541 prompts, 0-shot, greedy (temperature 0), `max_gen_toks=1280`.
+Scoring is programmatic (no judge model), so the numbers are reproducible.
+
+| build | prompt_strict | prompt_loose | inst_strict | inst_loose |
+|---|---|---|---|---|
+| MLX mixed-3_8bit | 0.8447 | 0.8743 | 0.8969 | 0.9185 |
+
+prompt-level strict 84.5% / instruction-level strict 89.7% — strong instruction-following for a quantized
+local build, near the frontier-model 85–90% band. strict→loose gap is small (+3pt at prompt level), so
+format-only slips are minor. UD-Q3_K_XL on the same harness is the pending A/B: run identically against the
+llama.cpp server (`:18090`) and compare against this row to settle the imatrix-adherence hypothesis with a
+standard benchmark rather than the ad-hoc probes.
+
 ## Memory budget (Laguna S 2.1)
 
 Weights ~67 GB resident. `sliding_window: 512` on 36/48 layers + `num_key_value_heads: 8` (GQA)
