@@ -511,24 +511,29 @@ working-set limit.
 **IFEval (standardized adherence benchmark).** The ad-hoc 8-probe batteries above are self-authored
 and small; IFEval is the reproducible, judge-free standard (part of the OpenLLM Leaderboard set) and
 replaces them as the adherence measure. Harness: lm-evaluation-harness 0.4.13, `local-chat-completions`,
-full 541 prompts, 0-shot, greedy (temperature 0), `max_gen_toks=1280`. Scoring is programmatic (no judge
-model), so the numbers are reproducible. Both builds are measured **thinking-off**, for parity and to match
-the production non-thinking deployment: MLX (`:18080`) is non-thinking by default, UD (`:18090`) is forced
-non-thinking via `--chat-template-kwargs '{"enable_thinking":false}'`. 0 `<think>` in either build's 541 samples.
+full 541 prompts, 0-shot, greedy (temperature 0). Scoring is programmatic (no judge model), so the numbers
+are reproducible. The thinking-**off** rows (`max_gen_toks=1280`) establish parity with the production
+non-thinking deployment: MLX (`:18080`) is non-thinking by default, UD (`:18090`) is forced non-thinking via
+`--chat-template-kwargs '{"enable_thinking":false}'`; 0 `<think>` in either build's 541 samples. The MLX
+thinking-**on** row runs `mlx_vlm.server --enable-thinking --thinking-budget 4096` with `max_gen_toks=8192`
+(so the reasoning trace cannot truncate the answer) and `timeout=1200` (some traces take >5 min); mlx_vlm
+routes the trace into `reasoning_content`, leaving `content` clean — 0 empty answers, 0 `<think>` leak in 541.
 
 | build | prompt_strict | prompt_loose | inst_strict | inst_loose |
 |---|---|---|---|---|
 | MLX mixed-3_8bit (thinking-off) | 0.8447 | 0.8743 | 0.8969 | 0.9185 |
 | UD-Q3_K_XL (thinking-off) | 0.8521 | 0.8872 | 0.9017 | 0.9269 |
+| MLX mixed-3_8bit (thinking-on) | 0.9279 | 0.9464 | 0.9484 | 0.9628 |
 
-Both land in the frontier-model 85–90% band; strict→loose gaps are small (+3–4pt at prompt level), so
-format-only slips are minor. UD-Q3_K_XL edges MLX on all four metrics by +0.5 to +1.3pt — a small but
-**consistent** advantage. This is a weak positive for the imatrix-adherence hypothesis that the coarse
-8-probe battery (which found no UD advantage, above) could not resolve; at ~1pt the margin is suggestive,
-not decisive. Runtime: MLX 1h57m, UD ~1h40m (541 prompts each, serial, single Mac). Next: a thinking-**on**
-A/B on both builds (raising `max_gen_toks` so the reasoning trace does not truncate the final answer), to
-capture the max-capability numbers and test whether enabling thinking — rather than swapping the quant — is
-the cheaper lever for the opus tier's adherence.
+Thinking-off: both land in the frontier-model 85–90% band; strict→loose gaps are small (+3–4pt at prompt
+level), so format-only slips are minor. UD-Q3_K_XL edges MLX on all four metrics by +0.5 to +1.3pt — a small
+but **consistent** advantage (weak positive for the imatrix-adherence hypothesis the coarse 8-probe battery
+could not resolve; at ~1pt suggestive, not decisive). Thinking-**on** dwarfs that: enabling thinking lifts
+MLX by **+4.4 to +8.3pt** on every metric (prompt_strict 0.8447 → 0.9279), an order of magnitude larger than
+the quant gap. **Enabling thinking — not swapping the quant — is the dominant lever for opus-tier adherence.**
+Runtime: MLX-off 1h57m, UD-off ~1h40m, MLX-on ~9h (541 prompts serial, single Mac; thinking ~3–5× slower).
+The UD thinking-on cell is still open — it decides only the residual build choice under thinking, which the
+~1pt off-mode margin leaves unsettled.
 
 ## Memory budget (Laguna S 2.1)
 
