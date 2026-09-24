@@ -515,25 +515,38 @@ full 541 prompts, 0-shot, greedy (temperature 0). Scoring is programmatic (no ju
 are reproducible. The thinking-**off** rows (`max_gen_toks=1280`) establish parity with the production
 non-thinking deployment: MLX (`:18080`) is non-thinking by default, UD (`:18090`) is forced non-thinking via
 `--chat-template-kwargs '{"enable_thinking":false}'`; 0 `<think>` in either build's 541 samples. The MLX
-thinking-**on** row runs `mlx_vlm.server --enable-thinking --thinking-budget 4096` with `max_gen_toks=8192`
-(so the reasoning trace cannot truncate the answer) and `timeout=1200` (some traces take >5 min); mlx_vlm
-routes the trace into `reasoning_content`, leaving `content` clean — 0 empty answers, 0 `<think>` leak in 541.
+thinking-**on** rows run `max_gen_toks=8192` and `timeout=1200` (some traces take >5 min); both runtimes
+route the trace into `reasoning_content`, leaving the scored `content` clean (0 `<think>` leak in 541). The
+critical asymmetry is the **reasoning cap**: mlx_vlm's `--thinking-budget 4096` force-closes the trace at
+4096 tokens and emits the answer → 0 empty answers. llama.cpp has no positive reasoning-token cap
+(`--reasoning-budget` accepts only -1/0), so UD thinks unbounded and, on the hardest constraint prompts
+("letter t at most once", "Punjabi only"), runs the trace to the full 8192 and emits **nothing** — 31/541
+(5.7%) empty answers that score as failures. Confirmed not a budget artifact: re-running one such prompt at
+`max_gen_toks=16384` still emitted 0 content (`finish_reason: length`, 16384-token trace). So the full-541
+column below is scored two ways — standard (empty = fail) and on the 510-prompt subset both builds answered.
 
 | build | prompt_strict | prompt_loose | inst_strict | inst_loose |
 |---|---|---|---|---|
 | MLX mixed-3_8bit (thinking-off) | 0.8447 | 0.8743 | 0.8969 | 0.9185 |
 | UD-Q3_K_XL (thinking-off) | 0.8521 | 0.8872 | 0.9017 | 0.9269 |
-| MLX mixed-3_8bit (thinking-on) | 0.9279 | 0.9464 | 0.9484 | 0.9628 |
+| MLX mixed-3_8bit (thinking-on, full 541) | 0.9279 | 0.9464 | 0.9484 | 0.9628 |
+| UD-Q3_K_XL (thinking-on, full 541) | 0.8854 | 0.9020 | 0.9017 | 0.9137 |
+| MLX mixed-3_8bit (thinking-on, subset 510) | 0.9353 | 0.9549 | 0.9529 | 0.9682 |
+| UD-Q3_K_XL (thinking-on, subset 510) | 0.9392 | 0.9569 | 0.9580 | 0.9707 |
 
 Thinking-off: both land in the frontier-model 85–90% band; strict→loose gaps are small (+3–4pt at prompt
 level), so format-only slips are minor. UD-Q3_K_XL edges MLX on all four metrics by +0.5 to +1.3pt — a small
 but **consistent** advantage (weak positive for the imatrix-adherence hypothesis the coarse 8-probe battery
-could not resolve; at ~1pt suggestive, not decisive). Thinking-**on** dwarfs that: enabling thinking lifts
-MLX by **+4.4 to +8.3pt** on every metric (prompt_strict 0.8447 → 0.9279), an order of magnitude larger than
-the quant gap. **Enabling thinking — not swapping the quant — is the dominant lever for opus-tier adherence.**
-Runtime: MLX-off 1h57m, UD-off ~1h40m, MLX-on ~9h (541 prompts serial, single Mac; thinking ~3–5× slower).
-The UD thinking-on cell is still open — it decides only the residual build choice under thinking, which the
-~1pt off-mode margin leaves unsettled.
+could not resolve; at ~1pt suggestive, not decisive). Thinking-**on** dwarfs the quant gap: it lifts MLX by
+**+4.4 to +8.3pt** on every metric (prompt_strict 0.8447 → 0.9279). **Enabling thinking — not swapping the
+quant — is the dominant lever for opus-tier adherence.** Two conclusions separate cleanly (CPR-SC): (1)
+**pure adherence** — on the 510 prompts both answered, UD again edges MLX by +0.2 to +0.5pt on all four, the
+same small consistent margin as thinking-off, so **thinking does not change the build ranking**; (2)
+**operational robustness** — the full-541 MLX lead (+4.3 to +4.9pt) is *entirely* the 5.7% UD runaway
+no-answers, a serving-config effect of the reasoning cap, not quant quality (uncapped MLX would likely run
+away too). Takeaway: quant choice is a wash (UD marginally ahead); the decisive lever is **thinking on with a
+bounded reasoning budget** — which mlx_vlm supports natively and llama.cpp currently does not. Runtime:
+MLX-off 1h57m, UD-off ~1h40m, MLX-on ~9h, UD-on ~7h (541 prompts serial, single Mac; thinking ~3–5× slower).
 
 ## Memory budget (Laguna S 2.1)
 
