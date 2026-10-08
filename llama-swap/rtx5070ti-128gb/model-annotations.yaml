@@ -13,6 +13,7 @@ gpt-oss-120b-MXFP4:
 gpt-oss-20b-MXFP4:
   role: general
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk
   notes: ""
 
 Qwen2.5-7B-Instruct-Q4_K_M:
@@ -27,6 +28,7 @@ Qwen2.5-7B-Instruct-Q4_K_M:
 NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0:
   role: general
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk
   notes: "ctx 16384"
   decision: "Was a candidate agent model for <private-agent-project>, but rejected due to the <SPECIAL_12> issue."
   optimizer: lock
@@ -34,6 +36,7 @@ NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q8_0:
 Llama-3-ELYZA-JP-8B-q4_k_m:
   role: general
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk
   notes: "Japanese specialized"
 
 Lumimaid-v0.2-12B.q4_k_m:
@@ -44,18 +47,21 @@ Lumimaid-v0.2-12B.q4_k_m:
 Devstral-Small-2-24B-Instruct-2512-IQ4_XS:
   role: general (former haiku-tier)
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk
   notes: "dense 24B, ctx 65536, KV cache Q4, heavy group, --jinja required (works around the Llama 3.1 template's role-alternation check)"
   decision: "2026-08: ctx 32768 -> 65536, light -> heavy group. Migrated the haiku/sonnet tiers from the Mac to this PC's llama-swap as part of moving the gateway's local LLM off Mac; extended to 64K ctx since that's now a hard requirement. Re-search of ngl via the optimizer planned. 2026-08-08: added --jinja (fixes a bug where, after LiteLLM's conversion, consecutive user messages in tool conversations tripped the role-alternation check and returned 500). The optimizer keeps --jinja under BOOLEAN_FLAGS -- do not remove it manually. 2026-08-30: dropped from the haiku tier. The context window rose to 102400 and this entry cannot hold it: at 96k the prefill fell from 11.48 to 6.50 tok/s and was still at 17% after 39 minutes, because a dense 24B leaves no VRAM for the KV once resident, and KV quantization is already at q4_0 with nothing left to give. Lowering -ngl 95 to 70 with --parallel 1 bought 12% (11.48 -> 12.86 tok/s at the same 7,687-token point) against the two orders of magnitude needed, so the offload direction was abandoned rather than tuned further. Left at ctx 65536 as an unrouted general entry."
 
 Qwen3-Coder-Next-Q4_K_M:
   role: general (reasoner, dense 46B)
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk
   notes: "ctx 32768, KV cache Q4, heavy group. Dense 46B doesn't fit in 16GB VRAM, so it's slow (CPU bound)."
   decision: "2026-08: handed off the sonnet-tier role to Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL (MoE). Reason: dense 46B can't hold a 64K ctx in 16GB VRAM without slowing down, so switched to a similarly-capable MoE model that fits in VRAM."
 
 Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL:
   role: general (former sonnet-tier and haiku-tier)
   used_by: []
+  not_used: true  # 2026-10: removed from config.yaml and disk (it was the fallback if Qwen3.8 accuracy fell short; GGUF must be re-downloaded to revert)
   notes: "MoE 30B total / 3B active, ctx 102400, KV cache Q4 (4 KV heads x 128 head_dim x 48 layers ≈ 1.5GB @ 64K), --n-cpu-moe 20 offloads 20/48 expert layers to CPU, heavy group"
   decision: "2026-08: built the sonnet-tier fresh on this PC's llama-swap ahead of removing the local LLM on the Mac (M4 Pro). 64K ctx is a hard requirement; using the unsloth GGUF source (UD-Q4_K_XL, per-tensor dynamic quant, 17.67GB). -ngl / --n-cpu-moe are initial values pending re-search by the optimizer (--n-cpu-moe is outside the optimizer's scope, so it may need manual tuning). 2026-08-30: ctx 65536 -> 102400, and the haiku tier moved here as well. 100k measured at 1334.63 tok/s prefill and 22.71 tok/s decode (median of three n_predict-512 runs, spread under 2%), peak 14,545 of 16,303 MiB, with no flag changes needed; 128k also passes at 1080.70 tok/s and 15,289 MiB, so the window can rise again later without moving models. Haiku shares this entry because the heavy group is exclusive: a separate haiku model would evict this one on every call and reload it on the next, which makes two backends strictly worse than one. 2026-08-31: handed the haiku, sonnet and subagent routes to Qwen3.8-27B-UD-Q3_K_XL so its coding accuracy can be measured on real work rather than left unverified. Kept unrouted at ctx 102400 as the fallback that measurement returns to, since it is the one entry with real VRAM margin (1,758 MiB against 27B's 387) and the only one that also clears 128k."
 
